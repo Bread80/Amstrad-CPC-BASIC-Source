@@ -33,7 +33,6 @@ include "Includes/JumpblockLow.asm"
 include "Includes/JumpblockMain6128.asm"
 include "Includes/MemoryBASIC.asm"
                                   
-
 ;ROM header
         defb $80                  ; foreground rom
         defb $01                  ;mark
@@ -59,7 +58,7 @@ include "Includes/MemoryBASIC.asm"
 
         call    zero_current_line_address;{{c01c:cdaade}} 
         call    clear_errors_and_set_resume_addr_to_current;{{c01f:cd37cb}} 
-        call    internal_subroutine__not_useful_C;{{c022:cdbbbd}}  maths function - initialise random number generator?
+        call    REAL_init_random_number_generator;{{c022:cdbbbd}}  maths function - initialise random number generator?
         call    cancel_AUTO_mode  ;{{c025:cddec0}} 
         call    reset_basic       ;{{c028:cd45c1}} 
         ld      de,$00f0          ;{{c02b:11f000}}  DE = 240
@@ -79,18 +78,16 @@ rsx_name_table:                   ;{{Addr=$c040 Data Calls/jump count: 0 Data us
 
 
 
-
 ;;***ProgramEntry.asm
 ;;<< PROGRAM ENTRY ROUTINES
-;;========================================================================
 ;;< REPL loop, EDIT, AUTO, NEW, CLEAR (INPUT)
-
+;;========================================================================
 ;; command EDIT
-REPL_loop_EDIT_AUTO_NEW_CLEAR_INPUT:;{{Addr=$c046 Code Calls/jump count: 0 Data use count: 1}}
+command_EDIT:                     ;{{Addr=$c046 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_line_number_or_error;{{c046:cd48cf}} 
         ret     nz                ;{{c049:c0}} 
 
-_repl_loop_edit_auto_new_clear_input_2:;{{Addr=$c04a Code Calls/jump count: 1 Data use count: 0}}
+_command_edit_2:                  ;{{Addr=$c04a Code Calls/jump count: 1 Data use count: 0}}
         ld      sp,$c000          ;{{c04a:3100c0}} ##LIT##
         call    find_address_of_line_or_error;{{c04d:cd5ce8}} 
         call    detokenise_line_atHL_to_buffer;{{c050:cd54e2}} convert line to string (detokenise)
@@ -122,7 +119,7 @@ REPL_Read_Eval_Print_Loop:        ;{{Addr=$c058 Code Calls/jump count: 10 Data u
 
         call    get_resume_line_number;{{c07b:cdaacb}} 
         ex      de,hl             ;{{c07e:eb}} 
-        jr      c,_repl_loop_edit_auto_new_clear_input_2;{{c07f:38c9}}  (-$37)
+        jr      c,_command_edit_2 ;{{c07f:38c9}}  (-$37)
 
 ;;=display ready message
 display_ready_message:            ;{{Addr=$c081 Code Calls/jump count: 1 Data use count: 0}}
@@ -205,6 +202,7 @@ set_auto_mode_B:                  ;{{Addr=$c0e6 Code Calls/jump count: 1 Data us
         ld      (AUTO_active_flag_),a;{{c0e6:3201ac}} current auto mode
         ret                       ;{{c0e9:c9}} 
   
+ 
 ;;==================================================================
 ;; command AUTO
 command_AUTO:                     ;{{Addr=$c0ea Code Calls/jump count: 0 Data use count: 1}}
@@ -290,7 +288,7 @@ reset_basic:                      ;{{Addr=$c145 Code Calls/jump count: 3 Data us
         ld      (hl),a            ;{{c153:77}} 
         ldir                      ;{{c154:edb0}} 
         ld      (program_protection_flag_),a;{{c156:322cae}} 
-        call    prob_delete_program;{{c159:cdead5}} 
+        call    delete_program    ;{{c159:cdead5}} 
         call    _reset_basic_19   ;{{c15c:cd6fc1}} 
 _reset_basic_13:                  ;{{Addr=$c15f Code Calls/jump count: 1 Data use count: 0}}
         call    close_input_and_output_streams;{{c15f:cd00d3}}  close input and output streams
@@ -301,7 +299,7 @@ _reset_basic_14:                  ;{{Addr=$c162 Code Calls/jump count: 1 Data us
 
 _reset_basic_16:                  ;{{Addr=$c166 Code Calls/jump count: 1 Data use count: 0}}
         call    get_string_stack_first_free_ptr;{{c166:cdccfb}}  string catenation
-        call    clear_AE12_AE10_words;{{c169:cd20da}} 
+        call    clear_FN_params_data;{{c169:cd20da}} 
         jp      select_txt_stream_zero;{{c16c:c3a1c1}} 
 
 ;;-------------------------------------------------------------------
@@ -314,9 +312,9 @@ _reset_basic_22:                  ;{{Addr=$c178 Code Calls/jump count: 3 Data us
         push    bc                ;{{c178:c5}} 
         push    hl                ;{{c179:e5}} 
         call    empty_strings_area;{{c17a:cd8cf6}} 
-        call    prob_delete_program;{{c17d:cdead5}} 
-        call    _zero_6_bytes_at_aded_31;{{c180:cd38d6}} 
-        call    prob_reset_links_to_variables_data;{{c183:cd4dea}} 
+        call    delete_program    ;{{c17d:cdead5}} 
+        call    defreal_a_to_z    ;{{c180:cd38d6}} 
+        call    reset_variable_types_and_pointers;{{c183:cd4dea}} 
         pop     hl                ;{{c186:e1}} 
         pop     bc                ;{{c187:c1}} 
         ret                       ;{{c188:c9}} 
@@ -332,7 +330,7 @@ _reset_basic_33:                  ;{{Addr=$c18f Code Calls/jump count: 7 Data us
         call    clear_last_RUN_error_line_address;{{c192:cd7ecc}} 
         call    initialise_event_system;{{c195:cda3c9}} 
         call    prob_clear_execution_stack;{{c198:cd4ff6}} 
-        call    _zero_6_bytes_at_aded_7;{{c19b:cd0ed6}} 
+        call    clear_DEFFN_list_and_reset_variable_types_and_pointers;{{c19b:cd0ed6}} 
         jp      reset_READ_pointer;{{c19e:c3d4dc}} 
 
 
@@ -380,6 +378,7 @@ get_output_stream:                ;{{Addr=$c1be Code Calls/jump count: 4 Data us
 
 ;;-----------------------------------------------------------------
 ;;=get input stream
+;returns Carry clear if stream is on screen, Carry set if not on screen (i.e. a file)
 get_input_stream:                 ;{{Addr=$c1c4 Code Calls/jump count: 7 Data use count: 0}}
         ld      a,(current_input_stream_);{{c1c4:3a07ac}} 
         cp      $09               ;{{c1c7:fe09}} 
@@ -396,8 +395,8 @@ exec_BC_on_evalled_stream_and_swap_back:;{{Addr=$c1cf Code Calls/jump count: 2 D
         call    eval_and_validate_stream_number_if_present;{{c1cf:cdfbc1}} 
         jr      exec_TOS_on_stream_and_swap_back;{{c1d2:1818}}  (+$18)
 
-;;=swap boths streams, exec TOS and swap back
-swap_boths_streams_exec_TOS_and_swap_back:;{{Addr=$c1d4 Code Calls/jump count: 2 Data use count: 0}}
+;;=swap both streams, exec TOS and swap back
+swap_both_streams_exec_TOS_and_swap_back:;{{Addr=$c1d4 Code Calls/jump count: 2 Data use count: 0}}
         call    eval_and_validate_stream_number_if_present;{{c1d4:cdfbc1}} 
         call    swap_input_streams;{{c1d7:cdb3c1}} 
         pop     bc                ;{{c1da:c1}} 
@@ -1349,7 +1348,7 @@ _command_mask_4:                  ;{{Addr=$c5ca Code Calls/jump count: 1 Data us
 ;; command FOR
 
 command_FOR:                      ;{{Addr=$c5d4 Code Calls/jump count: 0 Data use count: 1}}
-        call    prob_parse_and_find_FOR_var;{{c5d4:cdecd6}} 
+        call    parse_and_find_or_alloc_FOR_var;{{c5d4:cdecd6}} 
         push    hl                ;{{c5d7:e5}} 
         push    bc                ;{{c5d8:c5}} 
         push    de                ;{{c5d9:d5}} 
@@ -1363,7 +1362,7 @@ command_FOR:                      ;{{Addr=$c5d4 Code Calls/jump count: 0 Data us
         pop     hl                ;{{c5e9:e1}} 
         call    is_next_02        ;{{c5ea:cd3dde}} 
         ld      de,$0000          ;{{c5ed:110000}} ##LIT##
-        call    nc,prob_parse_and_find_or_create_a_var;{{c5f0:d4bfd6}} 
+        call    nc,parse_and_find_or_create_a_var;{{c5f0:d4bfd6}} 
         ld      b,h               ;{{c5f3:44}} 
         ld      c,l               ;{{c5f4:4d}} 
         pop     hl                ;{{c5f5:e1}} 
@@ -1401,13 +1400,13 @@ _command_for_40:                  ;{{Addr=$c61c Code Calls/jump count: 1 Data us
         inc     hl                ;{{c623:23}} 
         ex      (sp),hl           ;{{c624:e3}} 
 
-        call    next_token_if_ef_token_for_equals_sign;{{c625:cd21de}} test for "=" after var name
+        call    next_token_if_equals_sign;{{c625:cd21de}} test for "=" after var name
         call    eval_expression   ;{{c628:cd62cf}} Get initial value
         ld      a,c               ;{{c62b:79}} 
         call    convert_accumulator_to_type_in_A;{{c62c:cdfffe}} 
         push    hl                ;{{c62f:e5}} 
         ld      hl,FOR_start_value_;{{c630:210dac}} 
-        call    copy_accumulator_to_athl_B;{{c633:cd83ff}} 
+        call    copy_numeric_accumulator_to_atHL;{{c633:cd83ff}} 
         pop     hl                ;{{c636:e1}} 
 
         call    next_token_if_equals_inline_data_byte;{{c637:cd25de}} 
@@ -1416,7 +1415,7 @@ _command_for_40:                  ;{{Addr=$c61c Code Calls/jump count: 1 Data us
         ex      (sp),hl           ;{{c63e:e3}} 
         ld      a,c               ;{{c63f:79}} 
         call    convert_accumulator_to_type_in_A;{{c640:cdfffe}} 
-        call    copy_accumulator_to_athl_B;{{c643:cd83ff}} 
+        call    copy_numeric_accumulator_to_atHL;{{c643:cd83ff}} 
         ex      de,hl             ;{{c646:eb}} 
         ex      (sp),hl           ;{{c647:e3}} 
         ex      de,hl             ;{{c648:eb}} 
@@ -1435,7 +1434,7 @@ _command_for_73:                  ;{{Addr=$c65b Code Calls/jump count: 1 Data us
         ld      a,c               ;{{c65b:79}} 
         call    convert_accumulator_to_type_in_A;{{c65c:cdfffe}} 
         ex      (sp),hl           ;{{c65f:e3}} 
-        call    copy_accumulator_to_athl_B;{{c660:cd83ff}} 
+        call    copy_numeric_accumulator_to_atHL;{{c660:cd83ff}} 
         call    get_raw_abs_of_accumulator_with_reg_preserve;{{c663:cdc4fd}} 
         ex      de,hl             ;{{c666:eb}} 
         ld      (hl),a            ;{{c667:77}} 
@@ -1600,7 +1599,7 @@ update_and_test_FOR_loop_counter: ;{{Addr=$c702 Code Calls/jump count: 1 Data us
         dec     hl                ;{{c723:2b}} 
         ld      e,(hl)            ;{{c724:5e}} 
         ex      de,hl             ;{{c725:eb}} 
-        call    copy_accumulator_to_athl_B;{{c726:cd83ff}} 
+        call    copy_numeric_accumulator_to_atHL;{{c726:cd83ff}} 
         pop     hl                ;{{c729:e1}} 
 
 _update_and_test_for_loop_counter_27:;{{Addr=$c72a Code Calls/jump count: 1 Data use count: 0}}
@@ -1946,7 +1945,7 @@ _command_on_on_error_goto_12:     ;{{Addr=$c899 Code Calls/jump count: 1 Data us
 ;;=do on goto gosub
 do_on_goto_gosub:                 ;{{Addr=$c8a6 Code Calls/jump count: 1 Data use count: 0}}
         call    eval_and_convert_line_number_to_line_address;{{c8a6:cd27e8}} 
-        call    nz,command_DATA   ;{{c8a9:c4a3e9}} NZ means item not found - call DATA to 
+        call    nz,skip_to_end_of_statement;{{c8a9:c4a3e9}} NZ means item not found - call DATA to 
                                   ;skip over list and contnue execution at the next line
         pop     af                ;{{c8ac:f1}} 
         jp      nz,GOSUB_HL       ;{{c8ad:c290c7}} Do a GOSUB
@@ -2365,7 +2364,7 @@ match_within_NEXT:                ;{{Addr=$ca93 Code Calls/jump count: 1 Data us
 _match_within_next_11:            ;{{Addr=$caa6 Code Calls/jump count: 1 Data use count: 0}}
         push    bc                ;{{caa6:c5}} NEXT has one or more variable names listed - check them
         push    de                ;{{caa7:d5}} 
-        call    prob_parse_and_find_or_create_a_var;{{caa8:cdbfd6}} 
+        call    parse_and_find_or_create_a_var;{{caa8:cdbfd6}} 
         pop     de                ;{{caab:d1}} 
         pop     bc                ;{{caac:c1}} 
         call    next_token_if_prev_is_comma;{{caad:cd41de}} 
@@ -2561,7 +2560,7 @@ raise_error_no_tracking:          ;{{Addr=$cb64 Code Calls/jump count: 1 Data us
         ld      hl,(cache_of_execution_stack_next_free_ptr);{{cb67:2a19ae}} 
         call    set_execution_stack_next_free_ptr;{{cb6a:cd6ef6}} 
         call    get_string_stack_first_free_ptr;{{cb6d:cdccfb}} 
-        call    clear_AE12_AE10_words;{{cb70:cd20da}} 
+        call    clear_FN_params_data;{{cb70:cd20da}} 
         call    get_resume_line_number;{{cb73:cdaacb}} C set if we have resume address
         ld      hl,(address_line_specified_by_the_ON_ERROR_);{{cb76:2a96ad}} 
         ex      de,hl             ;{{cb79:eb}} 
@@ -2597,7 +2596,7 @@ _display_error_then_do_repl_10:   ;{{Addr=$cba4 Code Calls/jump count: 1 Data us
 ;C set if we have a resume line
 get_resume_line_number:           ;{{Addr=$cbaa Code Calls/jump count: 3 Data use count: 0}}
         ld      hl,(address_of_line_number_LB_in_line_contai);{{cbaa:2a8cad}} resume address
-        call    get_line_number_at_HL;{{cbad:cdb8de}} 
+        call    get_line_number_atHL;{{cbad:cdb8de}} 
         ret     c                 ;{{cbb0:d8}} 
         ld      hl,$0000          ;{{cbb1:210000}} ##LIT##
         ret                       ;{{cbb4:c9}} 
@@ -2863,7 +2862,7 @@ resume_skip_statement_and_execute:;{{Addr=$ccef Code Calls/jump count: 1 Data us
 
         call    restore_RESUME_data_or_error;{{ccf3:cdfacc}} 
         inc     hl                ;{{ccf6:23}} 
-        jp      command_DATA      ;{{ccf7:c3a3e9}} ; DATA
+        jp      skip_to_end_of_statement;{{ccf7:c3a3e9}} ; DATA
 
 ;;=restore RESUME data or error
 restore_RESUME_data_or_error:     ;{{Addr=$ccfa Code Calls/jump count: 3 Data use count: 0}}
@@ -3471,7 +3470,7 @@ prefix_plus:                      ;{{Addr=$d036 Code Calls/jump count: 0 Data us
         jp      z,eval_functions_with_ff_prefix;{{d047:cadad0}} 
 
         push    hl                ;{{d04a:e5}} 
-        ld      hl,prefix_token_table_d059;{{d04b:2159d0}} 
+        ld      hl,prefix_token_table;{{d04b:2159d0}} 
         call    get_address_from_table;{{d04e:cdb4ff}} 
         ex      (sp),hl           ;{{d051:e3}} 
         jp      get_next_token_skipping_space;{{d052:c32cde}}  get next token skipping space
@@ -3484,8 +3483,8 @@ raise_missing_operand:            ;{{Addr=$d055 Code Calls/jump count: 1 Data us
         defb $16                  ; Error: Operand Missing
 
 ;;===========================================================================
-;; prefix token table d059
-prefix_token_table_d059:          ;{{Addr=$d059 Data Calls/jump count: 0 Data use count: 1}}
+;; prefix token table
+prefix_token_table:               ;{{Addr=$d059 Data Calls/jump count: 0 Data use count: 1}}
                                   
 
 ;(call this entry if token not found)
@@ -3530,7 +3529,7 @@ prefix_token_table_d059:          ;{{Addr=$d059 Data Calls/jump count: 0 Data us
 ;Unknown stuff probably includes DEF FNs and DIMs
 
 eval_variable_references:         ;{{Addr=$d074 Code Calls/jump count: 1 Data use count: 0}}
-        call    prob_parse_and_find_var;{{d074:cdc9d6}} 
+        call    parse_and_find_var;{{d074:cdc9d6}} 
         jr      nc,undeclared_variable;{{d077:300b}}  (+$0b) Variable not declared/no value set yet
         cp      $03               ;{{d079:fe03}} String
         jr      z,eval_string_variable_reference;{{d07b:280f}}  (+$0f)
@@ -3800,7 +3799,7 @@ variable_HIMEM:                   ;{{Addr=$d148 Code Calls/jump count: 0 Data us
 ;returns the address of (pointer to) a variable
 
 prefix_at_operator_:              ;{{Addr=$d14e Code Calls/jump count: 0 Data use count: 1}}
-        call    prob_parse_and_find_var;{{d14e:cdc9d6}} 
+        call    parse_and_find_var;{{d14e:cdc9d6}} 
         jp      nc,Error_Improper_Argument;{{d151:d24dcb}}  Error: Improper Argument
 
         push    hl                ;{{d154:e5}} 
@@ -3849,36 +3848,36 @@ command_DEF:                      ;{{Addr=$d171 Code Calls/jump count: 0 Data us
         ex      de,hl             ;{{d179:eb}} 
         ld      a,$0c             ;{{d17a:3e0c}} Invalid direct command error
         jp      nc,raise_error    ;{{d17c:d255cb}} 
-        call    prob_parse_and_find_an_FN;{{d17f:cddbd6}} 
+        call    parse_and_find_or_create_an_FN;{{d17f:cddbd6}} 
         ex      de,hl             ;{{d182:eb}} 
         ld      (hl),e            ;{{d183:73}} 
         inc     hl                ;{{d184:23}} 
         ld      (hl),d            ;{{d185:72}} 
         ex      de,hl             ;{{d186:eb}} 
-        jp      command_DATA      ;{{d187:c3a3e9}} ; DATA
+        jp      skip_to_end_of_statement;{{d187:c3a3e9}} ; DATA
 
 ;;=======================================================================
 ;; prefix FN
 
 prefix_FN:                        ;{{Addr=$d18a Code Calls/jump count: 0 Data use count: 1}}
-        call    prob_parse_and_find_an_FN;{{d18a:cddbd6}} 
+        call    parse_and_find_or_create_an_FN;{{d18a:cddbd6}} find the DEF FN for this item
         push    bc                ;{{d18d:c5}} 
         push    hl                ;{{d18e:e5}} 
         ex      de,hl             ;{{d18f:eb}} 
-        ld      e,(hl)            ;{{d190:5e}} 
+        ld      e,(hl)            ;{{d190:5e}} read DEF FN address
         inc     hl                ;{{d191:23}} 
         ld      d,(hl)            ;{{d192:56}} 
-        ex      de,hl             ;{{d193:eb}} 
-        ld      a,h               ;{{d194:7c}} 
+        ex      de,hl             ;{{d193:eb}} HL=DEF FN address. We are now 'executing' the DEF FN code
+        ld      a,h               ;{{d194:7c}} is address zero?
         or      l                 ;{{d195:b5}} 
         ld      a,$12             ;{{d196:3e12}} Unknown user function error
         jp      z,raise_error     ;{{d198:ca55cb}} 
 
 ;alloc space on execution stack for the FN and any parameters
-        call    prob_push_FN_data_on_execution_stack;{{d19b:cd2ada}} 
-        ld      a,(hl)            ;{{d19e:7e}} 
-        cp      $28               ;{{d19f:fe28}} 
-        jr      nz,prefix_FN_no_params;{{d1a1:2028}}  (+$28)
+        call    push_FN_header_on_execution_stack;{{d19b:cd2ada}} 
+        ld      a,(hl)            ;{{d19e:7e}} Does the DEF FN have any parameters?
+        cp      $28               ;{{d19f:fe28}}  '('
+        jr      nz,prefix_FN_execute;{{d1a1:2028}}  (+$28) no params, skip next bit
         call    get_next_token_skipping_space;{{d1a3:cd2cde}}  get next token skipping space
         ex      (sp),hl           ;{{d1a6:e3}} 
         call    next_token_if_open_bracket;{{d1a7:cd19de}}  check for open bracket
@@ -3886,35 +3885,36 @@ prefix_FN:                        ;{{Addr=$d18a Code Calls/jump count: 0 Data us
 
 ;;=prefix FN read params loop
 prefix_FN_read_params_loop:       ;{{Addr=$d1ab Code Calls/jump count: 1 Data use count: 0}}
-        call    prob_alloc_an_FN_parameter_on_execution_stack;{{d1ab:cd6ada}} 
-        ex      (sp),hl           ;{{d1ae:e3}} 
+        call    push_FN_parameter_on_execution_stack;{{d1ab:cd6ada}} Read both DEF FN definition parameter list...
+        ex      (sp),hl           ;{{d1ae:e3}} ...and parameters passed in FN invocation
         push    de                ;{{d1af:d5}} 
-        call    eval_expression   ;{{d1b0:cd62cf}} 
+        call    eval_expression   ;{{d1b0:cd62cf}} eval parameter
         ex      (sp),hl           ;{{d1b3:e3}} 
         ld      a,b               ;{{d1b4:78}} 
         call    copy_accumulator_to_atHL_as_type_B;{{d1b5:cd9fd6}} 
         pop     hl                ;{{d1b8:e1}} 
-        call    next_token_if_prev_is_comma;{{d1b9:cd41de}} 
-        jr      nc,prefix_FN_finished_reading_params;{{d1bc:3006}}  (+$06)
+        call    next_token_if_prev_is_comma;{{d1b9:cd41de}} more parameters?
+        jr      nc,prefix_FN_finished_reading_params;{{d1bc:3006}}  (+$06) nope, done
         ex      (sp),hl           ;{{d1be:e3}} 
         call    next_token_if_comma;{{d1bf:cd15de}}  check for comma
         jr      prefix_FN_read_params_loop;{{d1c2:18e7}}  (-$19)
 
 ;;=prefix FN finished reading params
 prefix_FN_finished_reading_params:;{{Addr=$d1c4 Code Calls/jump count: 1 Data use count: 0}}
-        call    next_token_if_close_bracket;{{d1c4:cd1dde}}  check for close bracket
+        call    next_token_if_close_bracket;{{d1c4:cd1dde}}  check for close bracket at end of FN
         ex      (sp),hl           ;{{d1c7:e3}} 
-        call    next_token_if_close_bracket;{{d1c8:cd1dde}}  check for close bracket
-;;=prefix FN no params
-prefix_FN_no_params:              ;{{Addr=$d1cb Code Calls/jump count: 1 Data use count: 0}}
-        call    copy_ae10_word_to_ae12;{{d1cb:cd49da}} 
-        call    next_token_if_ef_token_for_equals_sign;{{d1ce:cd21de}} 
+        call    next_token_if_close_bracket;{{d1c8:cd1dde}}  check for close bracket at end of DEF FN
+;;=prefix FN execute
+prefix_FN_execute:                ;{{Addr=$d1cb Code Calls/jump count: 1 Data use count: 0}}
+        call    copy_FN_param_start_to_FN_param_end;{{d1cb:cd49da}} tidy up system variables?
+
+        call    next_token_if_equals_sign;{{d1ce:cd21de}} HL=address of the equals sign in the DEF FN
         call    eval_expression   ;{{d1d1:cd62cf}} eval the FN (ie run it as code)
         jp      nz,Error_Syntax_Error;{{d1d4:c249cb}}  Error: Syntax Error
-
         call    is_accumulator_a_string;{{d1d7:cd66ff}} 
         call    z,copy_accumulator_to_strings_area;{{d1da:cc8afb}} 
-        call    prob_remove_FN_data_from_stack;{{d1dd:cd52da}} 
+
+        call    remove_FN_data_from_stack;{{d1dd:cd52da}} 
         pop     hl                ;{{d1e0:e1}} 
         pop     af                ;{{d1e1:f1}} 
         jp      convert_accumulator_to_type_in_A;{{d1e2:c3fffe}} 
@@ -4404,7 +4404,10 @@ eval_and_validate_tone_period:    ;{{Addr=$d44c Code Calls/jump count: 2 Data us
         jp      nz,raise_improper_argument_error_D;{{d452:c29bd3}} 
         ret                       ;{{d455:c9}} 
 
-;**tk
+
+
+
+
 ;;***Input.asm
 ;;<< INPUT FUNCTIONS
 ;;< INKEY, JOY, KEY (DEF). Also SPEED (WRITE/KEY/INK)
@@ -4414,7 +4417,7 @@ function_INKEY:                   ;{{Addr=$d456 Code Calls/jump count: 0 Data us
         call    function_CINT     ;{{d456:cdb6fe}} 
         ld      de,$0050          ;{{d459:115000}} 
         call    compare_HL_DE     ;{{d45c:cdd8ff}}  HL=DE?
-        jr      nc,_function_joy_12;{{d45f:3022}}  (+$22)
+        jr      nc,raise_improper_argument;{{d45f:3022}}  (+$22)
         ld      a,l               ;{{d461:7d}} 
         call    KM_TEST_KEY       ;{{d462:cd1ebb}}  firmware function: km read key
         ld      hl,$ffff          ;{{d465:21ffff}} ##LIT##;WARNING: Code area used as literal
@@ -4440,7 +4443,9 @@ _function_joy_8:                  ;{{Addr=$d47d Code Calls/jump count: 1 Data us
         or      l                 ;{{d47e:b5}} 
         ld      a,d               ;{{d47f:7a}} 
         jp      z,store_A_in_accumulator_as_INT;{{d480:ca32ff}} 
-_function_joy_12:                 ;{{Addr=$d483 Code Calls/jump count: 2 Data use count: 0}}
+
+;;=raise improper argument
+raise_improper_argument:          ;{{Addr=$d483 Code Calls/jump count: 2 Data use count: 0}}
         jp      Error_Improper_Argument;{{d483:c34dcb}}  Error: Improper Argument
 
 ;;========================================================================
@@ -4461,7 +4466,7 @@ command_KEY:                      ;{{Addr=$d486 Code Calls/jump count: 0 Data us
         ex      de,hl             ;{{d498:eb}} 
         call    KM_SET_EXPAND     ;{{d499:cd0fbb}}  firmware function: KM SET EXPAND
         pop     hl                ;{{d49c:e1}} 
-        jr      nc,_function_joy_12;{{d49d:30e4}}  (-$1c)
+        jr      nc,raise_improper_argument;{{d49d:30e4}}  (-$1c)
         ret                       ;{{d49f:c9}} 
 
 ;;========================================================================
@@ -4506,17 +4511,18 @@ _key_def_21:                      ;{{Addr=$d4cb Code Calls/jump count: 2 Data us
 
 command_SPEED_WRITE_SPEED_KEY_SPEED_INK:;{{Addr=$d4db Code Calls/jump count: 0 Data use count: 1}}
         cp      $d9               ;{{d4db:fed9}}  token for "WRITE"
-        jr      z,SPEED_WRITE_0_SPEED_WRITE_1;{{d4dd:2826}} 
+        jr      z,do_SPEED_WRITE  ;{{d4dd:2826}} 
 
         cp      $a4               ;{{d4df:fea4}}  token for "KEY"
         ld      bc,KM_SET_DELAY   ;{{d4e1:013fbb}}  firmware function: KM SET DELAY
-        jr      z,_command_speed_write_speed_key_speed_ink_8;{{d4e4:2808}}  
+        jr      z,do_SPEED_KEY_SPEED_INK;{{d4e4:2808}}  
         cp      $a2               ;{{d4e6:fea2}}  token for "INK"
         ld      bc,SCR_SET_FLASHING;{{d4e8:013ebc}}  firmware function: SCR SET FLASHING
         jp      nz,Error_Syntax_Error;{{d4eb:c249cb}}  Error: Syntax Error
 
-_command_speed_write_speed_key_speed_ink_8:;{{Addr=$d4ee Code Calls/jump count: 1 Data use count: 0}}
-        push    bc                ;{{d4ee:c5}} 
+;;=do SPEED KEY, SPEED INK
+do_SPEED_KEY_SPEED_INK:           ;{{Addr=$d4ee Code Calls/jump count: 1 Data use count: 0}}
+        push    bc                ;{{d4ee:c5}} BC = routine to call to set delay
         call    get_next_token_skipping_space;{{d4ef:cd2cde}}  get next token skipping space
         call    eval_expr_as_int_less_than_256;{{d4f2:cdc3ce}} 
         ld      c,a               ;{{d4f5:4f}} 
@@ -4530,10 +4536,8 @@ _command_speed_write_speed_key_speed_ink_8:;{{Addr=$d4ee Code Calls/jump count: 
         ex      de,hl             ;{{d503:eb}} 
         ret                       ;{{d504:c9}} 
 
-;;========================================================================
-;; SPEED WRITE 0, SPEED WRITE 1
-
-SPEED_WRITE_0_SPEED_WRITE_1:      ;{{Addr=$d505 Code Calls/jump count: 1 Data use count: 0}}
+;;=do SPEED WRITE
+do_SPEED_WRITE:                   ;{{Addr=$d505 Code Calls/jump count: 1 Data use count: 0}}
         call    get_next_token_skipping_space;{{d505:cd2cde}}  get next token skipping space
         ld      b,$02             ;{{d508:0602}} 
         call    eval_expr_and_check_less_than_B;{{d50a:cd69d3}} 
@@ -4541,10 +4545,10 @@ SPEED_WRITE_0_SPEED_WRITE_1:      ;{{Addr=$d505 Code Calls/jump count: 1 Data us
         ld      hl,$00a7          ;{{d50e:21a700}} 
         dec     a                 ;{{d511:3d}} 
         ld      a,$32             ;{{d512:3e32}} 
-        jr      z,_speed_write_0_speed_write_1_10;{{d514:2802}}  (+$02)
+        jr      z,_do_speed_write_10;{{d514:2802}}  (+$02)
         add     hl,hl             ;{{d516:29}} 
         rrca                      ;{{d517:0f}} 
-_speed_write_0_speed_write_1_10:  ;{{Addr=$d518 Code Calls/jump count: 1 Data use count: 0}}
+_do_speed_write_10:               ;{{Addr=$d518 Code Calls/jump count: 1 Data use count: 0}}
         call    CAS_SET_SPEED     ;{{d518:cd68bc}}  firmware function: cas set speed
         pop     hl                ;{{d51b:e1}} 
         ret                       ;{{d51c:c9}} 
@@ -4593,7 +4597,7 @@ infix_power_:                     ;{{Addr=$d536 Code Calls/jump count: 0 Data us
         call    function_CREAL    ;{{d538:cd14ff}} 
         ex      de,hl             ;{{d53b:eb}} 
         ld      hl,RAM_adb2       ;{{d53c:21b2ad}} 
-        call    $bd61             ;{{d53f:cd61bd}} 
+        call    REAL_copy_atDE_to_atHL;{{d53f:cd61bd}} 
         pop     bc                ;{{d542:c1}} 
         ex      (sp),hl           ;{{d543:e3}} 
         ld      a,c               ;{{d544:79}} 
@@ -4672,27 +4676,30 @@ random_number_seed_message:       ;{{Addr=$d583 Data Calls/jump count: 0 Data us
 ;;========================================================================
 ;; command RANDOMIZE
 command_RANDOMIZE:                ;{{Addr=$d599 Code Calls/jump count: 0 Data use count: 1}}
-        jr      z,_command_randomize_4;{{d599:2806}}  (+$06) Do we have inline parameter, if not prompt for input
+        jr      z,random_seed_prompt;{{d599:2806}}  (+$06) Do we have inline parameter, if not prompt for input
         call    eval_expression   ;{{d59b:cd62cf}}  if so read it
         push    hl                ;{{d59e:e5}}  Save code ptr
-        jr      _command_randomize_14;{{d59f:1818}}  (+$18)
+        jr      dorandomize       ;{{d59f:1818}}  (+$18)
 
-_command_randomize_4:             ;{{Addr=$d5a1 Code Calls/jump count: 1 Data use count: 0}}
+;;=random seed prompt
+random_seed_prompt:               ;{{Addr=$d5a1 Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{d5a1:e5}}  Save code ptr
-_command_randomize_5:             ;{{Addr=$d5a2 Code Calls/jump count: 2 Data use count: 0}}
+;;=random seed loop
+random_seed_loop:                 ;{{Addr=$d5a2 Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,random_number_seed_message;{{d5a2:2183d5}} ; "Random number seed?" message
         call    output_ASCIIZ_string;{{d5a5:cd8bc3}} ; display 0 terminated string
         call    prob_read_buffer_and_or_break;{{d5a8:cdecca}}  Key input text
         call    output_new_line   ;{{d5ab:cd98c3}} ; new text line
         call    possibly_validate_input_buffer_is_a_number;{{d5ae:cd6fed}}  Validate/convert to a number
-        jr      nc,_command_randomize_5;{{d5b1:30ef}}  (-$11) Loop if invalid
+        jr      nc,random_seed_loop;{{d5b1:30ef}}  (-$11) Loop if invalid
         call    skip_space_tab_or_line_feed;{{d5b3:cd4dde}}  skip space, lf or tab
         or      a                 ;{{d5b6:b7}} 
-        jr      nz,_command_randomize_5;{{d5b7:20e9}}  (-$17) Loop if invalid
+        jr      nz,random_seed_loop;{{d5b7:20e9}}  (-$17) Loop if invalid
 
-_command_randomize_14:            ;{{Addr=$d5b9 Code Calls/jump count: 1 Data use count: 0}}
+;;=do_randomize
+dorandomize:                      ;{{Addr=$d5b9 Code Calls/jump count: 1 Data use count: 0}}
         call    function_CREAL    ;{{d5b9:cd14ff}}  Convert to a real
-        call    internal_subroutine__not_useful_D;{{d5bc:cdbebd}}  Firmware: RANDOMIZE seed
+        call    REAL_RANDOMIZE_seed;{{d5bc:cdbebd}}  Firmware: RANDOMIZE seed
         pop     hl                ;{{d5bf:e1}}  Retrieve code ptr
         ret                       ;{{d5c0:c9}} 
 
@@ -4700,25 +4707,27 @@ _command_randomize_14:            ;{{Addr=$d5b9 Code Calls/jump count: 1 Data us
 ;; variable RND
 
 variable_RND:                     ;{{Addr=$d5c1 Code Calls/jump count: 0 Data use count: 1}}
-        ld      a,(hl)            ;{{d5c1:7e}} 
+        ld      a,(hl)            ;{{d5c1:7e}} Do we have a parameter?
         cp      $28               ;{{d5c2:fe28}}  '('
-        jr      nz,_variable_rnd_15;{{d5c4:201b}} 
+        jr      nz,rnd_generate   ;{{d5c4:201b}} If not return simple value
 
         call    get_next_token_skipping_space;{{d5c6:cd2cde}}  get next token skipping space
         call    eval_expression   ;{{d5c9:cd62cf}} 
         call    next_token_if_close_bracket;{{d5cc:cd1dde}}  check for close bracket
         push    hl                ;{{d5cf:e5}} 
         call    function_CREAL    ;{{d5d0:cd14ff}} 
-        call    REAL_SIGNUMSGN    ;{{d5d3:cd94bd}} 
-        jr      nz,_variable_rnd_13;{{d5d6:2005}}  (+$05)
-        call    REAL_RN           ;{{d5d8:cd8bbd}} 
+        call    REAL_SIGNUMSGN    ;{{d5d3:cd94bd}} Is parameter +ve, zero or -ve?
+        jr      nz,rnd_param_nonzero;{{d5d6:2005}}  (+$05) Non-zero
+        call    REAL_rnd0         ;{{d5d8:cd8bbd}} If zero, return copy of previous value
         pop     hl                ;{{d5db:e1}} 
         ret                       ;{{d5dc:c9}} 
 
-_variable_rnd_13:                 ;{{Addr=$d5dd Code Calls/jump count: 1 Data use count: 0}}
-        call    m,internal_subroutine__not_useful_D;{{d5dd:fcbebd}} 
+;;=rnd param non-zero
+rnd_param_nonzero:                ;{{Addr=$d5dd Code Calls/jump count: 1 Data use count: 0}}
+        call    m,REAL_RANDOMIZE_seed;{{d5dd:fcbebd}} If parameter is negative, new random seed
         pop     hl                ;{{d5e0:e1}} 
-_variable_rnd_15:                 ;{{Addr=$d5e1 Code Calls/jump count: 1 Data use count: 0}}
+;;=rnd generate
+rnd_generate:                     ;{{Addr=$d5e1 Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{d5e1:e5}} 
         call    set_accumulator_type_to_real_and_HL_to_accumulator_addr;{{d5e2:cd3eff}} 
         call    REAL_RND          ;{{d5e5:cd7fbd}} 
@@ -4735,80 +4744,118 @@ _variable_rnd_15:                 ;{{Addr=$d5e1 Code Calls/jump count: 1 Data us
 ;;< (Lots more work to do here)
 ;;===================================
 
-;;=prob delete program
-prob_delete_program:              ;{{Addr=$d5ea Code Calls/jump count: 2 Data use count: 0}}
-        call    zero_36_bytes_at_adb7;{{d5ea:cdfad5}} 
+;;=delete program
+delete_program:                   ;{{Addr=$d5ea Code Calls/jump count: 2 Data use count: 0}}
+        call    prob_reset_variable_linked_list_pointers;{{d5ea:cdfad5}} 
         ld      hl,(address_after_end_of_program);{{d5ed:2a66ae}} 
         ld      (address_of_start_of_Variables_and_DEF_FN),hl;{{d5f0:2268ae}} 
         ld      (address_of_start_of_Arrays_area_),hl;{{d5f3:226aae}} 
         ld      (address_of_start_of_free_space_),hl;{{d5f6:226cae}} 
         ret                       ;{{d5f9:c9}} 
 
-;;=zero &36 bytes at adb7
-zero_36_bytes_at_adb7:            ;{{Addr=$d5fa Code Calls/jump count: 1 Data use count: 0}}
-        ld      hl,RAM_adb7       ;{{d5fa:21b7ad}} 
+;;=prob reset variable linked list pointers
+;zero 36h bytes at adb7
+prob_reset_variable_linked_list_pointers:;{{Addr=$d5fa Code Calls/jump count: 1 Data use count: 0}}
+        ld      hl,linked_list_headers_for_variables;{{d5fa:21b7ad}} 
         ld      a,$36             ;{{d5fd:3e36}} 
-        call    _zero_6_bytes_at_aded_2;{{d5ff:cd07d6}} 
+        call    zero_A_bytes_at_HL;{{d5ff:cd07d6}} 
 
-;;=zero 6 bytes at aded
-zero_6_bytes_at_aded:             ;{{Addr=$d602 Code Calls/jump count: 1 Data use count: 0}}
-        ld      hl,RAM_aded       ;{{d602:21edad}} 
+;;=reset array linked list headers
+;zero 6 bytes at aded
+reset_array_linked_list_headers:  ;{{Addr=$d602 Code Calls/jump count: 1 Data use count: 0}}
+        ld      hl,real_array_linked_list_head;{{d602:21edad}} 
         ld      a,$06             ;{{d605:3e06}} 
-_zero_6_bytes_at_aded_2:          ;{{Addr=$d607 Code Calls/jump count: 2 Data use count: 0}}
+
+;;=zero A bytes at HL
+zero_A_bytes_at_HL:               ;{{Addr=$d607 Code Calls/jump count: 2 Data use count: 0}}
         ld      (hl),$00          ;{{d607:3600}} 
         inc     hl                ;{{d609:23}} 
         dec     a                 ;{{d60a:3d}} 
-        jr      nz,_zero_6_bytes_at_aded_2;{{d60b:20fa}}  (-$06)
+        jr      nz,zero_A_bytes_at_HL;{{d60b:20fa}}  (-$06)
         ret                       ;{{d60d:c9}} 
 
-_zero_6_bytes_at_aded_7:          ;{{Addr=$d60e Code Calls/jump count: 2 Data use count: 0}}
-        ld      hl,RESET_ENTRY    ;{{d60e:210000}} 
-        ld      (RAM_adeb),hl     ;{{d611:22ebad}} 
-        jp      prob_reset_links_to_variables_data;{{d614:c34dea}} 
+;;===================================
+;;=clear DEFFN list and reset variable types and pointers
+clear_DEFFN_list_and_reset_variable_types_and_pointers:;{{Addr=$d60e Code Calls/jump count: 2 Data use count: 0}}
+        ld      hl,$0000          ;{{d60e:210000}} ##LIT##
+        ld      (DEFFN_linked_list_head),hl;{{d611:22ebad}} 
+        jp      reset_variable_types_and_pointers;{{d614:c34dea}} 
 
-_zero_6_bytes_at_aded_10:         ;{{Addr=$d617 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,$5b             ;{{d617:3e5b}} 
-_zero_6_bytes_at_aded_11:         ;{{Addr=$d619 Code Calls/jump count: 3 Data use count: 0}}
+;;===================================
+;;=get VarFN area and FN list head ptr
+get_VarFN_area_and_FN_list_head_ptr:;{{Addr=$d617 Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,$5b             ;{{d617:3e5b}} 91 Returns with HL=&ade6
+
+;;=get VarFN area and list head ptr
+;Calculates an address for a linked list header relative to &ad35
+;Entry: A=a value between &41 .. &5b, i.e. one of 'A'..'Z','[' (that final entry is for DEF FNs)
+;Exit: BC=addr of variables/DEF FN area -1
+;HL=address (based on A) in the BASIC data area of a pointer to a linked list
+;HL=&ad35 + (A*2) = (&adb7 - ('A' * 2)) + (A * 2)
+;where &adb7 is the block of data for the variable linked list headers
+get_VarFN_area_and_list_head_ptr: ;{{Addr=$d619 Code Calls/jump count: 3 Data use count: 0}}
         ld      bc,(address_of_start_of_Variables_and_DEF_FN);{{d619:ed4b68ae}} 
-        dec     bc                ;{{d61d:0b}} 
-        add     a,a               ;{{d61e:87}} 
-        add     a,$35             ;{{d61f:c635}} 
-        ld      l,a               ;{{d621:6f}} 
-        adc     a,$ad             ;{{d622:cead}} 
-        sub     l                 ;{{d624:95}} 
-        ld      h,a               ;{{d625:67}} 
+        dec     bc                ;{{d61d:0b}} A=&41   |&5b 
+        add     a,a               ;{{d61e:87}} A=&82   |&b6  A=A*2
+        add a,linked_list_headers_for_variables - ('A' * 2) and $ff;{{d61e:c635}} formula version
+;OLDd61f c635      add     a,$35            ;A=&b7   |&eb. A=A*2+53
+        ld      l,a               ;{{d621:6f}} L=&b7   |&eb
+        adc a,linked_list_headers_for_variables >> 8;{{d622:cead}} formula version
+;OLDd622 cead      adc     a,$ad            ;A=&(1)64|$(1)98 (ie. carry)  173 
+        sub     l                 ;{{d624:95}} A=&ad   |$ad
+        ld      h,a               ;{{d625:67}} HL=&adb7|&adeb
         ret                       ;{{d626:c9}} 
 
-_zero_6_bytes_at_aded_20:         ;{{Addr=$d627 Code Calls/jump count: 6 Data use count: 0}}
+;;===================================
+;;=get array area and array list head ptr for type
+;Usually (always?) called with A=a variable data type 
+;Entry: A=variable data type (which equals a variable data size) = 2,3 or 5
+;Exit: BC=addr of arrays area -1
+;HL=address (based on A) in the BASIC data area (adef, adf1, or aded) of
+;a pointer for a linked list of arrays of the given type
+;Calculates: HL=&aded + (((A and 3) - 1) * 2)
+get_array_area_and_array_list_head_ptr_for_type:;{{Addr=$d627 Code Calls/jump count: 6 Data use count: 0}}
         ld      bc,(address_of_start_of_Arrays_area_);{{d627:ed4b6aae}} 
-        dec     bc                ;{{d62b:0b}} 
-        and     $03               ;{{d62c:e603}} 
-        dec     a                 ;{{d62e:3d}} 
-        add     a,a               ;{{d62f:87}} 
-        add     a,$ed             ;{{d630:c6ed}} 
-        ld      l,a               ;{{d632:6f}} 
-        adc     a,$ad             ;{{d633:cead}} 
-        sub     l                 ;{{d635:95}} 
-        ld      h,a               ;{{d636:67}} 
+        dec     bc                ;{{d62b:0b}} A=   2  |  3  |  5    (int|string|real)
+        and     $03               ;{{d62c:e603}} A=   2  |  3  |  1
+        dec     a                 ;{{d62e:3d}} A=   1  |  2  |  0
+        add     a,a               ;{{d62f:87}} A=   2  |  4  |  0
+        add     a,real_array_linked_list_head and 255;{{d630:c6ed}} formula version
+;OLDd630 c6ed      add     a,$ed            ;A= $ef  |$f1  |$ed  I.e add a,$aded and $ff
+        ld      l,a               ;{{d632:6f}} L= $ef  |$f1  |$ed
+        adc     a,real_array_linked_list_head >> 8;{{d633:cead}} formula version
+;OLDd633 cead      adc     a,$ad            ;A= $19c |$19e |$19a (i.e. carry)  I.e. adc a,&aded shr 8
+        sub     l                 ;{{d635:95}} A= $ad  |$ad  |$ad
+        ld      h,a               ;{{d636:67}} HL=$adef|$adf1|$aded -> addresses in BASIC data area!
         ret                       ;{{d637:c9}} 
 
-_zero_6_bytes_at_aded_31:         ;{{Addr=$d638 Code Calls/jump count: 1 Data use count: 0}}
-        ld      bc,$415a          ;{{d638:015a41}} 
-        ld      e,$05             ;{{d63b:1e05}} 
-_zero_6_bytes_at_aded_33:         ;{{Addr=$d63d Code Calls/jump count: 1 Data use count: 0}}
+;;===================================
+;;=defreal a to z
+defreal_a_to_z:                   ;{{Addr=$d638 Code Calls/jump count: 1 Data use count: 0}}
+        ld      bc,$415a          ;{{d638:015a41}} 'A''Z' - letter range
+        ld      e,$05             ;{{d63b:1e05}} REAL data type
+
+;;=def letters BC to type E
+;DEFs the type of a range of variables
+;B=start of letter range ('A' to 'Z')
+;C=end of letter range ('A' to 'Z')
+;E=variable type (2,3,5)
+def_letters_BC_to_type_E:         ;{{Addr=$d63d Code Calls/jump count: 1 Data use count: 0}}
         ld      a,c               ;{{d63d:79}} 
-        sub     b                 ;{{d63e:90}} 
-        jr      c,_command_defreal_18;{{d63f:383d}}  (+$3d)
+        sub     b                 ;{{d63e:90}} calc number of items to set
+        jr      c,raise_syntax_error_B;{{d63f:383d}}  (+$3d)
         push    hl                ;{{d641:e5}} 
         inc     a                 ;{{d642:3c}} 
-        ld      hl,RAM_adb2       ;{{d643:21b2ad}} 
+        ld      hl,table_of_DEFINT_ - 'A';{{d643:21b2ad}} Relative to start of DEFxxxx table
         ld      b,$00             ;{{d646:0600}} 
-        add     hl,bc             ;{{d648:09}} 
-_zero_6_bytes_at_aded_41:         ;{{Addr=$d649 Code Calls/jump count: 1 Data use count: 0}}
+        add     hl,bc             ;{{d648:09}} HL=last item in range
+
+_def_letters_bc_to_type_e_8:      ;{{Addr=$d649 Code Calls/jump count: 1 Data use count: 0}}
         ld      (hl),e            ;{{d649:73}} 
         dec     hl                ;{{d64a:2b}} 
         dec     a                 ;{{d64b:3d}} 
-        jr      nz,_zero_6_bytes_at_aded_41;{{d64c:20fb}}  (-$05)
+        jr      nz,_def_letters_bc_to_type_e_8;{{d64c:20fb}}  (-$05) Loop
+
         pop     hl                ;{{d64e:e1}} 
         ret                       ;{{d64f:c9}} 
 
@@ -4817,54 +4864,61 @@ _zero_6_bytes_at_aded_41:         ;{{Addr=$d649 Code Calls/jump count: 1 Data us
 ;; command DEFSTR
 
 command_DEFSTR:                   ;{{Addr=$d650 Code Calls/jump count: 0 Data use count: 1}}
-        ld      e,$03             ;{{d650:1e03}} 
-        jr      _command_defreal_1;{{d652:1806}}  (+$06)
+        ld      e,$03             ;{{d650:1e03}} String type
+        jr      do_DEFtype        ;{{d652:1806}}  (+$06)
 
 ;;=============================================================================
 ;; command DEFINT
 
 command_DEFINT:                   ;{{Addr=$d654 Code Calls/jump count: 0 Data use count: 1}}
-        ld      e,$02             ;{{d654:1e02}} 
-        jr      _command_defreal_1;{{d656:1802}}  (+$02)
+        ld      e,$02             ;{{d654:1e02}} Int type
+        jr      do_DEFtype        ;{{d656:1802}}  (+$02)
 
 ;;=============================================================================
 ;; command DEFREAL
 command_DEFREAL:                  ;{{Addr=$d658 Code Calls/jump count: 0 Data use count: 1}}
-        ld      e,$05             ;{{d658:1e05}} 
-;;-----------------------------------------------------------------------------
+        ld      e,$05             ;{{d658:1e05}} Real type
 
-_command_defreal_1:               ;{{Addr=$d65a Code Calls/jump count: 3 Data use count: 0}}
+;;-----------------------------------------------------------------------------
+;;=do DEFtype
+do_DEFtype:                       ;{{Addr=$d65a Code Calls/jump count: 3 Data use count: 0}}
         ld      a,(hl)            ;{{d65a:7e}} 
         call    test_if_letter    ;{{d65b:cd92ff}}  is a alphabetical letter?
-        jr      nc,_command_defreal_18;{{d65e:301e}}  (+$1e)
+        jr      nc,raise_syntax_error_B;{{d65e:301e}}  (+$1e)
         ld      c,a               ;{{d660:4f}} 
         ld      b,a               ;{{d661:47}} 
         call    get_next_token_skipping_space;{{d662:cd2cde}}  get next token skipping space
-        cp      $2d               ;{{d665:fe2d}}  '-'
-        jr      nz,_command_defreal_14;{{d667:200c}}  (+$0c)
+        cp      $2d               ;{{d665:fe2d}}  '-' - range of values
+        jr      nz,_do_deftype_13 ;{{d667:200c}}  (+$0c)
         call    get_next_token_skipping_space;{{d669:cd2cde}}  get next token skipping space
         call    test_if_letter    ;{{d66c:cd92ff}}  is a alphabetical letter?
-        jr      nc,_command_defreal_18;{{d66f:300d}}  (+$0d)
+        jr      nc,raise_syntax_error_B;{{d66f:300d}}  (+$0d)
         ld      c,a               ;{{d671:4f}} 
         call    get_next_token_skipping_space;{{d672:cd2cde}}  get next token skipping space
-_command_defreal_14:              ;{{Addr=$d675 Code Calls/jump count: 1 Data use count: 0}}
-        call    _zero_6_bytes_at_aded_33;{{d675:cd3dd6}} 
+
+_do_deftype_13:                   ;{{Addr=$d675 Code Calls/jump count: 1 Data use count: 0}}
+        call    def_letters_BC_to_type_E;{{d675:cd3dd6}} 
         call    next_token_if_prev_is_comma;{{d678:cd41de}} 
-        jr      c,_command_defreal_1;{{d67b:38dd}}  (-$23)
+        jr      c,do_DEFtype      ;{{d67b:38dd}}  (-$23) comma = more items in list
         ret                       ;{{d67d:c9}} 
 
-_command_defreal_18:              ;{{Addr=$d67e Code Calls/jump count: 3 Data use count: 0}}
+;;=raise Syntax Error
+raise_syntax_error_B:             ;{{Addr=$d67e Code Calls/jump count: 3 Data use count: 0}}
         jp      Error_Syntax_Error;{{d67e:c349cb}}  Error: Syntax Error
 
-_command_defreal_19:              ;{{Addr=$d681 Code Calls/jump count: 3 Data use count: 0}}
+;;=raise Subscript out of range
+raise_Subscript_out_of_range:     ;{{Addr=$d681 Code Calls/jump count: 3 Data use count: 0}}
         call    byte_following_call_is_error_code;{{d681:cd45cb}} 
         defb $09                  ;Inline error code: Subscript out of range
 
-_command_defreal_21:              ;{{Addr=$d685 Code Calls/jump count: 1 Data use count: 0}}
+;;=raise Array already dimensioned
+raise_Array_already_dimensioned:  ;{{Addr=$d685 Code Calls/jump count: 1 Data use count: 0}}
         call    byte_following_call_is_error_code;{{d685:cd45cb}} 
         defb $0a                  ;Inline error code: Array already dimensioned
 
-_command_defreal_23:              ;{{Addr=$d689 Code Calls/jump count: 1 Data use count: 0}}
+;;========================================================================
+;; BAR command or implicit LET
+BAR_command_or_implicit_LET:      ;{{Addr=$d689 Code Calls/jump count: 1 Data use count: 0}}
         cp      $f8               ;{{d689:fef8}}  '|'
         jp      z,BAR_command     ;{{d68b:ca45f2}} 
 
@@ -4872,14 +4926,14 @@ _command_defreal_23:              ;{{Addr=$d689 Code Calls/jump count: 1 Data us
 ;; command LET
 
 command_LET:                      ;{{Addr=$d68e Code Calls/jump count: 0 Data use count: 1}}
-        call    prob_parse_and_find_or_create_a_var;{{d68e:cdbfd6}} 
-        push    de                ;{{d691:d5}} 
-        call    next_token_if_ef_token_for_equals_sign;{{d692:cd21de}} 
-        call    eval_expression   ;{{d695:cd62cf}} 
+        call    parse_and_find_or_create_a_var;{{d68e:cdbfd6}} Find (or alloc) the variables
+        push    de                ;{{d691:d5}} Preserve address(?)
+        call    next_token_if_equals_sign;{{d692:cd21de}} Test for '=' sign
+        call    eval_expression   ;{{d695:cd62cf}} Evaluate the new value
         ld      a,b               ;{{d698:78}} 
-        ex      (sp),hl           ;{{d699:e3}} 
-        call    copy_accumulator_to_atHL_as_type_B;{{d69a:cd9fd6}} 
-        pop     hl                ;{{d69d:e1}} 
+        ex      (sp),hl           ;{{d699:e3}} Retrieve the address
+        call    copy_accumulator_to_atHL_as_type_B;{{d69a:cd9fd6}} Store the new value (also stores a string if appropriate)
+        pop     hl                ;{{d69d:e1}} Retrieve code pointer
         ret                       ;{{d69e:c9}} 
 
 ;;=copy accumulator to atHL as type B
@@ -4892,9 +4946,9 @@ copy_accumulator_to_atHL_as_type_B:;{{Addr=$d69f Code Calls/jump count: 3 Data u
 ;;=copy accumulator to atHL
 copy_accumulator_to_atHL:         ;{{Addr=$d6a8 Code Calls/jump count: 1 Data use count: 0}}
         call    is_accumulator_a_string;{{d6a8:cd66ff}} 
-        jp      nz,copy_accumulator_to_athl_B;{{d6ab:c283ff}} 
-        push    hl                ;{{d6ae:e5}} 
-        call    _copy_accumulator_to_strings_area_4;{{d6af:cd94fb}} 
+        jp      nz,copy_numeric_accumulator_to_atHL;{{d6ab:c283ff}} It's a number
+        push    hl                ;{{d6ae:e5}} Otherwise it's a string
+        call    _copy_accumulator_to_strings_area_4;{{d6af:cd94fb}} Store string to strings area
         pop     de                ;{{d6b2:d1}} 
         jp      copy_value_atHL_to_atDE_accumulator_type;{{d6b3:c387ff}} 
 
@@ -4904,60 +4958,70 @@ copy_accumulator_to_atHL:         ;{{Addr=$d6a8 Code Calls/jump count: 1 Data us
 command_DIM:                      ;{{Addr=$d6b6 Code Calls/jump count: 1 Data use count: 1}}
         call    do_DIM_item       ;{{d6b6:cde0d7}} 
         call    next_token_if_prev_is_comma;{{d6b9:cd41de}} 
-        jr      c,command_DIM     ;{{d6bc:38f8}}  (-$08)
+        jr      c,command_DIM     ;{{d6bc:38f8}}  (-$08) Comma = more items in list
         ret                       ;{{d6be:c9}} 
 
-;;=prob parse and find or create a var
-prob_parse_and_find_or_create_a_var:;{{Addr=$d6bf Code Calls/jump count: 7 Data use count: 0}}
-        call    get_offset_into_var_table;{{d6bf:cd31d9}} 
-        call    prob_get_var_or_array_address;{{d6c2:cd06d8}} 
-        jr      c,get_accum_data_type_in_A_B_and_C;{{d6c5:3842}}  (+$42)
-        jr      _prob_parse_and_find_for_var_2;{{d6c7:1828}}  (+$28)
+;;===================================================
+;The variable/array/deffn token is followed by a pointer into the variables/arrays/deffn area.
+;At reset this value is cleared to zero. Here we read the value. If it's set then add it to the base address,
+;if not the search the relevant linked list to: find it; store the found value (and possibly clarify the variables type);
+;(depeding on the routine) allocate space if the item isn't already created.
 
-;;=prob parse and find var
-prob_parse_and_find_var:          ;{{Addr=$d6c9 Code Calls/jump count: 2 Data use count: 0}}
-        call    get_offset_into_var_table;{{d6c9:cd31d9}} 
-        call    prob_get_var_or_array_address;{{d6cc:cd06d8}} 
-        jr      c,get_accum_data_type_in_A_B_and_C;{{d6cf:3838}}  (+$38)
+
+;;=parse and find or create a var
+;Returns DE = address of variables value
+parse_and_find_or_create_a_var:   ;{{Addr=$d6bf Code Calls/jump count: 7 Data use count: 0}}
+        call    parse_var_type_and_name;{{d6bf:cd31d9}} 
+        call    convert_var_or_array_offset_into_address;{{d6c2:cd06d8}} 
+        jr      c,get_accum_data_type_in_A_B_and_C;{{d6c5:3842}}  (+$42) variable offset set -> return
+        jr      find_var_and_alloc_if_not_found;{{d6c7:1828}}  (+$28) variable offset not set -> find (and maybe alloc)
+
+;;=parse and find var
+parse_and_find_var:               ;{{Addr=$d6c9 Code Calls/jump count: 2 Data use count: 0}}
+        call    parse_var_type_and_name;{{d6c9:cd31d9}} 
+        call    convert_var_or_array_offset_into_address;{{d6cc:cd06d8}} 
+        jr      c,get_accum_data_type_in_A_B_and_C;{{d6cf:3838}}  (+$38) variable offset set -> return
         push    hl                ;{{d6d1:e5}} 
         ld      a,c               ;{{d6d2:79}} 
-        call    _zero_6_bytes_at_aded_11;{{d6d3:cd19d6}} 
-        call    xd717_code        ;{{d6d6:cd17d7}} 
-        jr      get_accum_data_type_in_A_B_and_C_;{{d6d9:182d}}  (+$2d)
+        call    get_VarFN_area_and_list_head_ptr;{{d6d3:cd19d6}} search list of vars (list depends on type)
+        call    find_var_in_FN_or_var_linked_lists;{{d6d6:cd17d7}} 
+        jr      pop_hl_and_get_accum_data_type_in_A_B_and_C_;{{d6d9:182d}}  (+$2d) return
 
-;;=prob parse and find an FN
-prob_parse_and_find_an_FN:        ;{{Addr=$d6db Code Calls/jump count: 2 Data use count: 0}}
-        call    get_offset_into_var_table;{{d6db:cd31d9}} 
-        jr      c,unknown_alloc_DE_bytes_at_start_of_var_FN_area;{{d6de:3821}}  (+$21)
+;;=parse and find or create an FN
+parse_and_find_or_create_an_FN:   ;{{Addr=$d6db Code Calls/jump count: 2 Data use count: 0}}
+        call    parse_var_type_and_name;{{d6db:cd31d9}} 
+        jr      c,add_offset_to_addr_in_var_FN_area;{{d6de:3821}}  (+$21) variable offset set -> add offset and return
         push    hl                ;{{d6e0:e5}} 
-        call    _zero_6_bytes_at_aded_10;{{d6e1:cd17d6}} 
-        call    xd732_code        ;{{d6e4:cd32d7}} 
-        call    nc,unknown_alloc_var_space;{{d6e7:d46fd7}} 
-        jr      get_accum_data_type_in_A_B_and_C_;{{d6ea:181c}}  (+$1c)
+        call    get_VarFN_area_and_FN_list_head_ptr;{{d6e1:cd17d6}} search list of DEF FNs
+        call    _prob_find_item_in_linked_list_2;{{d6e4:cd32d7}} 
+        call    nc,prob_alloc_space_for_a_DEF_FN;{{d6e7:d46fd7}} not found - alloc
+        jr      pop_hl_and_get_accum_data_type_in_A_B_and_C_;{{d6ea:181c}}  (+$1c)
 
-;;=prob parse and find FOR var
-prob_parse_and_find_FOR_var:      ;{{Addr=$d6ec Code Calls/jump count: 1 Data use count: 0}}
-        call    get_offset_into_var_table;{{d6ec:cd31d9}} 
-        jr      c,unknown_alloc_DE_bytes_at_start_of_var_FN_area;{{d6ef:3810}}  (+$10)
-_prob_parse_and_find_for_var_2:   ;{{Addr=$d6f1 Code Calls/jump count: 1 Data use count: 0}}
+;;=parse and find or alloc FOR var
+parse_and_find_or_alloc_FOR_var:  ;{{Addr=$d6ec Code Calls/jump count: 1 Data use count: 0}}
+        call    parse_var_type_and_name;{{d6ec:cd31d9}} 
+        jr      c,add_offset_to_addr_in_var_FN_area;{{d6ef:3810}}  (+$10) variable offset set -> return
+
+;;=find var and alloc if not found
+find_var_and_alloc_if_not_found:  ;{{Addr=$d6f1 Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{d6f1:e5}} 
         ld      a,c               ;{{d6f2:79}} 
-        call    _zero_6_bytes_at_aded_11;{{d6f3:cd19d6}} 
-        call    xd717_code        ;{{d6f6:cd17d7}} 
+        call    get_VarFN_area_and_list_head_ptr;{{d6f3:cd19d6}} search list of variables (list depends on type)
+        call    find_var_in_FN_or_var_linked_lists;{{d6f6:cd17d7}} 
         ld      a,(accumulator_data_type);{{d6f9:3a9fb0}} 
-        call    nc,prob_alloc_space_for_new_var;{{d6fc:d47bd7}} 
-        jr      get_accum_data_type_in_A_B_and_C_;{{d6ff:1807}}  (+$07)
+        call    nc,prob_alloc_space_for_new_var;{{d6fc:d47bd7}} not found - alloc
+        jr      pop_hl_and_get_accum_data_type_in_A_B_and_C_;{{d6ff:1807}}  (+$07)
 
-;;=unknown alloc DE bytes at start of var FN area
-unknown_alloc_DE_bytes_at_start_of_var_FN_area:;{{Addr=$d701 Code Calls/jump count: 2 Data use count: 0}}
+;;=add offset to addr in var FN area
+add_offset_to_addr_in_var_FN_area:;{{Addr=$d701 Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{d701:e5}} 
         ld      hl,(address_of_start_of_Variables_and_DEF_FN);{{d702:2a68ae}} 
         dec     hl                ;{{d705:2b}} 
         add     hl,de             ;{{d706:19}} 
         ex      de,hl             ;{{d707:eb}} 
 
-;;=get accum data type in A B and C 
-get_accum_data_type_in_A_B_and_C_:;{{Addr=$d708 Code Calls/jump count: 3 Data use count: 0}}
+;;=pop hl and get accum data type in A B and C 
+pop_hl_and_get_accum_data_type_in_A_B_and_C_:;{{Addr=$d708 Code Calls/jump count: 3 Data use count: 0}}
         pop     hl                ;{{d708:e1}} 
 
 ;;=get accum data type in A B and C
@@ -4968,76 +5032,102 @@ get_accum_data_type_in_A_B_and_C: ;{{Addr=$d709 Code Calls/jump count: 3 Data us
         ret                       ;{{d70e:c9}} 
 
 ;;============================
-xd70f_code:                       ;{{Addr=$d70f Code Calls/jump count: 1 Data use count: 0}}
-        call    get_offset_into_var_table;{{d70f:cd31d9}} 
-        call    _skip_to_else_statement_17;{{d712:cd7ae9}} 
+;;prob just skip over variable
+prob_just_skip_over_variable:     ;{{Addr=$d70f Code Calls/jump count: 1 Data use count: 0}}
+        call    parse_var_type_and_name;{{d70f:cd31d9}} 
+        call    skip_over_batched_braces;{{d712:cd7ae9}} 
         jr      get_accum_data_type_in_A_B_and_C;{{d715:18f2}}  (-$0e)
 
-xd717_code:                       ;{{Addr=$d717 Code Calls/jump count: 2 Data use count: 0}}
+;;==================================
+;;=find var in FN or var linked lists
+;Appears to check multiple lists? Maybe depends on variable type
+find_var_in_FN_or_var_linked_lists:;{{Addr=$d717 Code Calls/jump count: 2 Data use count: 0}}
         push    de                ;{{d717:d5}} 
         push    hl                ;{{d718:e5}} 
-        ld      hl,(RAM_ae12)     ;{{d719:2a12ae}} 
+        ld      hl,(FN_param_end) ;{{d719:2a12ae}} Are we in an FN?
         ld      a,h               ;{{d71c:7c}} 
         or      l                 ;{{d71d:b5}} 
-        jr      z,xd730_code      ;{{d71e:2810}}  (+$10)
-        inc     hl                ;{{d720:23}} 
+        jr      z,prob_find_item_in_linked_list;{{d71e:2810}}  (+$10) Nope - just check regular variables
+        inc     hl                ;{{d720:23}} otherwise check variable linked list for the FN...
         inc     hl                ;{{d721:23}} 
         push    bc                ;{{d722:c5}} 
-        ld      bc,RESET_ENTRY    ;{{d723:010000}} 
-        call    xd740_code        ;{{d726:cd40d7}} 
-        pop     bc                ;{{d729:c1}} 
-        jr      nc,xd730_code     ;{{d72a:3004}}  (+$04)
+        ld      bc,$0000          ;{{d723:010000}} which uses an absolute address (well, an offset from zero) ##LIT##
+        call    find_named_item_in_linked_list;{{d726:cd40d7}} 
+        pop     bc                ;{{d729:c1}} and then check the regular variable linked list
+        jr      nc,prob_find_item_in_linked_list;{{d72a:3004}}  (+$04)
         pop     af                ;{{d72c:f1}} 
         pop     af                ;{{d72d:f1}} 
         scf                       ;{{d72e:37}} 
         ret                       ;{{d72f:c9}} 
 
-xd730_code:                       ;{{Addr=$d730 Code Calls/jump count: 2 Data use count: 0}}
+;;=prob find item in linked list
+;finds an item within a single list
+prob_find_item_in_linked_list:    ;{{Addr=$d730 Code Calls/jump count: 2 Data use count: 0}}
         pop     hl                ;{{d730:e1}} 
         pop     de                ;{{d731:d1}} 
-xd732_code:                       ;{{Addr=$d732 Code Calls/jump count: 1 Data use count: 0}}
-        push    de                ;{{d732:d5}} 
+
+_prob_find_item_in_linked_list_2: ;{{Addr=$d732 Code Calls/jump count: 1 Data use count: 0}}
+        push    de                ;{{d732:d5}} this entry point searches DEF FNs list
         push    hl                ;{{d733:e5}} 
-        call    xd740_code        ;{{d734:cd40d7}} 
+        call    find_named_item_in_linked_list;{{d734:cd40d7}} 
         pop     hl                ;{{d737:e1}} 
-        jr      c,xd73c_code      ;{{d738:3802}}  (+$02)
+        jr      c,_prob_find_item_in_linked_list_9;{{d738:3802}}  (+$02)
         pop     de                ;{{d73a:d1}} 
         ret                       ;{{d73b:c9}} 
 
-xd73c_code:                       ;{{Addr=$d73c Code Calls/jump count: 1 Data use count: 0}}
+_prob_find_item_in_linked_list_9: ;{{Addr=$d73c Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{d73c:e1}} 
-        jp      _prob_alloc_space_for_new_var_22;{{d73d:c39ed7}} 
+        jp      prob_store_offset_into_code;{{d73d:c39ed7}} 
 
-xd740_code:                       ;{{Addr=$d740 Code Calls/jump count: 6 Data use count: 0}}
+;;==================================
+;;find named item in linked list
+;BC=start of linked list
+;HL=ptr to offset into list - item is at BC + (HL)
+;($AE0E) addr of ASCIIZ name to compare to
+;Type must match that of the accumulator
+;EXIT: Carry set if item found
+;(If found):
+;HL = address of start of item
+;DE = address of items data area (address after type specifier)
+
+;Table format:
+;Word: Offset (from BC) of next item in table (or zero if end of list)
+;ASCIIZ string: item name
+;Byte: Item type (2/3/5)
+;Data area
+
+find_named_item_in_linked_list:   ;{{Addr=$d740 Code Calls/jump count: 6 Data use count: 0}}
         ld      a,(hl)            ;{{d740:7e}} 
         inc     hl                ;{{d741:23}} 
         ld      h,(hl)            ;{{d742:66}} 
         ld      l,a               ;{{d743:6f}} 
         or      h                 ;{{d744:b4}} 
-        ret     z                 ;{{d745:c8}} 
+        ret     z                 ;{{d745:c8}} Offset? is zero - end of list (or empty list)  
 
-        add     hl,bc             ;{{d746:09}} 
+        add     hl,bc             ;{{d746:09}} Add offset to start of table
         push    hl                ;{{d747:e5}} 
-        inc     hl                ;{{d748:23}} 
-        inc     hl                ;{{d749:23}} 
-        ld      de,(RAM_ae0e)     ;{{d74a:ed5b0eae}} 
-xd74e_code:                       ;{{Addr=$d74e Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(de)            ;{{d74e:1a}} 
+        inc     hl                ;{{d748:23}} Step over (pointer) to string (var name)
+        inc     hl                ;{{d749:23}} Ptr = offset of next item?
+        ld      de,(poss_cached_addrvariable_name_address_o);{{d74a:ed5b0eae}} Address of another string
+
+_find_named_item_in_linked_list_11:;{{Addr=$d74e Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,(de)            ;{{d74e:1a}} Compare ASCII7 string at HL to that at DE
         cp      (hl)              ;{{d74f:be}} 
-        jr      nz,xd75f_code     ;{{d750:200d}}  (+$0d)
-        inc     hl                ;{{d752:23}} 
+        jr      nz,_find_named_item_in_linked_list_23;{{d750:200d}}  (+$0d) Char doesn't match - fail
+        inc     hl                ;{{d752:23}} Next char
         inc     de                ;{{d753:13}} 
-        rla                       ;{{d754:17}} 
-        jr      nc,xd74e_code     ;{{d755:30f7}}  (-$09)
-        ld      a,(accumulator_data_type);{{d757:3a9fb0}} 
+        rla                       ;{{d754:17}} Is bit 7 set?
+        jr      nc,_find_named_item_in_linked_list_11;{{d755:30f7}}  (-$09) Loop for next char if not
+
+        ld      a,(accumulator_data_type);{{d757:3a9fb0}} Does the type also match?
         dec     a                 ;{{d75a:3d}} 
         xor     (hl)              ;{{d75b:ae}} 
         and     $07               ;{{d75c:e607}} 
         ex      de,hl             ;{{d75e:eb}} 
-xd75f_code:                       ;{{Addr=$d75f Code Calls/jump count: 1 Data use count: 0}}
-        pop     hl                ;{{d75f:e1}} 
-        jr      nz,xd740_code     ;{{d760:20de}}  (-$22)
-        inc     de                ;{{d762:13}} 
+_find_named_item_in_linked_list_23:;{{Addr=$d75f Code Calls/jump count: 1 Data use count: 0}}
+        pop     hl                ;{{d75f:e1}} Retrieve start address of item = ptr to next item
+        jr      nz,find_named_item_in_linked_list;{{d760:20de}}  (-$22) Not a match, loop. 
+        inc     de                ;{{d762:13}} DE = ptr to the items data
         scf                       ;{{d763:37}} 
         ret                       ;{{d764:c9}} 
 
@@ -5053,8 +5143,8 @@ _poss_step_over_string_4:         ;{{Addr=$d769 Code Calls/jump count: 1 Data us
         jr      z,_poss_step_over_string_4;{{d76c:28fb}}  (-$05)
         ret                       ;{{d76e:c9}} 
 
-;;=unknown alloc var space
-unknown_alloc_var_space:          ;{{Addr=$d76f Code Calls/jump count: 1 Data use count: 0}}
+;;=prob alloc space for a DEF FN
+prob_alloc_space_for_a_DEF_FN:    ;{{Addr=$d76f Code Calls/jump count: 1 Data use count: 0}}
         ld      a,$02             ;{{d76f:3e02}} 
         call    prob_alloc_space_for_new_var;{{d771:cd7bd7}} 
         dec     de                ;{{d774:1b}} 
@@ -5070,26 +5160,31 @@ prob_alloc_space_for_new_var:     ;{{Addr=$d77b Code Calls/jump count: 2 Data us
         push    hl                ;{{d77c:e5}} 
         push    bc                ;{{d77d:c5}} 
         push    af                ;{{d77e:f5}} 
-        call    _prob_alloc_space_for_new_var_32;{{d77f:cda8d7}} 
+        call    count_length_of_cached_string;{{d77f:cda8d7}} 
         push    af                ;{{d782:f5}} 
         ld      hl,(address_of_start_of_Arrays_area_);{{d783:2a6aae}} 
         ex      de,hl             ;{{d786:eb}} 
         call    unknown_alloc_and_move_memory_up;{{d787:cdb8f6}} 
         call    prob_grow_variables_space_ptrs_by_BC;{{d78a:cd1af6}} 
         pop     af                ;{{d78d:f1}} 
-        call    _prob_alloc_space_for_new_var_43;{{d78e:cdb8d7}} 
+        call    copy_cached_string_and_store_data_type;{{d78e:cdb8d7}} 
         pop     bc                ;{{d791:c1}} 
-        xor     a                 ;{{d792:af}} 
+
+        xor     a                 ;{{d792:af}} Zero B bytes
 _prob_alloc_space_for_new_var_14: ;{{Addr=$d793 Code Calls/jump count: 1 Data use count: 0}}
         dec     hl                ;{{d793:2b}} 
         ld      (hl),a            ;{{d794:77}} 
         djnz    _prob_alloc_space_for_new_var_14;{{d795:10fc}}  (-$04)
+
         pop     bc                ;{{d797:c1}} 
         ex      (sp),hl           ;{{d798:e3}} 
-        call    _prob_alloc_space_for_new_var_61;{{d799:cdd0d7}} 
+        call    poss_update_list_headers;{{d799:cdd0d7}} 
         pop     de                ;{{d79c:d1}} 
         pop     hl                ;{{d79d:e1}} 
-_prob_alloc_space_for_new_var_22: ;{{Addr=$d79e Code Calls/jump count: 3 Data use count: 0}}
+
+;;=prob store offset into code
+;stores the newly found/created variable/fn/array offset into the code where it is referenced
+prob_store_offset_into_code:      ;{{Addr=$d79e Code Calls/jump count: 3 Data use count: 0}}
         inc     hl                ;{{d79e:23}} 
         ld      a,e               ;{{d79f:7b}} 
         sub     c                 ;{{d7a0:91}} 
@@ -5101,21 +5196,23 @@ _prob_alloc_space_for_new_var_22: ;{{Addr=$d79e Code Calls/jump count: 3 Data us
         scf                       ;{{d7a6:37}} 
         ret                       ;{{d7a7:c9}} 
 
-_prob_alloc_space_for_new_var_32: ;{{Addr=$d7a8 Code Calls/jump count: 2 Data use count: 0}}
+;;=count length of cached string
+count_length_of_cached_string:    ;{{Addr=$d7a8 Code Calls/jump count: 2 Data use count: 0}}
         add     a,$03             ;{{d7a8:c603}} 
         ld      c,a               ;{{d7aa:4f}} 
-        ld      hl,(RAM_ae0e)     ;{{d7ab:2a0eae}} 
-        xor     a                 ;{{d7ae:af}} 
+        ld      hl,(poss_cached_addrvariable_name_address_o);{{d7ab:2a0eae}} Address of cached string
+        xor     a                 ;{{d7ae:af}} Count length of string
         ld      b,a               ;{{d7af:47}} 
-_prob_alloc_space_for_new_var_37: ;{{Addr=$d7b0 Code Calls/jump count: 1 Data use count: 0}}
+_count_length_of_cached_string_5: ;{{Addr=$d7b0 Code Calls/jump count: 1 Data use count: 0}}
         inc     bc                ;{{d7b0:03}} 
         inc     a                 ;{{d7b1:3c}} 
         bit     7,(hl)            ;{{d7b2:cb7e}} 
         inc     hl                ;{{d7b4:23}} 
-        jr      z,_prob_alloc_space_for_new_var_37;{{d7b5:28f9}}  (-$07)
+        jr      z,_count_length_of_cached_string_5;{{d7b5:28f9}}  (-$07)
         ret                       ;{{d7b7:c9}} 
 
-_prob_alloc_space_for_new_var_43: ;{{Addr=$d7b8 Code Calls/jump count: 2 Data use count: 0}}
+;;=copy cached string and store data type
+copy_cached_string_and_store_data_type:;{{Addr=$d7b8 Code Calls/jump count: 2 Data use count: 0}}
         ld      h,d               ;{{d7b8:62}} 
         ld      l,e               ;{{d7b9:6b}} 
         add     hl,bc             ;{{d7ba:09}} 
@@ -5123,7 +5220,7 @@ _prob_alloc_space_for_new_var_43: ;{{Addr=$d7b8 Code Calls/jump count: 2 Data us
         push    de                ;{{d7bc:d5}} 
         inc     de                ;{{d7bd:13}} 
         inc     de                ;{{d7be:13}} 
-        ld      hl,(RAM_ae0e)     ;{{d7bf:2a0eae}} 
+        ld      hl,(poss_cached_addrvariable_name_address_o);{{d7bf:2a0eae}} 
         call    copy_bytes_LDIR__Acount_HLsource_DEdest;{{d7c2:cdecff}} ; copy bytes (A=count, HL=source, DE=dest)
         ld      a,(accumulator_data_type);{{d7c5:3a9fb0}} 
         dec     a                 ;{{d7c8:3d}} 
@@ -5135,7 +5232,8 @@ _prob_alloc_space_for_new_var_43: ;{{Addr=$d7b8 Code Calls/jump count: 2 Data us
         pop     hl                ;{{d7ce:e1}} 
         ret                       ;{{d7cf:c9}} 
 
-_prob_alloc_space_for_new_var_61: ;{{Addr=$d7d0 Code Calls/jump count: 4 Data use count: 0}}
+;;=poss update list headers
+poss_update_list_headers:         ;{{Addr=$d7d0 Code Calls/jump count: 4 Data use count: 0}}
         ld      a,(hl)            ;{{d7d0:7e}} 
         ld      (de),a            ;{{d7d1:12}} 
         ld      a,e               ;{{d7d2:7b}} 
@@ -5156,40 +5254,44 @@ _prob_alloc_space_for_new_var_61: ;{{Addr=$d7d0 Code Calls/jump count: 4 Data us
 ;;==================================
 ;;do DIM item
 do_DIM_item:                      ;{{Addr=$d7e0 Code Calls/jump count: 1 Data use count: 0}}
-        call    get_offset_into_var_table;{{d7e0:cd31d9}} 
-        ld      a,(hl)            ;{{d7e3:7e}} 
+        call    parse_var_type_and_name;{{d7e0:cd31d9}} skip over the array name...
+        ld      a,(hl)            ;{{d7e3:7e}} ...and we should have an open brace (either type)
         cp      $28               ;{{d7e4:fe28}} '('
         jr      z,_do_dim_item_6  ;{{d7e6:2805}}  (+$05)
         xor     $5b               ;{{d7e8:ee5b}} '['
         jp      nz,Error_Syntax_Error;{{d7ea:c249cb}}  Error: Syntax Error
+
 _do_dim_item_6:                   ;{{Addr=$d7ed Code Calls/jump count: 1 Data use count: 0}}
         call    read_array_dimensions;{{d7ed:cd83d8}} 
         push    hl                ;{{d7f0:e5}} 
         push    bc                ;{{d7f1:c5}} 
         ld      a,(accumulator_data_type);{{d7f2:3a9fb0}} 
-        call    _zero_6_bytes_at_aded_20;{{d7f5:cd27d6}} 
-        call    xd740_code        ;{{d7f8:cd40d7}} 
-        jp      c,_command_defreal_21;{{d7fb:da85d6}} 
+        call    get_array_area_and_array_list_head_ptr_for_type;{{d7f5:cd27d6}} Is the array already dimmed? Go look for it
+        call    find_named_item_in_linked_list;{{d7f8:cd40d7}} 
+        jp      c,raise_Array_already_dimensioned;{{d7fb:da85d6}} if so, error
+
         pop     bc                ;{{d7fe:c1}} 
         ld      a,$ff             ;{{d7ff:3eff}} 
-        call    prob_create_and_alloc_space_for_array;{{d801:cdb3d8}} 
+        call    create_and_alloc_space_for_array;{{d801:cdb3d8}} and create it
         pop     hl                ;{{d804:e1}} 
         ret                       ;{{d805:c9}} 
 
-;;=prob get var or array address
+;;=convert var or array offset into address
 ;allocates space for array if needed
-;;DE=offset into var table??
-prob_get_var_or_array_address:    ;{{Addr=$d806 Code Calls/jump count: 2 Data use count: 0}}
+;Entry: DE=offset into variables or arrays tables, unless:
+;Carry set if the address has stored in the code, and DE = offset of element
+;Exit: DE=absolute address of var/FN/array element data
+convert_var_or_array_offset_into_address:;{{Addr=$d806 Code Calls/jump count: 2 Data use count: 0}}
         push    af                ;{{d806:f5}} 
-        ld      a,(hl)            ;{{d807:7e}} 
+        ld      a,(hl)            ;{{d807:7e}} token after variable name/type
         cp      $28               ;{{d808:fe28}} '('
-        jr      z,prob_get_array_element_address;{{d80a:2810}}  (+$10)
+        jr      z,get_array_element_address;{{d80a:2810}}  (+$10)
         xor     $5b               ;{{d80c:ee5b}} '['
-        jr      z,prob_get_array_element_address;{{d80e:280c}}  (+$0c)
+        jr      z,get_array_element_address;{{d80e:280c}}  (+$0c)
         pop     af                ;{{d810:f1}} 
         ret     nc                ;{{d811:d0}} 
 
-        push    hl                ;{{d812:e5}} 
+        push    hl                ;{{d812:e5}} variable of FN
         ld      hl,(address_of_start_of_Variables_and_DEF_FN);{{d813:2a68ae}} 
         dec     hl                ;{{d816:2b}} 
         add     hl,de             ;{{d817:19}} 
@@ -5198,76 +5300,79 @@ prob_get_var_or_array_address:    ;{{Addr=$d806 Code Calls/jump count: 2 Data us
         scf                       ;{{d81a:37}} 
         ret                       ;{{d81b:c9}} 
 
-;;=prob get array element address
+;;=get array element address
 ;allocates space for array if needed
-prob_get_array_element_address:   ;{{Addr=$d81c Code Calls/jump count: 2 Data use count: 0}}
-        call    read_array_dimensions;{{d81c:cd83d8}} 
+get_array_element_address:        ;{{Addr=$d81c Code Calls/jump count: 2 Data use count: 0}}
+        call    read_array_dimensions;{{d81c:cd83d8}} push array dimensions onto execution stack;count in B
         pop     af                ;{{d81f:f1}} 
         push    hl                ;{{d820:e5}} 
-        jr      nc,_prob_get_array_element_address_8;{{d821:3007}}  (+$07)
-        ld      hl,(address_of_start_of_Arrays_area_);{{d823:2a6aae}} 
+        jr      nc,_get_array_element_address_8;{{d821:3007}}  (+$07) 
+        ld      hl,(address_of_start_of_Arrays_area_);{{d823:2a6aae}} address stored in code (which means it's a constant value??)
         dec     hl                ;{{d826:2b}} 
-        add     hl,de             ;{{d827:19}} 
-        jr      _prob_get_array_element_address_20;{{d828:1815}}  (+$15)
+        add     hl,de             ;{{d827:19}} get absolute address
+        jr      _get_array_element_address_20;{{d828:1815}}  (+$15)
 
-_prob_get_array_element_address_8:;{{Addr=$d82a Code Calls/jump count: 1 Data use count: 0}}
+_get_array_element_address_8:     ;{{Addr=$d82a Code Calls/jump count: 1 Data use count: 0}}
         push    bc                ;{{d82a:c5}} 
         push    de                ;{{d82b:d5}} 
         ld      a,(accumulator_data_type);{{d82c:3a9fb0}} 
-        call    _zero_6_bytes_at_aded_20;{{d82f:cd27d6}} 
-        call    xd740_code        ;{{d832:cd40d7}} 
-        jr      nc,_prob_get_array_element_address_24;{{d835:300f}}  (+$0f)
+        call    get_array_area_and_array_list_head_ptr_for_type;{{d82f:cd27d6}} try and find the array
+        call    find_named_item_in_linked_list;{{d832:cd40d7}} 
+        jr      nc,_get_array_element_address_24;{{d835:300f}}  (+$0f) not found - create it
         inc     de                ;{{d837:13}} 
         inc     de                ;{{d838:13}} 
         pop     hl                ;{{d839:e1}} 
-        call    _prob_alloc_space_for_new_var_22;{{d83a:cd9ed7}} 
+        call    prob_store_offset_into_code;{{d83a:cd9ed7}} 
         pop     bc                ;{{d83d:c1}} 
         ex      de,hl             ;{{d83e:eb}} 
-_prob_get_array_element_address_20:;{{Addr=$d83f Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,b               ;{{d83f:78}} 
-        sub     (hl)              ;{{d840:96}} 
-        jp      nz,_command_defreal_19;{{d841:c281d6}} 
-        jr      _prob_get_array_element_address_30;{{d844:180a}}  (+$0a)
+_get_array_element_address_20:    ;{{Addr=$d83f Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,b               ;{{d83f:78}} number of dimensions
+        sub     (hl)              ;{{d840:96}} compare with stored value
+        jp      nz,raise_Subscript_out_of_range;{{d841:c281d6}} 
+        jr      _get_array_element_address_30;{{d844:180a}}  (+$0a)
 
-_prob_get_array_element_address_24:;{{Addr=$d846 Code Calls/jump count: 1 Data use count: 0}}
-        pop     hl                ;{{d846:e1}} 
+_get_array_element_address_24:    ;{{Addr=$d846 Code Calls/jump count: 1 Data use count: 0}}
+        pop     hl                ;{{d846:e1}} create array
         pop     bc                ;{{d847:c1}} 
         xor     a                 ;{{d848:af}} 
-        call    prob_create_and_alloc_space_for_array;{{d849:cdb3d8}} 
-        call    _prob_alloc_space_for_new_var_22;{{d84c:cd9ed7}} 
+        call    create_and_alloc_space_for_array;{{d849:cdb3d8}} 
+        call    prob_store_offset_into_code;{{d84c:cd9ed7}} 
         ex      de,hl             ;{{d84f:eb}} 
-_prob_get_array_element_address_30:;{{Addr=$d850 Code Calls/jump count: 1 Data use count: 0}}
-        ld      de,RESET_ENTRY    ;{{d850:110000}} 
-        ld      b,(hl)            ;{{d853:46}} 
-        inc     hl                ;{{d854:23}} 
-_prob_get_array_element_address_33:;{{Addr=$d855 Code Calls/jump count: 1 Data use count: 0}}
-        push    hl                ;{{d855:e5}} 
+
+_get_array_element_address_30:    ;{{Addr=$d850 Code Calls/jump count: 1 Data use count: 0}}
+        ld      de,$0000          ;{{d850:110000}} we now have the address of the array ##LIT##
+        ld      b,(hl)            ;{{d853:46}} get number of dimensions
+
+        inc     hl                ;{{d854:23}} point to size of first dimension
+_get_array_element_address_33:    ;{{Addr=$d855 Code Calls/jump count: 1 Data use count: 0}}
+        push    hl                ;{{d855:e5}} read size of dimension
         push    de                ;{{d856:d5}} 
         ld      e,(hl)            ;{{d857:5e}} 
         inc     hl                ;{{d858:23}} 
         ld      d,(hl)            ;{{d859:56}} 
-        call    _prob_create_and_alloc_space_for_array_79;{{d85a:cd27d9}} 
-        call    compare_HL_DE     ;{{d85d:cdd8ff}}  HL=DE?
-        jp      nc,_command_defreal_19;{{d860:d281d6}} 
+        call    pop_word_off_execution_stack;{{d85a:cd27d9}} pop index into dimension
+        call    compare_HL_DE     ;{{d85d:cdd8ff}}  HL=DE? validate
+        jp      nc,raise_Subscript_out_of_range;{{d860:d281d6}} index * size of dimension?
         ex      (sp),hl           ;{{d863:e3}} 
         call    do_16x16_multiply_with_overflow;{{d864:cd72dd}} 
         pop     de                ;{{d867:d1}} 
-        add     hl,de             ;{{d868:19}} 
+        add     hl,de             ;{{d868:19}} add to offset -> new offset
         ex      de,hl             ;{{d869:eb}} 
         pop     hl                ;{{d86a:e1}} 
         inc     hl                ;{{d86b:23}} 
         inc     hl                ;{{d86c:23}} 
-        djnz    _prob_get_array_element_address_33;{{d86d:10e6}}  (-$1a)
+        djnz    _get_array_element_address_33;{{d86d:10e6}}  (-$1a) loop for more dimensions
+
         ex      de,hl             ;{{d86f:eb}} 
-        ld      b,h               ;{{d870:44}} 
+        ld      b,h               ;{{d870:44}} Multiply index by element size
         ld      c,l               ;{{d871:4d}} 
         ld      a,(accumulator_data_type);{{d872:3a9fb0}} 
         sub     $03               ;{{d875:d603}} 
-        jr      c,_prob_get_array_element_address_59;{{d877:3804}}  (+$04)
+        jr      c,_get_array_element_address_59;{{d877:3804}}  (+$04)
         add     hl,hl             ;{{d879:29}} 
-        jr      z,_prob_get_array_element_address_59;{{d87a:2801}}  (+$01)
+        jr      z,_get_array_element_address_59;{{d87a:2801}}  (+$01)
         add     hl,hl             ;{{d87c:29}} 
-_prob_get_array_element_address_59:;{{Addr=$d87d Code Calls/jump count: 2 Data use count: 0}}
+_get_array_element_address_59:    ;{{Addr=$d87d Code Calls/jump count: 2 Data use count: 0}}
         add     hl,bc             ;{{d87d:09}} 
         add     hl,de             ;{{d87e:19}} 
         ex      de,hl             ;{{d87f:eb}} 
@@ -5276,29 +5381,34 @@ _prob_get_array_element_address_59:;{{Addr=$d87d Code Calls/jump count: 2 Data u
         ret                       ;{{d882:c9}} 
 
 ;;=read array dimensions
+;reads array dimensions and pushes them onto the execution stack
+;B returns the number of dimensions
 read_array_dimensions:            ;{{Addr=$d883 Code Calls/jump count: 2 Data use count: 0}}
         push    de                ;{{d883:d5}} 
         call    get_next_token_skipping_space;{{d884:cd2cde}}  get next token skipping space
         ld      a,(accumulator_data_type);{{d887:3a9fb0}} 
+
         push    af                ;{{d88a:f5}} 
-        ld      b,$00             ;{{d88b:0600}} 
+        ld      b,$00             ;{{d88b:0600}} B=number of dimensions
 _read_array_dimensions_5:         ;{{Addr=$d88d Code Calls/jump count: 1 Data use count: 0}}
-        call    eval_expr_as_positive_int_or_error;{{d88d:cdcece}} 
+        call    eval_expr_as_positive_int_or_error;{{d88d:cdcece}} Read value
         push    hl                ;{{d890:e5}} 
-        ld      a,$02             ;{{d891:3e02}} 
+        ld      a,$02             ;{{d891:3e02}} push value onto the execution stack
         call    possibly_alloc_A_bytes_on_execution_stack;{{d893:cd72f6}} 
         ld      (hl),e            ;{{d896:73}} 
         inc     hl                ;{{d897:23}} 
         ld      (hl),d            ;{{d898:72}} 
         pop     hl                ;{{d899:e1}} 
-        inc     b                 ;{{d89a:04}} 
-        call    next_token_if_prev_is_comma;{{d89b:cd41de}} 
-        jr      c,_read_array_dimensions_5;{{d89e:38ed}}  (-$13)
-        ld      a,(hl)            ;{{d8a0:7e}} 
+
+        inc     b                 ;{{d89a:04}} inc dimension counter
+        call    next_token_if_prev_is_comma;{{d89b:cd41de}} any more?
+        jr      c,_read_array_dimensions_5;{{d89e:38ed}}  (-$13) if so, loop
+        ld      a,(hl)            ;{{d8a0:7e}} finish list with brackets of either type
         cp      $29               ;{{d8a1:fe29}} ')'
         jr      z,_read_array_dimensions_21;{{d8a3:2805}}  (+$05)
         cp      $5d               ;{{d8a5:fe5d}} ']'
-        jp      nz,Error_Syntax_Error;{{d8a7:c249cb}}  Error: Syntax Error
+        jp      nz,Error_Syntax_Error;{{d8a7:c249cb}}  otherwise, Error: Syntax Error
+
 _read_array_dimensions_21:        ;{{Addr=$d8aa Code Calls/jump count: 1 Data use count: 0}}
         call    get_next_token_skipping_space;{{d8aa:cd2cde}}  get next token skipping space
         pop     af                ;{{d8ad:f1}} 
@@ -5306,21 +5416,23 @@ _read_array_dimensions_21:        ;{{Addr=$d8aa Code Calls/jump count: 1 Data us
         pop     de                ;{{d8b1:d1}} 
         ret                       ;{{d8b2:c9}} 
 
-;;=prob create and alloc space for array
-prob_create_and_alloc_space_for_array:;{{Addr=$d8b3 Code Calls/jump count: 2 Data use count: 0}}
+;;=create and alloc space for array
+;B=number of dimensions
+;Sizes of each dimension are pushed on the execution stack
+create_and_alloc_space_for_array: ;{{Addr=$d8b3 Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{d8b3:e5}} 
         ld      (RAM_ae0d),a      ;{{d8b4:320dae}} 
         push    bc                ;{{d8b7:c5}} 
         ld      a,b               ;{{d8b8:78}} 
         add     a,a               ;{{d8b9:87}} 
         add     a,$03             ;{{d8ba:c603}} 
-        call    _prob_alloc_space_for_new_var_32;{{d8bc:cda8d7}} 
+        call    count_length_of_cached_string;{{d8bc:cda8d7}} 
         push    af                ;{{d8bf:f5}} 
         ld      hl,(address_of_start_of_free_space_);{{d8c0:2a6cae}} 
         ex      de,hl             ;{{d8c3:eb}} 
-        call    unknown_alloc_and_move_memory_up;{{d8c4:cdb8f6}} 
+        call    unknown_alloc_and_move_memory_up;{{d8c4:cdb8f6}} Move data up out of the way
         pop     af                ;{{d8c7:f1}} 
-        call    _prob_alloc_space_for_new_var_43;{{d8c8:cdb8d7}} 
+        call    copy_cached_string_and_store_data_type;{{d8c8:cdb8d7}} Copy/store array name and type
         ld      h,b               ;{{d8cb:60}} 
         ld      l,c               ;{{d8cc:69}} 
         pop     bc                ;{{d8cd:c1}} 
@@ -5330,42 +5442,48 @@ prob_create_and_alloc_space_for_array:;{{Addr=$d8b3 Code Calls/jump count: 2 Dat
         ld      a,(accumulator_data_type);{{d8d1:3a9fb0}} 
         ld      e,a               ;{{d8d4:5f}} 
         ld      d,$00             ;{{d8d5:1600}} 
-        ld      (hl),b            ;{{d8d7:70}} 
+
+        ld      (hl),b            ;{{d8d7:70}} number of dimensions (and loop counter)
         push    hl                ;{{d8d8:e5}} 
         inc     hl                ;{{d8d9:23}} 
-_prob_create_and_alloc_space_for_array_25:;{{Addr=$d8da Code Calls/jump count: 1 Data use count: 0}}
-        push    de                ;{{d8da:d5}} 
+
+_create_and_alloc_space_for_array_25:;{{Addr=$d8da Code Calls/jump count: 1 Data use count: 0}}
+        push    de                ;{{d8da:d5}} Loop for each dimension
         ld      a,(RAM_ae0d)      ;{{d8db:3a0dae}} 
         or      a                 ;{{d8de:b7}} 
         ld      de,$000a          ;{{d8df:110a00}} 
         ex      de,hl             ;{{d8e2:eb}} 
-        call    nz,_prob_create_and_alloc_space_for_array_79;{{d8e3:c427d9}} 
+        call    nz,pop_word_off_execution_stack;{{d8e3:c427d9}} pop size of this dimension
         ex      de,hl             ;{{d8e6:eb}} 
         inc     de                ;{{d8e7:13}} 
-        ld      (hl),e            ;{{d8e8:73}} 
+        ld      (hl),e            ;{{d8e8:73}} store dimension size
         inc     hl                ;{{d8e9:23}} 
         ld      (hl),d            ;{{d8ea:72}} 
         inc     hl                ;{{d8eb:23}} 
         ex      (sp),hl           ;{{d8ec:e3}} 
-        call    do_16x16_multiply_with_overflow;{{d8ed:cd72dd}} 
-        jp      c,_command_defreal_19;{{d8f0:da81d6}} 
+        call    do_16x16_multiply_with_overflow;{{d8ed:cd72dd}} size of this dimension?
+        jp      c,raise_Subscript_out_of_range;{{d8f0:da81d6}} 
+
         ex      de,hl             ;{{d8f3:eb}} 
         pop     hl                ;{{d8f4:e1}} 
-        djnz    _prob_create_and_alloc_space_for_array_25;{{d8f5:10e3}}  (-$1d)
-        ld      b,d               ;{{d8f7:42}} 
+        djnz    _create_and_alloc_space_for_array_25;{{d8f5:10e3}}  (-$1d) loop for more dimensions
+
+        ld      b,d               ;{{d8f7:42}} Restore the following memory
         ld      c,e               ;{{d8f8:4b}} 
         ld      d,h               ;{{d8f9:54}} 
         ld      e,l               ;{{d8fa:5d}} 
         call    _unknown_alloc_and_move_memory_up_1;{{d8fb:cdbbf6}} 
         ld      (address_of_start_of_free_space_),hl;{{d8fe:226cae}} 
-        push    bc                ;{{d901:c5}} 
-_prob_create_and_alloc_space_for_array_50:;{{Addr=$d902 Code Calls/jump count: 1 Data use count: 0}}
+
+        push    bc                ;{{d901:c5}} Clear BC bytes of memory - cleanup? zero allocated space?
+_create_and_alloc_space_for_array_50:;{{Addr=$d902 Code Calls/jump count: 1 Data use count: 0}}
         dec     hl                ;{{d902:2b}} 
         ld      (hl),$00          ;{{d903:3600}} 
         dec     bc                ;{{d905:0b}} 
         ld      a,b               ;{{d906:78}} 
         or      c                 ;{{d907:b1}} 
-        jr      nz,_prob_create_and_alloc_space_for_array_50;{{d908:20f8}}  (-$08)
+        jr      nz,_create_and_alloc_space_for_array_50;{{d908:20f8}}  (-$08)
+
         pop     bc                ;{{d90a:c1}} 
         pop     hl                ;{{d90b:e1}} 
         ld      e,(hl)            ;{{d90c:5e}} 
@@ -5377,20 +5495,22 @@ _prob_create_and_alloc_space_for_array_50:;{{Addr=$d902 Code Calls/jump count: 1
         ex      de,hl             ;{{d912:eb}} 
         dec     hl                ;{{d913:2b}} 
         dec     hl                ;{{d914:2b}} 
-        ld      (hl),e            ;{{d915:73}} 
+        ld      (hl),e            ;{{d915:73}} store pointer to next item in list?
         inc     hl                ;{{d916:23}} 
         ld      (hl),d            ;{{d917:72}} 
         inc     hl                ;{{d918:23}} 
         ex      (sp),hl           ;{{d919:e3}} 
         ex      de,hl             ;{{d91a:eb}} 
+
         ld      a,(accumulator_data_type);{{d91b:3a9fb0}} 
-        call    _zero_6_bytes_at_aded_20;{{d91e:cd27d6}} 
-        call    _prob_alloc_space_for_new_var_61;{{d921:cdd0d7}} 
+        call    get_array_area_and_array_list_head_ptr_for_type;{{d91e:cd27d6}} 
+        call    poss_update_list_headers;{{d921:cdd0d7}} and update list header?
         pop     de                ;{{d924:d1}} 
         pop     hl                ;{{d925:e1}} 
         ret                       ;{{d926:c9}} 
 
-_prob_create_and_alloc_space_for_array_79:;{{Addr=$d927 Code Calls/jump count: 2 Data use count: 0}}
+;;=pop word off execution stack
+pop_word_off_execution_stack:     ;{{Addr=$d927 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,$02             ;{{d927:3e02}} 
         call    probably_remove_A_bytes_off_execution_stack_and_get_address;{{d929:cd62f6}} 
         ld      a,(hl)            ;{{d92c:7e}} 
@@ -5400,118 +5520,141 @@ _prob_create_and_alloc_space_for_array_79:;{{Addr=$d927 Code Calls/jump count: 2
         ret                       ;{{d930:c9}} 
 
 ;;=================================
-;;get offset into var table
-;;returns value in DE
-get_offset_into_var_table:        ;{{Addr=$d931 Code Calls/jump count: 7 Data use count: 0}}
-        call    set_accum_type_from_variable_type_atHL;{{d931:cdafd9}} 
+;;parse var type and name
+;if the offset is set within the variables token data, returns it in DE and skips over the name,
+;otherwise copies the variables name onto the execution stack and sets (&ae0e) to point to the first char,
+;and returns the first letter in uppercase in C
+;Carry set if we're returning the offset.
+;Entry: HL=pointer to variable definition, token data
+;Exit:DE=value (offset)
+;C=first letter of name converted to upper case
+;Carry set if offset found
+parse_var_type_and_name:          ;{{Addr=$d931 Code Calls/jump count: 7 Data use count: 0}}
+        call    set_accum_type_from_variable_type_atHL;{{d931:cdafd9}} Set accumulator to match variable token type
         inc     hl                ;{{d934:23}} 
         ld      e,(hl)            ;{{d935:5e}} read var offset into DE
         inc     hl                ;{{d936:23}} 
         ld      d,(hl)            ;{{d937:56}} 
         ld      a,d               ;{{d938:7a}} 
         or      e                 ;{{d939:b3}} 
-        jr      z,prob_parse_var_name_and_find;{{d93a:280a}}  (+$0a) if offset is zero we need to find offset
-_get_offset_into_var_table_8:     ;{{Addr=$d93c Code Calls/jump count: 1 Data use count: 0}}
+        jr      z,copy_var_name_onto_exec_stack;{{d93a:280a}}  (+$0a) if offset is zero we need to find offset
+
+_parse_var_type_and_name_8:       ;{{Addr=$d93c Code Calls/jump count: 1 Data use count: 0}}
         inc     hl                ;{{d93c:23}} skip over var name (ends with bit 7 set)
         ld      a,(hl)            ;{{d93d:7e}} 
         rla                       ;{{d93e:17}} 
-        jr      nc,_get_offset_into_var_table_8;{{d93f:30fb}}  (-$05)
+        jr      nc,_parse_var_type_and_name_8;{{d93f:30fb}}  (-$05)
+
         call    get_next_token_skipping_space;{{d941:cd2cde}}  get next token skipping space
         scf                       ;{{d944:37}} 
         ret                       ;{{d945:c9}} 
 
-;;=prob parse var name and find
-prob_parse_var_name_and_find:     ;{{Addr=$d946 Code Calls/jump count: 1 Data use count: 0}}
+;;=copy var name onto exec stack
+;;Parse variable name onto execution stack, set (AE0E) as a poiner to it
+;Exit: C=first letter of name converted to uppercase
+copy_var_name_onto_exec_stack:    ;{{Addr=$d946 Code Calls/jump count: 1 Data use count: 0}}
         dec     hl                ;{{d946:2b}} 
-        dec     hl                ;{{d947:2b}} 
+        dec     hl                ;{{d947:2b}} HL now ponts to variable type token
         ex      de,hl             ;{{d948:eb}} 
         pop     bc                ;{{d949:c1}} 
-        ld      hl,(RAM_ae0e)     ;{{d94a:2a0eae}} 
+        ld      hl,(poss_cached_addrvariable_name_address_o);{{d94a:2a0eae}} Old top of execution stack?
         push    hl                ;{{d94d:e5}} 
-        ld      hl,_prob_parse_var_name_and_find_15;{{d94e:215ed9}} ;WARNING: Code area used as literal
-        push    hl                ;{{d951:e5}} 
+        ld      hl,_copy_var_name_onto_exec_stack_15;{{d94e:215ed9}} ##LABEL##
+        push    hl                ;{{d951:e5}} !!!Push code address onto stack - not sure where this comes out!!!
         push    bc                ;{{d952:c5}} 
         ex      de,hl             ;{{d953:eb}} 
         push    hl                ;{{d954:e5}} 
-        call    prob_copy_var_name_onto_execution_stack;{{d955:cd6cd9}} 
-        ld      (RAM_ae0e),de     ;{{d958:ed530eae}} 
+        call    copy_var_name_onto_execution_stack;{{d955:cd6cd9}} 
+        ld      (poss_cached_addrvariable_name_address_o),de;{{d958:ed530eae}} 
         pop     de                ;{{d95c:d1}} 
         ret                       ;{{d95d:c9}} 
 
-_prob_parse_var_name_and_find_15: ;{{Addr=$d95e Code Calls/jump count: 0 Data use count: 1}}
+_copy_var_name_onto_exec_stack_15:;{{Addr=$d95e Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d95e:e5}} 
-        ld      hl,(RAM_ae0e)     ;{{d95f:2a0eae}} 
+        ld      hl,(poss_cached_addrvariable_name_address_o);{{d95f:2a0eae}} 
         call    set_execution_stack_next_free_ptr;{{d962:cd6ef6}} 
         pop     hl                ;{{d965:e1}} 
         ex      (sp),hl           ;{{d966:e3}} 
-        ld      (RAM_ae0e),hl     ;{{d967:220eae}} 
+        ld      (poss_cached_addrvariable_name_address_o),hl;{{d967:220eae}} 
         pop     hl                ;{{d96a:e1}} 
         ret                       ;{{d96b:c9}} 
 
-;;=prob copy var name onto execution stack
-prob_copy_var_name_onto_execution_stack:;{{Addr=$d96c Code Calls/jump count: 2 Data use count: 0}}
+;;=======================================
+;;=copy var name onto execution stack
+;Entry: DE=address of a variable type token
+;Exit: C=first letter of name converted to uppercase
+copy_var_name_onto_execution_stack:;{{Addr=$d96c Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{d96c:e5}} 
-        ld      a,(hl)            ;{{d96d:7e}} 
+        ld      a,(hl)            ;{{d96d:7e}} Get var type
         inc     hl                ;{{d96e:23}} 
         inc     hl                ;{{d96f:23}} 
-        inc     hl                ;{{d970:23}} 
-        ld      c,(hl)            ;{{d971:4e}} 
-        res     5,c               ;{{d972:cba9}} 
+        inc     hl                ;{{d970:23}} HL=pointer to var name
+        ld      c,(hl)            ;{{d971:4e}} First char of name
+        res     5,c               ;{{d972:cba9}} To upper case
         ex      (sp),hl           ;{{d974:e3}} 
         cp      $0b               ;{{d975:fe0b}} 
-        jr      c,_prob_copy_var_name_onto_execution_stack_24;{{d977:3817}}  (+$17)
-        ld      a,c               ;{{d979:79}} 
+        jr      c,do_the_name_copying;{{d977:3817}}  (+$17) variable type is known
+
+;establish the variables type ... and poke that into the variables token data
+        ld      a,c               ;{{d979:79}} Get index into DEFtype table...
         and     $1f               ;{{d97a:e61f}} 
-        add     a,$f2             ;{{d97c:c6f2}} 
+        add     a,$f2             ;{{d97c:c6f2}} ...which starts at ADF3
         ld      e,a               ;{{d97e:5f}} 
         adc     a,$ad             ;{{d97f:cead}} 
         sub     e                 ;{{d981:93}} 
         ld      d,a               ;{{d982:57}} 
-        ld      a,(de)            ;{{d983:1a}} 
+        ld      a,(de)            ;{{d983:1a}} Type from DEFtype table
         ld      (accumulator_data_type),a;{{d984:329fb0}} 
-        ld      (hl),$0d          ;{{d987:360d}} 
-        cp      $05               ;{{d989:fe05}} 
-        jr      z,_prob_copy_var_name_onto_execution_stack_24;{{d98b:2803}}  (+$03)
-        add     a,$09             ;{{d98d:c609}} 
+        ld      (hl),$0d          ;{{d987:360d}} Set the vars type as real/unspecified
+        cp      $05               ;{{d989:fe05}} Real?
+        jr      z,do_the_name_copying;{{d98b:2803}}  (+$03)
+
+        add     a,$09             ;{{d98d:c609}} Set the variables type (as no suffix defined)
         ld      (hl),a            ;{{d98f:77}} 
-_prob_copy_var_name_onto_execution_stack_24:;{{Addr=$d990 Code Calls/jump count: 2 Data use count: 0}}
+
+;;=do the name copying
+do_the_name_copying:              ;{{Addr=$d990 Code Calls/jump count: 2 Data use count: 0}}
         pop     de                ;{{d990:d1}} 
-        ld      a,$28             ;{{d991:3e28}} 
+        ld      a,$28             ;{{d991:3e28}} Max name length??
         call    possibly_alloc_A_bytes_on_execution_stack;{{d993:cd72f6}} 
         push    hl                ;{{d996:e5}} 
         ld      b,$29             ;{{d997:0629}} 
-_prob_copy_var_name_onto_execution_stack_29:;{{Addr=$d999 Code Calls/jump count: 1 Data use count: 0}}
+
+_do_the_name_copying_5:           ;{{Addr=$d999 Code Calls/jump count: 1 Data use count: 0}}
         dec     b                 ;{{d999:05}} 
-        jp      z,Error_Syntax_Error;{{d99a:ca49cb}}  Error: Syntax Error
-        ld      a,(de)            ;{{d99d:1a}} 
+        jp      z,Error_Syntax_Error;{{d99a:ca49cb}}  Error: Syntax Error (name too long)
+
+        ld      a,(de)            ;{{d99d:1a}} Copy char
         inc     de                ;{{d99e:13}} 
-        and     $df               ;{{d99f:e6df}} 
+        and     $df               ;{{d99f:e6df}} Convert to upper case
         ld      (hl),a            ;{{d9a1:77}} 
         inc     hl                ;{{d9a2:23}} 
-        rla                       ;{{d9a3:17}} 
-        jr      nc,_prob_copy_var_name_onto_execution_stack_29;{{d9a4:30f3}}  (-$0d)
-        call    set_execution_stack_next_free_ptr;{{d9a6:cd6ef6}} 
+        rla                       ;{{d9a3:17}} Bit 7 set? (Last char)
+        jr      nc,_do_the_name_copying_5;{{d9a4:30f3}}  (-$0d) Loop for next char
+
+        call    set_execution_stack_next_free_ptr;{{d9a6:cd6ef6}} Push onto execution stack
         ex      de,hl             ;{{d9a9:eb}} 
         dec     hl                ;{{d9aa:2b}} 
         pop     de                ;{{d9ab:d1}} 
         jp      get_next_token_skipping_space;{{d9ac:c32cde}}  get next token skipping space
 
+;;==============================================
 ;;=set accum type from variable type atHL
-;variable data types = 2/3/4 if have suffix, $b/$c/$d if no suffix
+;variable data type tokens = 2/3/4 if have suffix, $b/$c/$d if no suffix
 set_accum_type_from_variable_type_atHL:;{{Addr=$d9af Code Calls/jump count: 2 Data use count: 0}}
         ld      a,(hl)            ;{{d9af:7e}} 
         cp      $0b               ;{{d9b0:fe0b}} No suffix
         jr      c,_set_accum_type_from_variable_type_athl_4;{{d9b2:3802}}  (+$02)
         add     a,$f7             ;{{d9b4:c6f7}} Subtract 9
 _set_accum_type_from_variable_type_athl_4:;{{Addr=$d9b6 Code Calls/jump count: 1 Data use count: 0}}
-        cp      $04               ;{{d9b6:fe04}} REAL type
+        cp      $04               ;{{d9b6:fe04}} REAL type token
         jr      z,set_accum_type_as_REAL;{{d9b8:2809}}  (+$09)
-        jr      nc,raise_syntax_error_B;{{d9ba:3004}}  (+$04)
-        cp      $02               ;{{d9bc:fe02}} INT type
+        jr      nc,raise_syntax_error_C;{{d9ba:3004}}  (+$04)
+        cp      $02               ;{{d9bc:fe02}} INT type token
         jr      nc,set_accumulator_type;{{d9be:3005}}  (+$05)
 
 ;;=raise Syntax Error
-raise_syntax_error_B:             ;{{Addr=$d9c0 Code Calls/jump count: 1 Data use count: 0}}
+raise_syntax_error_C:             ;{{Addr=$d9c0 Code Calls/jump count: 1 Data use count: 0}}
         jp      Error_Syntax_Error;{{d9c0:c349cb}}  Error: Syntax Error
 
 ;;=set accum type as REAL
@@ -5522,249 +5665,276 @@ set_accumulator_type:             ;{{Addr=$d9c5 Code Calls/jump count: 1 Data us
         ld      (accumulator_data_type),a;{{d9c5:329fb0}} 
         ret                       ;{{d9c8:c9}} 
 
-;=============
-_set_accumulator_type_2:          ;{{Addr=$d9c9 Code Calls/jump count: 1 Data use count: 0}}
-        call    zero_6_bytes_at_aded;{{d9c9:cd02d6}} 
-        ld      hl,(address_of_start_of_free_space_);{{d9cc:2a6cae}} 
+;;=========================================
+;;=update array list heads
+;iterate over all arrays and update the list heads (there's one for each data type 2,3,5)
+;works by:
+;reset heads to nil
+;works from start to arrays area
+;for each array, update list head for that type
+;until end of arrays area
+;so, each list head will now point to the last array for it's type
+update_array_list_heads:          ;{{Addr=$d9c9 Code Calls/jump count: 1 Data use count: 0}}
+        call    reset_array_linked_list_headers;{{d9c9:cd02d6}} 
+        ld      hl,(address_of_start_of_free_space_);{{d9cc:2a6cae}} get bounds of arrays area
         ex      de,hl             ;{{d9cf:eb}} 
         ld      hl,(address_of_start_of_Arrays_area_);{{d9d0:2a6aae}} 
-_set_accumulator_type_6:          ;{{Addr=$d9d3 Code Calls/jump count: 1 Data use count: 0}}
+_update_array_list_heads_4:       ;{{Addr=$d9d3 Code Calls/jump count: 1 Data use count: 0}}
         call    compare_HL_DE     ;{{d9d3:cdd8ff}}  HL=DE?
-        ret     z                 ;{{d9d6:c8}} 
+        ret     z                 ;{{d9d6:c8}} end once we go beyond end of arrays area
 
-        push    de                ;{{d9d7:d5}} 
-        call    poss_step_over_string;{{d9d8:cd65d7}} 
-        ld      a,(hl)            ;{{d9db:7e}} 
+        push    de                ;{{d9d7:d5}} DE = start of arrays area
+        call    poss_step_over_string;{{d9d8:cd65d7}} skip over array name...
+        ld      a,(hl)            ;{{d9db:7e}} ...to get to type
         inc     hl                ;{{d9dc:23}} 
         and     $07               ;{{d9dd:e607}} 
         inc     a                 ;{{d9df:3c}} 
-        push    hl                ;{{d9e0:e5}} 
-        call    _zero_6_bytes_at_aded_20;{{d9e1:cd27d6}} 
-        call    _prob_alloc_space_for_new_var_61;{{d9e4:cdd0d7}} 
-        pop     hl                ;{{d9e7:e1}} 
-        ld      e,(hl)            ;{{d9e8:5e}} 
+        push    hl                ;{{d9e0:e5}} HL=start of current item
+        call    get_array_area_and_array_list_head_ptr_for_type;{{d9e1:cd27d6}} get list head ptr for item type
+        call    poss_update_list_headers;{{d9e4:cdd0d7}} update head ptr to current item
+        pop     hl                ;{{d9e7:e1}} back to start of item
+        ld      e,(hl)            ;{{d9e8:5e}} read offset ptr to next item
         inc     hl                ;{{d9e9:23}} 
         ld      d,(hl)            ;{{d9ea:56}} 
         inc     hl                ;{{d9eb:23}} 
-        add     hl,de             ;{{d9ec:19}} 
-        pop     de                ;{{d9ed:d1}} 
-        jr      _set_accumulator_type_6;{{d9ee:18e3}}  (-$1d)
+        add     hl,de             ;{{d9ec:19}} add offset to start of arrays area
+        pop     de                ;{{d9ed:d1}} retrieve start of arrays area
+        jr      _update_array_list_heads_4;{{d9ee:18e3}}  (-$1d) next
 
 ;;========================================================================
 ;; command ERASE
 
 command_ERASE:                    ;{{Addr=$d9f0 Code Calls/jump count: 0 Data use count: 1}}
-        call    prob_reset_links_to_variables_data;{{d9f0:cd4dea}} 
+        call    reset_variable_types_and_pointers;{{d9f0:cd4dea}} 
 _command_erase_1:                 ;{{Addr=$d9f3 Code Calls/jump count: 1 Data use count: 0}}
-        call    _command_erase_5  ;{{d9f3:cdfcd9}} 
+        call    do_ERASE_parameter;{{d9f3:cdfcd9}} 
         call    next_token_if_prev_is_comma;{{d9f6:cd41de}} 
-        jr      c,_command_erase_1;{{d9f9:38f8}}  (-$08)
+        jr      c,_command_erase_1;{{d9f9:38f8}}  (-$08) loop if more parameters
         ret                       ;{{d9fb:c9}} 
 
-_command_erase_5:                 ;{{Addr=$d9fc Code Calls/jump count: 1 Data use count: 0}}
-        call    get_offset_into_var_table;{{d9fc:cd31d9}} 
+;;=do ERASE parameter
+do_ERASE_parameter:               ;{{Addr=$d9fc Code Calls/jump count: 1 Data use count: 0}}
+        call    parse_var_type_and_name;{{d9fc:cd31d9}} find the array
         push    hl                ;{{d9ff:e5}} 
         ld      a,(accumulator_data_type);{{da00:3a9fb0}} 
-        call    _zero_6_bytes_at_aded_20;{{da03:cd27d6}} 
-        call    xd740_code        ;{{da06:cd40d7}} 
-        jp      nc,Error_Improper_Argument;{{da09:d24dcb}}  Error: Improper Argument
+        call    get_array_area_and_array_list_head_ptr_for_type;{{da03:cd27d6}} 
+        call    find_named_item_in_linked_list;{{da06:cd40d7}} 
+        jp      nc,Error_Improper_Argument;{{da09:d24dcb}}  Error: Improper Argument (array not dimmed)
+
         ex      de,hl             ;{{da0c:eb}} 
-        ld      c,(hl)            ;{{da0d:4e}} 
+        ld      c,(hl)            ;{{da0d:4e}} offset to next item
         inc     hl                ;{{da0e:23}} 
         ld      b,(hl)            ;{{da0f:46}} 
         inc     hl                ;{{da10:23}} 
-        add     hl,bc             ;{{da11:09}} 
+        add     hl,bc             ;{{da11:09}} calc size of item
         call    BC_equal_HL_minus_DE;{{da12:cde4ff}}  BC = HL-DE
-        call    move_lower_memory_down;{{da15:cde5f6}} 
+        call    move_lower_memory_down;{{da15:cde5f6}} move other items to fill gap
         call    prob_grow_array_space_ptrs_by_BC;{{da18:cd21f6}} 
-        call    _set_accumulator_type_2;{{da1b:cdc9d9}} 
+        call    update_array_list_heads;{{da1b:cdc9d9}} rebuild list pointers??
         pop     hl                ;{{da1e:e1}} 
         ret                       ;{{da1f:c9}} 
 
-;;=clear AE12 AE10 words
-clear_AE12_AE10_words:            ;{{Addr=$da20 Code Calls/jump count: 2 Data use count: 0}}
+;;============================
+;;=clear FN params data
+clear_FN_params_data:             ;{{Addr=$da20 Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,$0000          ;{{da20:210000}} ##LIT##
-        ld      (RAM_ae12),hl     ;{{da23:2212ae}} 
-        ld      (RAM_ae10),hl     ;{{da26:2210ae}} 
+        ld      (FN_param_end),hl ;{{da23:2212ae}} 
+        ld      (FN_param_start),hl;{{da26:2210ae}} 
         ret                       ;{{da29:c9}} 
 
-;;=prob push FN data on execution stack
-prob_push_FN_data_on_execution_stack:;{{Addr=$da2a Code Calls/jump count: 1 Data use count: 0}}
+;;=push FN header on execution stack
+;DE=address of the DEF FN for this FN
+push_FN_header_on_execution_stack:;{{Addr=$da2a Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{da2a:e5}} 
-        ld      hl,(RAM_ae10)     ;{{da2b:2a10ae}} 
+        ld      hl,(FN_param_start);{{da2b:2a10ae}} 
         ex      de,hl             ;{{da2e:eb}} 
         ld      a,$06             ;{{da2f:3e06}} 
         call    possibly_alloc_A_bytes_on_execution_stack;{{da31:cd72f6}} 
-        ld      (RAM_ae10),hl     ;{{da34:2210ae}} 
-        ld      (hl),e            ;{{da37:73}} 
+        ld      (FN_param_start),hl;{{da34:2210ae}} 
+        ld      (hl),e            ;{{da37:73}} store address of DEF FN
         inc     hl                ;{{da38:23}} 
         ld      (hl),d            ;{{da39:72}} 
         inc     hl                ;{{da3a:23}} 
         xor     a                 ;{{da3b:af}} 
-        ld      (hl),a            ;{{da3c:77}} 
+        ld      (hl),a            ;{{da3c:77}} store zero
         inc     hl                ;{{da3d:23}} 
-        ld      (hl),a            ;{{da3e:77}} 
+        ld      (hl),a            ;{{da3e:77}} store zero
         inc     hl                ;{{da3f:23}} 
-        ld      de,(RAM_ae12)     ;{{da40:ed5b12ae}} 
-        ld      (hl),e            ;{{da44:73}} 
+        ld      de,(FN_param_end) ;{{da40:ed5b12ae}} 
+        ld      (hl),e            ;{{da44:73}} store end of FN params
         inc     hl                ;{{da45:23}} 
         ld      (hl),d            ;{{da46:72}} 
         pop     hl                ;{{da47:e1}} 
         ret                       ;{{da48:c9}} 
 
-;;=copy ae10 word to ae12
-copy_ae10_word_to_ae12:           ;{{Addr=$da49 Code Calls/jump count: 1 Data use count: 0}}
-        push    hl                ;{{da49:e5}} 
-        ld      hl,(RAM_ae10)     ;{{da4a:2a10ae}} 
-        ld      (RAM_ae12),hl     ;{{da4d:2212ae}} 
+;;=copy FN param start to FN param end
+copy_FN_param_start_to_FN_param_end:;{{Addr=$da49 Code Calls/jump count: 1 Data use count: 0}}
+        push    hl                ;{{da49:e5}} Called after pushing all params on exec stack
+        ld      hl,(FN_param_start);{{da4a:2a10ae}} 
+        ld      (FN_param_end),hl ;{{da4d:2212ae}} 
         pop     hl                ;{{da50:e1}} 
         ret                       ;{{da51:c9}} 
 
-;;=prob remove FN data from stack
-prob_remove_FN_data_from_stack:   ;{{Addr=$da52 Code Calls/jump count: 1 Data use count: 0}}
-        ld      hl,(RAM_ae10)     ;{{da52:2a10ae}} 
+;;=remove FN data from stack
+remove_FN_data_from_stack:        ;{{Addr=$da52 Code Calls/jump count: 1 Data use count: 0}}
+        ld      hl,(FN_param_start);{{da52:2a10ae}} free our data off the exec stack
         call    set_execution_stack_next_free_ptr;{{da55:cd6ef6}} 
-        ld      e,(hl)            ;{{da58:5e}} 
+        ld      e,(hl)            ;{{da58:5e}} read and restore previous param_start
         inc     hl                ;{{da59:23}} 
         ld      d,(hl)            ;{{da5a:56}} 
         inc     hl                ;{{da5b:23}} 
-        ld      (RAM_ae10),de     ;{{da5c:ed5310ae}} 
-        inc     hl                ;{{da60:23}} 
+        ld      (FN_param_start),de;{{da5c:ed5310ae}} 
+        inc     hl                ;{{da60:23}} step over list header
         inc     hl                ;{{da61:23}} 
-        ld      e,(hl)            ;{{da62:5e}} 
+        ld      e,(hl)            ;{{da62:5e}} read and restore prev param_end
         inc     hl                ;{{da63:23}} 
         ld      d,(hl)            ;{{da64:56}} 
         ex      de,hl             ;{{da65:eb}} 
-        ld      (RAM_ae12),hl     ;{{da66:2212ae}} 
+        ld      (FN_param_end),hl ;{{da66:2212ae}} 
         ret                       ;{{da69:c9}} 
 
-;;=prob alloc an FN parameter on execution stack
-prob_alloc_an_FN_parameter_on_execution_stack:;{{Addr=$da6a Code Calls/jump count: 1 Data use count: 0}}
+;;=push FN parameter on execution stack
+;An FN parameter uses the same data structures a regular variable. I.e a linked list
+;this allocates space, copies the name and type, and updates the relevant list pointers
+push_FN_parameter_on_execution_stack:;{{Addr=$da6a Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{da6a:e5}} 
-        ld      a,$02             ;{{da6b:3e02}} 
+        ld      a,$02             ;{{da6b:3e02}} alloc space for link to next item
         call    possibly_alloc_A_bytes_on_execution_stack;{{da6d:cd72f6}} 
         ex      (sp),hl           ;{{da70:e3}} 
         call    set_accum_type_from_variable_type_atHL;{{da71:cdafd9}} 
-        call    prob_copy_var_name_onto_execution_stack;{{da74:cd6cd9}} 
+        call    copy_var_name_onto_execution_stack;{{da74:cd6cd9}} 
         ex      (sp),hl           ;{{da77:e3}} 
         ex      de,hl             ;{{da78:eb}} 
-        ld      hl,(RAM_ae10)     ;{{da79:2a10ae}} 
+        ld      hl,(FN_param_start);{{da79:2a10ae}} 
         inc     hl                ;{{da7c:23}} 
         inc     hl                ;{{da7d:23}} 
-        ld      bc,RESET_ENTRY    ;{{da7e:010000}} 
-        call    _prob_alloc_space_for_new_var_61;{{da81:cdd0d7}} 
-        ld      a,(accumulator_data_type);{{da84:3a9fb0}} 
+        ld      bc,$0000          ;{{da7e:010000}} ##LIT##
+        call    poss_update_list_headers;{{da81:cdd0d7}} 
+        ld      a,(accumulator_data_type);{{da84:3a9fb0}} variable type (and byte-size)
         ld      b,a               ;{{da87:47}} 
-        inc     a                 ;{{da88:3c}} 
-        call    possibly_alloc_A_bytes_on_execution_stack;{{da89:cd72f6}} 
+        inc     a                 ;{{da88:3c}} add a byte for data type descriptor
+        call    possibly_alloc_A_bytes_on_execution_stack;{{da89:cd72f6}} alloc space for variable type and data
         ld      a,b               ;{{da8c:78}} 
         dec     a                 ;{{da8d:3d}} 
-        ld      (hl),a            ;{{da8e:77}} 
+        ld      (hl),a            ;{{da8e:77}} store the data type
         inc     hl                ;{{da8f:23}} 
         ex      de,hl             ;{{da90:eb}} 
         pop     hl                ;{{da91:e1}} 
         ret                       ;{{da92:c9}} 
 
-;;takes a code address in DE
-_prob_alloc_an_fn_parameter_on_execution_stack_24:;{{Addr=$da93 Code Calls/jump count: 3 Data use count: 0}}
-        ld      hl,(RAM_ae10)     ;{{da93:2a10ae}} 
-_prob_alloc_an_fn_parameter_on_execution_stack_25:;{{Addr=$da96 Code Calls/jump count: 1 Data use count: 0}}
+;;=iterate all string variables
+;iterates through all string variables and calls the code in DE for each one.
+iterate_all_string_variables:     ;{{Addr=$da93 Code Calls/jump count: 3 Data use count: 0}}
+        ld      hl,(FN_param_start);{{da93:2a10ae}} start with any FNs, if present
+
+;;=FN stack loop
+FN_stack_loop:                    ;{{Addr=$da96 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,h               ;{{da96:7c}} 
         or      l                 ;{{da97:b5}} 
-        jr      z,_prob_alloc_an_fn_parameter_on_execution_stack_37;{{da98:280e}}  (+$0e)
-        ld      c,(hl)            ;{{da9a:4e}} 
+        jr      z,iterate_all_main_variables;{{da98:280e}}  (+$0e) no/end of/ FNs, do main variables
+        ld      c,(hl)            ;{{da9a:4e}} pointer to next FN data block on stack
         inc     hl                ;{{da9b:23}} 
         ld      b,(hl)            ;{{da9c:46}} 
         inc     hl                ;{{da9d:23}} 
         push    bc                ;{{da9e:c5}} 
-        ld      bc,RESET_ENTRY    ;{{da9f:010000}} 
-        call    _prob_alloc_an_fn_parameter_on_execution_stack_81;{{daa2:cde9da}} 
+        ld      bc,$0000          ;{{da9f:010000}} FN pointers are relative to start of memory ##LIT##
+        call    iterate_all_strings_in_a_linked_list;{{daa2:cde9da}} 
         pop     hl                ;{{daa5:e1}} 
-        jr      _prob_alloc_an_fn_parameter_on_execution_stack_25;{{daa6:18ee}}  (-$12)
+        jr      FN_stack_loop     ;{{daa6:18ee}}  (-$12)
 
-_prob_alloc_an_fn_parameter_on_execution_stack_37:;{{Addr=$daa8 Code Calls/jump count: 1 Data use count: 0}}
-        ld      bc,$1a41          ;{{daa8:01411a}} 
-_prob_alloc_an_fn_parameter_on_execution_stack_38:;{{Addr=$daab Code Calls/jump count: 1 Data use count: 0}}
+;;=iterate all main variables
+iterate_all_main_variables:       ;{{Addr=$daa8 Code Calls/jump count: 1 Data use count: 0}}
+        ld      bc,$1a41          ;{{daa8:01411a}} B=number of linked lists. C=index of first one ('A')
+;;=var linked list headers loop
+var_linked_list_headers_loop:     ;{{Addr=$daab Code Calls/jump count: 1 Data use count: 0}}
         push    bc                ;{{daab:c5}} 
-        ld      a,c               ;{{daac:79}} 
-        call    _zero_6_bytes_at_aded_11;{{daad:cd19d6}} 
-        call    _prob_alloc_an_fn_parameter_on_execution_stack_81;{{dab0:cde9da}} 
+        ld      a,c               ;{{daac:79}} list index
+        call    get_VarFN_area_and_list_head_ptr;{{daad:cd19d6}} get list header (and base for offsets)
+        call    iterate_all_strings_in_a_linked_list;{{dab0:cde9da}} 
         pop     bc                ;{{dab3:c1}} 
-        inc     c                 ;{{dab4:0c}} 
-        djnz    _prob_alloc_an_fn_parameter_on_execution_stack_38;{{dab5:10f4}}  (-$0c)
-        ld      a,$03             ;{{dab7:3e03}} 
-        call    _zero_6_bytes_at_aded_20;{{dab9:cd27d6}} 
+        inc     c                 ;{{dab4:0c}} next index
+        djnz    var_linked_list_headers_loop;{{dab5:10f4}}  (-$0c) loop
+
+                                  ;now do array linked lists
+        ld      a,$03             ;{{dab7:3e03}} string type
+        call    get_array_area_and_array_list_head_ptr_for_type;{{dab9:cd27d6}} get list header for string arrays (and base for offsets)
         push    hl                ;{{dabc:e5}} 
-_prob_alloc_an_fn_parameter_on_execution_stack_48:;{{Addr=$dabd Code Calls/jump count: 1 Data use count: 0}}
-        pop     hl                ;{{dabd:e1}} 
-        ld      c,(hl)            ;{{dabe:4e}} 
+
+;;=array linked list loop
+array_linked_list_loop:           ;{{Addr=$dabd Code Calls/jump count: 1 Data use count: 0}}
+        pop     hl                ;{{dabd:e1}} walk each item in the linked list
+        ld      c,(hl)            ;{{dabe:4e}} get offset for first/next item
         inc     hl                ;{{dabf:23}} 
         ld      b,(hl)            ;{{dac0:46}} 
         ld      a,b               ;{{dac1:78}} 
         or      c                 ;{{dac2:b1}} 
-        ret     z                 ;{{dac3:c8}} 
+        ret     z                 ;{{dac3:c8}} end of list
 
         ld      hl,(address_of_start_of_Arrays_area_);{{dac4:2a6aae}} 
         dec     hl                ;{{dac7:2b}} 
-        add     hl,bc             ;{{dac8:09}} 
+        add     hl,bc             ;{{dac8:09}} absolute address of item
         push    hl                ;{{dac9:e5}} 
         push    de                ;{{daca:d5}} 
-        call    poss_step_over_string;{{dacb:cd65d7}} 
+        call    poss_step_over_string;{{dacb:cd65d7}} step over array name and type
         pop     de                ;{{dace:d1}} 
         inc     hl                ;{{dacf:23}} 
         ld      c,(hl)            ;{{dad0:4e}} 
         inc     hl                ;{{dad1:23}} 
-        ld      b,(hl)            ;{{dad2:46}} 
+        ld      b,(hl)            ;{{dad2:46}} BC=size of array data?
         inc     hl                ;{{dad3:23}} 
-        push    hl                ;{{dad4:e5}} 
-        add     hl,bc             ;{{dad5:09}} 
-        ex      (sp),hl           ;{{dad6:e3}} 
-        ld      c,(hl)            ;{{dad7:4e}} 
+        push    hl                ;{{dad4:e5}} current
+        add     hl,bc             ;{{dad5:09}} array end
+        ex      (sp),hl           ;{{dad6:e3}} stack=array end/HL=current
+        ld      c,(hl)            ;{{dad7:4e}} C=number of dimensions
         inc     hl                ;{{dad8:23}} 
-        ld      b,$00             ;{{dad9:0600}} 
-        add     hl,bc             ;{{dadb:09}} 
-        add     hl,bc             ;{{dadc:09}} 
-        pop     bc                ;{{dadd:c1}} 
-_prob_alloc_an_fn_parameter_on_execution_stack_76:;{{Addr=$dade Code Calls/jump count: 1 Data use count: 0}}
-        call    compare_HL_BC     ;{{dade:cddeff}}  HL=BC?
-        jr      z,_prob_alloc_an_fn_parameter_on_execution_stack_48;{{dae1:28da}}  (-$26)
-        call    _prob_alloc_an_fn_parameter_on_execution_stack_99;{{dae3:cd02db}} 
-        inc     hl                ;{{dae6:23}} 
-        jr      _prob_alloc_an_fn_parameter_on_execution_stack_76;{{dae7:18f5}}  (-$0b)
+        ld      b,$00             ;{{dad9:0600}} BC=number of dimensions
+        add     hl,bc             ;{{dadb:09}} step over dimensions data
+        add     hl,bc             ;{{dadc:09}} HL=first element of array
+        pop     bc                ;{{dadd:c1}} BC=end of elements data
 
-_prob_alloc_an_fn_parameter_on_execution_stack_81:;{{Addr=$dae9 Code Calls/jump count: 3 Data use count: 0}}
-        ld      a,(hl)            ;{{dae9:7e}} 
+;;=array elements loop
+array_elements_loop:              ;{{Addr=$dade Code Calls/jump count: 1 Data use count: 0}}
+        call    compare_HL_BC     ;{{dade:cddeff}}  HL=BC?
+        jr      z,array_linked_list_loop;{{dae1:28da}}  (-$26) next item in list
+        call    read_string_data_and_call_callback;{{dae3:cd02db}} 
+        inc     hl                ;{{dae6:23}} 
+        jr      array_elements_loop;{{dae7:18f5}}  (-$0b)
+
+;;=iterate all strings in a linked list
+iterate_all_strings_in_a_linked_list:;{{Addr=$dae9 Code Calls/jump count: 3 Data use count: 0}}
+        ld      a,(hl)            ;{{dae9:7e}} offset of next item
         inc     hl                ;{{daea:23}} 
         ld      h,(hl)            ;{{daeb:66}} 
         ld      l,a               ;{{daec:6f}} 
         or      h                 ;{{daed:b4}} 
-        ret     z                 ;{{daee:c8}} 
+        ret     z                 ;{{daee:c8}} end of list
 
-        add     hl,bc             ;{{daef:09}} 
+        add     hl,bc             ;{{daef:09}} add base to offset
         push    hl                ;{{daf0:e5}} 
         push    de                ;{{daf1:d5}} 
-        call    poss_step_over_string;{{daf2:cd65d7}} 
+        call    poss_step_over_string;{{daf2:cd65d7}} step over variable name
         pop     de                ;{{daf5:d1}} 
-        ld      a,(hl)            ;{{daf6:7e}} 
+        ld      a,(hl)            ;{{daf6:7e}} type??
         inc     hl                ;{{daf7:23}} 
         and     $07               ;{{daf8:e607}} 
-        cp      $02               ;{{dafa:fe02}} 
-        call    z,_prob_alloc_an_fn_parameter_on_execution_stack_99;{{dafc:cc02db}} 
+        cp      $02               ;{{dafa:fe02}} type must be 2??? that's int, not strings!!
+        call    z,read_string_data_and_call_callback;{{dafc:cc02db}} do callback
         pop     hl                ;{{daff:e1}} 
-        jr      _prob_alloc_an_fn_parameter_on_execution_stack_81;{{db00:18e7}}  (-$19)
+        jr      iterate_all_strings_in_a_linked_list;{{db00:18e7}}  (-$19) loop
 
-_prob_alloc_an_fn_parameter_on_execution_stack_99:;{{Addr=$db02 Code Calls/jump count: 2 Data use count: 0}}
+;;=read string data and call callback
+read_string_data_and_call_callback:;{{Addr=$db02 Code Calls/jump count: 2 Data use count: 0}}
         push    bc                ;{{db02:c5}} 
         push    de                ;{{db03:d5}} 
-        ld      a,(hl)            ;{{db04:7e}} 
+        ld      a,(hl)            ;{{db04:7e}} length
         inc     hl                ;{{db05:23}} 
-        ld      c,(hl)            ;{{db06:4e}} 
+        ld      c,(hl)            ;{{db06:4e}} address
         inc     hl                ;{{db07:23}} 
         ld      b,(hl)            ;{{db08:46}} 
         push    hl                ;{{db09:e5}} 
         ex      de,hl             ;{{db0a:eb}} 
         or      a                 ;{{db0b:b7}} 
-        call    nz,JP_HL          ;{{db0c:c4fbff}}  JP (HL)
+        call    nz,JP_HL          ;{{db0c:c4fbff}}  JP (HL) - dispatch callback
         pop     hl                ;{{db0f:e1}} 
         pop     de                ;{{db10:d1}} 
         pop     bc                ;{{db11:c1}} 
@@ -5773,51 +5943,52 @@ _prob_alloc_an_fn_parameter_on_execution_stack_99:;{{Addr=$db02 Code Calls/jump 
 
 
 
-
 ;;***DataInput.asm
 ;;<< (TEXT) DATA INPUT
 ;;< (LINE) INPUT, RESTORE, READ (not DATA)
 ;;========================================================================
-;; command LINE
+;; command LINE INPUT
 
-command_LINE:                     ;{{Addr=$db13 Code Calls/jump count: 0 Data use count: 1}}
+command_LINE_INPUT:               ;{{Addr=$db13 Code Calls/jump count: 0 Data use count: 1}}
         call    next_token_if_equals_inline_data_byte;{{db13:cd25de}} 
-        defb $a3                  ;inline token to test "ERL"
-        call    swap_boths_streams_exec_TOS_and_swap_back;{{db17:cdd4c1}} 
-        call    _redo_from_start_message_1;{{db1a:cd8bdb}} 
-        call    prob_parse_and_find_or_create_a_var;{{db1d:cdbfd6}} 
-        call    error_if_accumulator_is_not_a_string;{{db20:cd5eff}} 
+        defb $a3                  ;inline token to test "INPUT"
+        call    swap_both_streams_exec_TOS_and_swap_back;{{db17:cdd4c1}} 
+        call    input_display_prompt_if_given;{{db1a:cd8bdb}} 
+        call    parse_and_find_or_create_a_var;{{db1d:cdbfd6}} 
+        call    error_if_accumulator_is_not_a_string;{{db20:cd5eff}} can only read strings
         push    hl                ;{{db23:e5}} 
         push    de                ;{{db24:d5}} 
-        call    _command_line_14  ;{{db25:cd31db}} 
+        call    input_to_buffer   ;{{db25:cd31db}} 
         call    get_ASCIIZ_string ;{{db28:cd8af8}} 
         pop     hl                ;{{db2b:e1}} 
         call    copy_accumulator_to_atHL;{{db2c:cda8d6}} 
         pop     hl                ;{{db2f:e1}} 
         ret                       ;{{db30:c9}} 
 
-_command_line_14:                 ;{{Addr=$db31 Code Calls/jump count: 1 Data use count: 0}}
+;;=input to buffer
+input_to_buffer:                  ;{{Addr=$db31 Code Calls/jump count: 1 Data use count: 0}}
         call    get_input_stream  ;{{db31:cdc4c1}} 
-        jp      nc,_redo_from_start_message_102;{{db34:d257dc}} 
-_command_line_16:                 ;{{Addr=$db37 Code Calls/jump count: 1 Data use count: 0}}
-        call    prob_read_buffer_and_or_break;{{db37:cdecca}} 
-        ld      a,(RAM_ae14)      ;{{db3a:3a14ae}} 
-        cp      $3b               ;{{db3d:fe3b}} 
-        call    nz,output_new_line;{{db3f:c498c3}} ; new text line
+        jp      nc,input_line_from_file;{{db34:d257dc}} file stream? read from file
+;;=input screen to buffer
+input_screen_to_buffer:           ;{{Addr=$db37 Code Calls/jump count: 1 Data use count: 0}}
+        call    prob_read_buffer_and_or_break;{{db37:cdecca}} read line to BASIC input buffer
+        ld      a,(input_prompt_separator);{{db3a:3a14ae}} 
+        cp      $3b               ;{{db3d:fe3b}} ';'
+        call    nz,output_new_line;{{db3f:c498c3}} new line unless followed by semicolon?
         ret                       ;{{db42:c9}} 
 
 ;;========================================================================
 ;; command INPUT
 
 command_INPUT:                    ;{{Addr=$db43 Code Calls/jump count: 0 Data use count: 1}}
-        call    swap_boths_streams_exec_TOS_and_swap_back;{{db43:cdd4c1}} 
-        call    _command_input_13 ;{{db46:cd5bdb}} 
+        call    swap_both_streams_exec_TOS_and_swap_back;{{db43:cdd4c1}} 
+        call    input_get_input   ;{{db46:cd5bdb}} 
         push    de                ;{{db49:d5}} 
 _command_input_3:                 ;{{Addr=$db4a Code Calls/jump count: 1 Data use count: 0}}
-        call    prob_parse_and_find_or_create_a_var;{{db4a:cdbfd6}} 
+        call    parse_and_find_or_create_a_var;{{db4a:cdbfd6}} 
         ex      (sp),hl           ;{{db4d:e3}} 
         xor     a                 ;{{db4e:af}} 
-        call    _redo_from_start_message_22;{{db4f:cdbddb}} 
+        call    input_parse_item_or_error;{{db4f:cdbddb}} 
         inc     hl                ;{{db52:23}} 
         ex      (sp),hl           ;{{db53:e3}} 
         call    next_token_if_prev_is_comma;{{db54:cd41de}} 
@@ -5825,254 +5996,287 @@ _command_input_3:                 ;{{Addr=$db4a Code Calls/jump count: 1 Data us
         pop     de                ;{{db59:d1}} 
         ret                       ;{{db5a:c9}} 
 
-_command_input_13:                ;{{Addr=$db5b Code Calls/jump count: 1 Data use count: 0}}
+;;=input get input
+input_get_input:                  ;{{Addr=$db5b Code Calls/jump count: 1 Data use count: 0}}
         call    get_input_stream  ;{{db5b:cdc4c1}} 
-        jr      nc,_redo_from_start_message_1;{{db5e:302b}}  (+$2b)
-_command_input_15:                ;{{Addr=$db60 Code Calls/jump count: 1 Data use count: 0}}
+        jr      nc,input_display_prompt_if_given;{{db5e:302b}}  (+$2b) if file
+
+_input_get_input_2:               ;{{Addr=$db60 Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{db60:e5}} 
-        call    _redo_from_start_message_1;{{db61:cd8bdb}} 
+        call    input_display_prompt_if_given;{{db61:cd8bdb}} show prompt
         push    hl                ;{{db64:e5}} 
-        call    _command_line_16  ;{{db65:cd37db}} 
+        call    input_screen_to_buffer;{{db65:cd37db}} input to buffer
         ex      de,hl             ;{{db68:eb}} 
         pop     hl                ;{{db69:e1}} 
-        call    _redo_from_start_message_31;{{db6a:cdcddb}} 
+        call    input_parse_buffer;{{db6a:cdcddb}} parse input buffer
         pop     bc                ;{{db6d:c1}} 
-        ret     c                 ;{{db6e:d8}} 
+        ret     c                 ;{{db6e:d8}} return if valid input
 
         push    bc                ;{{db6f:c5}} 
         ld      hl,redo_from_start_message;{{db70:2179db}} ; "?Redo from start" message
         call    output_ASCIIZ_string;{{db73:cd8bc3}} ; display 0 terminated string
         pop     hl                ;{{db76:e1}} 
-        jr      _command_input_15 ;{{db77:18e7}}  (-$19)
+        jr      _input_get_input_2;{{db77:18e7}}  (-$19) retry
 
 ;;=redo from start message
 redo_from_start_message:          ;{{Addr=$db79 Data Calls/jump count: 0 Data use count: 1}}
         defb "?Redo from start",10,0
 
-_redo_from_start_message_1:       ;{{Addr=$db8b Code Calls/jump count: 3 Data use count: 0}}
+;;=input display prompt, if given
+input_display_prompt_if_given:    ;{{Addr=$db8b Code Calls/jump count: 3 Data use count: 0}}
         ld      a,(hl)            ;{{db8b:7e}} 
-        cp      $3b               ;{{db8c:fe3b}} 
-        ld      (RAM_ae14),a      ;{{db8e:3214ae}} 
+        cp      $3b               ;{{db8c:fe3b}} ';'
+        ld      (input_prompt_separator),a;{{db8e:3214ae}} 
         call    z,get_next_token_skipping_space;{{db91:cc2cde}}  get next token skipping space
-        cp      $22               ;{{db94:fe22}} '"'
-        jr      nz,_redo_from_start_message_12;{{db96:200b}}  (+$0b)
-        call    _redo_from_start_message_18;{{db98:cdb1db}} 
+        cp      $22               ;{{db94:fe22}} '"' - prompt string
+        jr      nz,_input_display_prompt_if_given_11;{{db96:200b}}  (+$0b)
+        call    input_display_prompt;{{db98:cdb1db}} 
         call    next_token_if_prev_is_comma;{{db9b:cd41de}} 
-        ret     c                 ;{{db9e:d8}} 
+        ret     c                 ;{{db9e:d8}} if comma then no '? ' after
 
         call    next_token_if_equals_inline_data_byte;{{db9f:cd25de}} 
         defb $3b                  ;inline token to test ";"
-_redo_from_start_message_12:      ;{{Addr=$dba3 Code Calls/jump count: 1 Data use count: 0}}
+_input_display_prompt_if_given_11:;{{Addr=$dba3 Code Calls/jump count: 1 Data use count: 0}}
         call    get_input_stream  ;{{dba3:cdc4c1}} 
-        ret     nc                ;{{dba6:d0}} 
+        ret     nc                ;{{dba6:d0}} exit if not reading from screen
 
-        ld      a,$3f             ;{{dba7:3e3f}} 
+        ld      a,$3f             ;{{dba7:3e3f}} '?'
         call    output_char       ;{{dba9:cda0c3}} ; display text char
-        ld      a,$20             ;{{dbac:3e20}} 
+        ld      a,$20             ;{{dbac:3e20}} space char
         jp      output_char       ;{{dbae:c3a0c3}} ; display text char
 
-_redo_from_start_message_18:      ;{{Addr=$dbb1 Code Calls/jump count: 1 Data use count: 0}}
+;;=input display prompt
+input_display_prompt:             ;{{Addr=$dbb1 Code Calls/jump count: 1 Data use count: 0}}
         call    get_quoted_string ;{{dbb1:cd79f8}} 
         call    get_input_stream  ;{{dbb4:cdc4c1}} 
         jp      nc,get_accumulator_string_length;{{dbb7:d2f5fb}} 
-        jp      xf8d0_code        ;{{dbba:c3d0f8}} 
+        jp      output_accumulator_string;{{dbba:c3d0f8}} 
 
-_redo_from_start_message_22:      ;{{Addr=$dbbd Code Calls/jump count: 2 Data use count: 0}}
+;;=input parse item or error
+input_parse_item_or_error:        ;{{Addr=$dbbd Code Calls/jump count: 2 Data use count: 0}}
         push    de                ;{{dbbd:d5}} 
-        call    _redo_from_start_message_58;{{dbbe:cdf7db}} 
-        jr      nc,_redo_from_start_message_29;{{dbc1:3006}}  (+$06)
+        call    input_parse_item  ;{{dbbe:cdf7db}} 
+        jr      nc,raise_Type_Mismatch_error;{{dbc1:3006}}  (+$06)
         ex      (sp),hl           ;{{dbc3:e3}} 
         call    copy_accumulator_to_atHL_as_type_B;{{dbc4:cd9fd6}} 
         pop     hl                ;{{dbc7:e1}} 
         ret                       ;{{dbc8:c9}} 
 
-_redo_from_start_message_29:      ;{{Addr=$dbc9 Code Calls/jump count: 1 Data use count: 0}}
+;;=raise Type Mismatch error
+raise_Type_Mismatch_error:        ;{{Addr=$dbc9 Code Calls/jump count: 1 Data use count: 0}}
         call    byte_following_call_is_error_code;{{dbc9:cd45cb}} 
         defb $0d                  ;Inline error code: Type mismatch
 
-_redo_from_start_message_31:      ;{{Addr=$dbcd Code Calls/jump count: 1 Data use count: 0}}
+;;=input parse buffer
+;returns Carry true if the input was valid/matched variable list etc.
+input_parse_buffer:               ;{{Addr=$dbcd Code Calls/jump count: 1 Data use count: 0}}
         push    de                ;{{dbcd:d5}} 
         push    hl                ;{{dbce:e5}} 
         push    de                ;{{dbcf:d5}} 
-_redo_from_start_message_34:      ;{{Addr=$dbd0 Code Calls/jump count: 1 Data use count: 0}}
-        call    xd70f_code        ;{{dbd0:cd0fd7}} 
+_input_parse_buffer_3:            ;{{Addr=$dbd0 Code Calls/jump count: 1 Data use count: 0}}
+        call    prob_just_skip_over_variable;{{dbd0:cd0fd7}} 
         ex      (sp),hl           ;{{dbd3:e3}} 
         xor     a                 ;{{dbd4:af}} 
-        call    _redo_from_start_message_58;{{dbd5:cdf7db}} 
-        jr      nc,_redo_from_start_message_54;{{dbd8:3019}}  (+$19)
-        cp      $03               ;{{dbda:fe03}} 
+        call    input_parse_item  ;{{dbd5:cdf7db}} 
+        jr      nc,_input_parse_buffer_23;{{dbd8:3019}}  (+$19) end of buffer? failed
+        cp      $03               ;{{dbda:fe03}} string
         call    z,get_accumulator_string_length;{{dbdc:ccf5fb}} 
         ex      (sp),hl           ;{{dbdf:e3}} 
         call    next_token_if_prev_is_comma;{{dbe0:cd41de}} 
         ex      (sp),hl           ;{{dbe3:e3}} 
-        ld      a,(hl)            ;{{dbe4:7e}} 
-        jr      nc,_redo_from_start_message_51;{{dbe5:3008}}  (+$08)
-        xor     $2c               ;{{dbe7:ee2c}} 
-        jr      nz,_redo_from_start_message_54;{{dbe9:2008}}  (+$08)
+        ld      a,(hl)            ;{{dbe4:7e}} next token
+        jr      nc,_input_parse_buffer_20;{{dbe5:3008}}  (+$08) end of variable list?
+        xor     $2c               ;{{dbe7:ee2c}} ','
+        jr      nz,_input_parse_buffer_23;{{dbe9:2008}}  (+$08) no more entries in variable list?
         inc     hl                ;{{dbeb:23}} 
         ex      (sp),hl           ;{{dbec:e3}} 
-        jr      _redo_from_start_message_34;{{dbed:18e1}}  (-$1f)
+        jr      _input_parse_buffer_3;{{dbed:18e1}}  (-$1f)
 
-_redo_from_start_message_51:      ;{{Addr=$dbef Code Calls/jump count: 1 Data use count: 0}}
-        or      a                 ;{{dbef:b7}} 
-        jr      nz,_redo_from_start_message_54;{{dbf0:2001}}  (+$01)
-        scf                       ;{{dbf2:37}} 
-_redo_from_start_message_54:      ;{{Addr=$dbf3 Code Calls/jump count: 3 Data use count: 0}}
+_input_parse_buffer_20:           ;{{Addr=$dbef Code Calls/jump count: 1 Data use count: 0}}
+        or      a                 ;{{dbef:b7}} A=next token. If zero we have end of line = success
+        jr      nz,_input_parse_buffer_23;{{dbf0:2001}}  (+$01)
+        scf                       ;{{dbf2:37}} success!!
+_input_parse_buffer_23:           ;{{Addr=$dbf3 Code Calls/jump count: 3 Data use count: 0}}
         pop     hl                ;{{dbf3:e1}} 
         pop     hl                ;{{dbf4:e1}} 
         pop     de                ;{{dbf5:d1}} 
         ret                       ;{{dbf6:c9}} 
 
-_redo_from_start_message_58:      ;{{Addr=$dbf7 Code Calls/jump count: 2 Data use count: 0}}
-        ld      e,a               ;{{dbf7:5f}} 
+;;=input parse item
+input_parse_item:                 ;{{Addr=$dbf7 Code Calls/jump count: 2 Data use count: 0}}
+        ld      e,a               ;{{dbf7:5f}} what variable type to we have?
         call    is_accumulator_a_string;{{dbf8:cd66ff}} 
         push    af                ;{{dbfb:f5}} 
-        jr      nz,_redo_from_start_message_65;{{dbfc:2006}}  (+$06)
-        call    _redo_from_start_message_74;{{dbfe:cd15dc}} 
+        jr      nz,input_parse_number;{{dbfc:2006}}  (+$06)
+        call    input_parse_string;{{dbfe:cd15dc}} 
         scf                       ;{{dc01:37}} 
-        jr      _redo_from_start_message_68;{{dc02:1809}}  (+$09)
+        jr      _input_parse_number_3;{{dc02:1809}}  (+$09)
 
-_redo_from_start_message_65:      ;{{Addr=$dc04 Code Calls/jump count: 1 Data use count: 0}}
+;;=input parse number
+input_parse_number:               ;{{Addr=$dc04 Code Calls/jump count: 1 Data use count: 0}}
         call    get_input_stream  ;{{dc04:cdc4c1}} 
-        call    nc,_redo_from_start_message_83;{{dc07:d42cdc}} 
+        call    nc,input_from_file_ignore_leading_whitespace;{{dc07:d42cdc}} 
         call    possibly_validate_input_buffer_is_a_number;{{dc0a:cd6fed}} 
-_redo_from_start_message_68:      ;{{Addr=$dc0d Code Calls/jump count: 1 Data use count: 0}}
+_input_parse_number_3:            ;{{Addr=$dc0d Code Calls/jump count: 1 Data use count: 0}}
         push    af                ;{{dc0d:f5}} 
+
+;;=input parse item done
         call    c,skip_space_tab_or_line_feed;{{dc0e:dc4dde}}  skip space, lf or tab
         pop     af                ;{{dc11:f1}} 
         pop     de                ;{{dc12:d1}} 
         ld      a,d               ;{{dc13:7a}} 
         ret                       ;{{dc14:c9}} 
 
-_redo_from_start_message_74:      ;{{Addr=$dc15 Code Calls/jump count: 1 Data use count: 0}}
+;;=input parse string
+;inputs quoted string (keyboard) or ASCIIZ string (not keyboard)
+input_parse_string:               ;{{Addr=$dc15 Code Calls/jump count: 1 Data use count: 0}}
         call    get_input_stream  ;{{dc15:cdc4c1}} 
-        jr      c,_redo_from_start_message_78;{{dc18:3806}}  (+$06)
-        call    _redo_from_start_message_88;{{dc1a:cd38dc}} 
+        jr      c,input_parse_quoted_string;{{dc18:3806}}  (+$06)
+        call    input_item_from_file;{{dc1a:cd38dc}} 
         jp      get_ASCIIZ_string ;{{dc1d:c38af8}} 
 
-_redo_from_start_message_78:      ;{{Addr=$dc20 Code Calls/jump count: 1 Data use count: 0}}
+;;=input parse quoted string
+input_parse_quoted_string:        ;{{Addr=$dc20 Code Calls/jump count: 1 Data use count: 0}}
         call    skip_space_tab_or_line_feed;{{dc20:cd4dde}}  skip space, lf or tab
         cp      $22               ;{{dc23:fe22}} '"'
         jp      z,get_quoted_string;{{dc25:ca79f8}} 
         ld      a,e               ;{{dc28:7b}} 
         jp      get_string_until_00_comma_or_value_in_A;{{dc29:c394f8}} 
 
-_redo_from_start_message_83:      ;{{Addr=$dc2c Code Calls/jump count: 1 Data use count: 0}}
-        call    _redo_from_start_message_130;{{dc2c:cd8edc}} 
-        ld      de,read_comma_seperated_data;{{dc2f:11b5dc}} ##LABEL##
-        jr      c,_redo_from_start_message_105;{{dc32:382b}}  (+$2b)
-_redo_from_start_message_86:      ;{{Addr=$dc34 Code Calls/jump count: 2 Data use count: 0}}
+;;=====================================
+;INPUT from a file
+;;=input from file ignore leading whitespace
+input_from_file_ignore_leading_whitespace:;{{Addr=$dc2c Code Calls/jump count: 1 Data use count: 0}}
+        call    input_char_from_file_ignore_whitespace;{{dc2c:cd8edc}} 
+        ld      de,is_A_space_tab_cr_comma_lf;{{dc2f:11b5dc}} ##LABEL##
+        jr      c,input_from_file ;{{dc32:382b}}  (+$2b)
+
+;;=raise EOF met error
+raise_EOF_met_error:              ;{{Addr=$dc34 Code Calls/jump count: 2 Data use count: 0}}
         call    byte_following_call_is_error_code;{{dc34:cd45cb}} 
         defb $18                  ;Inline error code: EOF met
 
-_redo_from_start_message_88:      ;{{Addr=$dc38 Code Calls/jump count: 1 Data use count: 0}}
-        call _redo_from_start_message_130;{{dc38:cd8edc}} 
-        jr nc,_redo_from_start_message_86;{{dc3b:30f7}} Manually calculated!!! Object code should be 31f7
+;;=input item from file
+;reads item terminated by comma or LF, or quoted string
+input_item_from_file:             ;{{Addr=$dc38 Code Calls/jump count: 1 Data use count: 0}}
+        call input_char_from_file_ignore_whitespace;{{dc38:cd8edc}} 
+        jr nc,raise_EOF_met_error ;{{dc3b:30f7}} Manually calculated!!! Object code should be 31f7
         cp      $22               ;{{dc3d:fe22}} '"'
-        jr      z,_redo_from_start_message_94;{{dc3f:2805}}  (+$05)
-        ld      de,_read_comma_seperated_data_2;{{dc41:11b9dc}} ##LABEL##
-        jr      _redo_from_start_message_105;{{dc44:1819}}  (+$19)
+        jr      z,input_quoted_string_from_file;{{dc3f:2805}}  (+$05)
+        ld      de,is_A_comma_lf  ;{{dc41:11b9dc}} ##LABEL##
+        jr      input_from_file   ;{{dc44:1819}}  (+$19)
 
-_redo_from_start_message_94:      ;{{Addr=$dc46 Code Calls/jump count: 1 Data use count: 0}}
-        call    _redo_from_start_message_136;{{dc46:cd99dc}} 
-        ld      de,_redo_from_start_message_100;{{dc49:1154dc}} ##LABEL##
-        jr      c,_redo_from_start_message_105;{{dc4c:3811}}  (+$11)
+;;=input quoted string from file
+input_quoted_string_from_file:    ;{{Addr=$dc46 Code Calls/jump count: 1 Data use count: 0}}
+        call    input_char_from_file;{{dc46:cd99dc}} 
+        ld      de,is_A_double_quotes;{{dc49:1154dc}} ##LABEL##
+        jr      c,input_from_file ;{{dc4c:3811}}  (+$11)
         ld      hl,BASIC_input_area_for_lines_;{{dc4e:218aac}} 
         ld      (hl),$00          ;{{dc51:3600}} 
         ret                       ;{{dc53:c9}} 
 
-_redo_from_start_message_100:     ;{{Addr=$dc54 Code Calls/jump count: 0 Data use count: 1}}
+;;=is A double quotes
+is_A_double_quotes:               ;{{Addr=$dc54 Code Calls/jump count: 0 Data use count: 1}}
         cp      $22               ;{{dc54:fe22}} "'
         ret                       ;{{dc56:c9}} 
 
-_redo_from_start_message_102:     ;{{Addr=$dc57 Code Calls/jump count: 1 Data use count: 0}}
-        call    _redo_from_start_message_136;{{dc57:cd99dc}} 
-        jr      nc,_redo_from_start_message_86;{{dc5a:30d8}}  (-$28)
-        ld      de,_read_comma_seperated_data_4;{{dc5c:11bcdc}} ##LABEL##
+;;=input line from file
+input_line_from_file:             ;{{Addr=$dc57 Code Calls/jump count: 1 Data use count: 0}}
+        call    input_char_from_file;{{dc57:cd99dc}} 
+        jr      nc,raise_EOF_met_error;{{dc5a:30d8}}  (-$28)
+        ld      de,is_A_lf        ;{{dc5c:11bcdc}} end of input test routine ##LABEL##
 
+;;=input from file
 ;;this code takes an address to call in DE
-_redo_from_start_message_105:     ;{{Addr=$dc5f Code Calls/jump count: 3 Data use count: 0}}
+;this routine is called with a character in A and returns Z flag set if it's a terminating character
+input_from_file:                  ;{{Addr=$dc5f Code Calls/jump count: 3 Data use count: 0}}
         ld      hl,BASIC_input_area_for_lines_;{{dc5f:218aac}} 
         push    hl                ;{{dc62:e5}} 
-        ld      b,$ff             ;{{dc63:06ff}} 
-_redo_from_start_message_108:     ;{{Addr=$dc65 Code Calls/jump count: 1 Data use count: 0}}
-        call    JP_DE             ;{{dc65:cdfeff}}  JP (DE)
-        jr      z,_redo_from_start_message_117;{{dc68:280c}}  (+$0c)
+        ld      b,$ff             ;{{dc63:06ff}} max line length
+_input_from_file_3:               ;{{Addr=$dc65 Code Calls/jump count: 1 Data use count: 0}}
+        call    JP_DE             ;{{dc65:cdfeff}}  JP (DE) - test for termination char
+        jr      z,_input_from_file_12;{{dc68:280c}}  (+$0c)
         ld      (hl),a            ;{{dc6a:77}} 
         inc     hl                ;{{dc6b:23}} 
         dec     b                 ;{{dc6c:05}} 
-        jr      z,_redo_from_start_message_116;{{dc6d:2805}}  (+$05)
-        call    _redo_from_start_message_136;{{dc6f:cd99dc}} 
-        jr      c,_redo_from_start_message_108;{{dc72:38f1}}  (-$0f)
-_redo_from_start_message_116:     ;{{Addr=$dc74 Code Calls/jump count: 1 Data use count: 0}}
+        jr      z,_input_from_file_11;{{dc6d:2805}}  (+$05)
+        call    input_char_from_file;{{dc6f:cd99dc}} read next char
+        jr      c,_input_from_file_3;{{dc72:38f1}}  (-$0f)    loop for more chars
+
+_input_from_file_11:              ;{{Addr=$dc74 Code Calls/jump count: 1 Data use count: 0}}
         or      $ff               ;{{dc74:f6ff}} 
-_redo_from_start_message_117:     ;{{Addr=$dc76 Code Calls/jump count: 1 Data use count: 0}}
+_input_from_file_12:              ;{{Addr=$dc76 Code Calls/jump count: 1 Data use count: 0}}
         ld      (hl),$00          ;{{dc76:3600}} 
         pop     hl                ;{{dc78:e1}} 
         ret     nz                ;{{dc79:c0}} 
 
-        cp      $0d               ;{{dc7a:fe0d}} 
+        cp      $0d               ;{{dc7a:fe0d}} CR
         ret     z                 ;{{dc7c:c8}} 
 
         cp      $22               ;{{dc7d:fe22}} '"'
-        call    nz,xdcbf_code     ;{{dc7f:c4bfdc}} 
+        call    nz,is_A_space_tab_cr;{{dc7f:c4bfdc}} 
         ret     nz                ;{{dc82:c0}} 
 
-        call    _redo_from_start_message_130;{{dc83:cd8edc}} 
+        call    input_char_from_file_ignore_whitespace;{{dc83:cd8edc}} 
         ret     nc                ;{{dc86:d0}} 
 
-        call    _read_comma_seperated_data_2;{{dc87:cdb9dc}} 
+        call    is_A_comma_lf     ;{{dc87:cdb9dc}} 
         call    nz,CAS_RETURN     ;{{dc8a:c486bc}}  firmware function: CAS RETURN
         ret                       ;{{dc8d:c9}} 
 
-_redo_from_start_message_130:     ;{{Addr=$dc8e Code Calls/jump count: 4 Data use count: 0}}
-        call    _redo_from_start_message_136;{{dc8e:cd99dc}} 
+;;=input char from file, ignore whitespace
+input_char_from_file_ignore_whitespace:;{{Addr=$dc8e Code Calls/jump count: 4 Data use count: 0}}
+        call    input_char_from_file;{{dc8e:cd99dc}} 
         ret     nc                ;{{dc91:d0}} 
 
-        call    xdcbf_code        ;{{dc92:cdbfdc}} 
-        jr      z,_redo_from_start_message_130;{{dc95:28f7}}  (-$09)
+        call    is_A_space_tab_cr ;{{dc92:cdbfdc}} 
+        jr      z,input_char_from_file_ignore_whitespace;{{dc95:28f7}}  (-$09)
         scf                       ;{{dc97:37}} 
         ret                       ;{{dc98:c9}} 
 
-_redo_from_start_message_136:     ;{{Addr=$dc99 Code Calls/jump count: 4 Data use count: 0}}
+;;=input char from file
+;turns CR+LF and LF+CR into single char (returns the first of the pair)
+input_char_from_file:             ;{{Addr=$dc99 Code Calls/jump count: 4 Data use count: 0}}
         call    read_byte_from_cassette_or_disc;{{dc99:cd5cc4}}  read byte from cassette or disc
         ret     nc                ;{{dc9c:d0}} 
 
         push    af                ;{{dc9d:f5}} 
         push    bc                ;{{dc9e:c5}} 
-        ld      bc,$0a0d          ;{{dc9f:010d0a}} 
-        cp      c                 ;{{dca2:b9}} 
-        jr      z,_redo_from_start_message_146;{{dca3:2804}}  (+$04)
-        cp      b                 ;{{dca5:b8}} 
-        jr      nz,_redo_from_start_message_150;{{dca6:200a}}  (+$0a)
+        ld      bc,$0a0d          ;{{dc9f:010d0a}} LF CR
+        cp      c                 ;{{dca2:b9}} CR? test for CR LF
+        jr      z,_input_char_from_file_10;{{dca3:2804}}  (+$04)
+        cp      b                 ;{{dca5:b8}} not LF? - return as is
+        jr      nz,_input_char_from_file_14;{{dca6:200a}}  (+$0a)
         ld      b,c               ;{{dca8:41}} 
-_redo_from_start_message_146:     ;{{Addr=$dca9 Code Calls/jump count: 1 Data use count: 0}}
+_input_char_from_file_10:         ;{{Addr=$dca9 Code Calls/jump count: 1 Data use count: 0}}
         call    read_byte_from_cassette_or_disc;{{dca9:cd5cc4}}  read byte from cassette or disc
-        jr      nc,_redo_from_start_message_150;{{dcac:3004}}  (+$04)
-        cp      b                 ;{{dcae:b8}} 
+        jr      nc,_input_char_from_file_14;{{dcac:3004}}  (+$04)
+        cp      b                 ;{{dcae:b8}} CR followed by LF or LF followed by CR? if not, put the second char back
         call    nz,CAS_RETURN     ;{{dcaf:c486bc}} ; firmware function: cas return
-_redo_from_start_message_150:     ;{{Addr=$dcb2 Code Calls/jump count: 2 Data use count: 0}}
+_input_char_from_file_14:         ;{{Addr=$dcb2 Code Calls/jump count: 2 Data use count: 0}}
         pop     bc                ;{{dcb2:c1}} 
-        pop     af                ;{{dcb3:f1}} 
+        pop     af                ;{{dcb3:f1}} get back the original char we read
         ret                       ;{{dcb4:c9}} 
 
 ;;========================================================================
-;; read comma seperated data??
-read_comma_seperated_data:        ;{{Addr=$dcb5 Code Calls/jump count: 0 Data use count: 1}}
-        call    xdcbf_code        ;{{dcb5:cdbfdc}} 
+;; is A space tab cr comma lf
+is_A_space_tab_cr_comma_lf:       ;{{Addr=$dcb5 Code Calls/jump count: 0 Data use count: 1}}
+        call    is_A_space_tab_cr ;{{dcb5:cdbfdc}} 
         ret     z                 ;{{dcb8:c8}} 
 
-_read_comma_seperated_data_2:     ;{{Addr=$dcb9 Code Calls/jump count: 1 Data use count: 1}}
+;;=is A comma lf
+is_A_comma_lf:                    ;{{Addr=$dcb9 Code Calls/jump count: 1 Data use count: 1}}
         cp      $2c               ;{{dcb9:fe2c}} ; ,
         ret     z                 ;{{dcbb:c8}} 
 
-_read_comma_seperated_data_4:     ;{{Addr=$dcbc Code Calls/jump count: 0 Data use count: 1}}
+;;=is A lf
+is_A_lf:                          ;{{Addr=$dcbc Code Calls/jump count: 0 Data use count: 1}}
         cp      $0d               ;{{dcbc:fe0d}} ; lf
         ret                       ;{{dcbe:c9}} 
 
 ;;========================================================================
-
-xdcbf_code:                       ;{{Addr=$dcbf Code Calls/jump count: 3 Data use count: 0}}
+;;is A space tab cr
+is_A_space_tab_cr:                ;{{Addr=$dcbf Code Calls/jump count: 3 Data use count: 0}}
         cp      $20               ;{{dcbf:fe20}} ; space
         ret     z                 ;{{dcc1:c8}} 
 
@@ -6090,68 +6294,72 @@ command_RESTORE:                  ;{{Addr=$dcc8 Code Calls/jump count: 0 Data us
         push    hl                ;{{dccd:e5}} 
         call    find_address_of_line_or_error;{{dcce:cd5ce8}} 
         dec     hl                ;{{dcd1:2b}} 
-        jr      _command_read_21  ;{{dcd2:1831}}  (+$31)
+        jr      set_READ_pointer  ;{{dcd2:1831}}  (+$31)
 
 ;;=reset READ pointer
 reset_READ_pointer:               ;{{Addr=$dcd4 Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{dcd4:e5}} 
-        ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{dcd5:2a64ae}} 
-        jr      _command_read_21  ;{{dcd8:182b}}  (+$2b)
+        ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{dcd5:2a64ae}} first line
+        jr      set_READ_pointer  ;{{dcd8:182b}}  (+$2b)
 
 ;;========================================================================
 ;; command READ
 command_READ:                     ;{{Addr=$dcda Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{dcda:e5}} 
-        ld      hl,(address_of_byte_before_next_DATA_item_);{{dcdb:2a17ae}} 
-_command_read_2:                  ;{{Addr=$dcde Code Calls/jump count: 1 Data use count: 0}}
-        call    _command_read_24  ;{{dcde:cd0add}} 
+        ld      hl,(READ_pointer) ;{{dcdb:2a17ae}} 
+;;=READ item loop
+READ_item_loop:                   ;{{Addr=$dcde Code Calls/jump count: 1 Data use count: 0}}
+        call    update_READ_pointer;{{dcde:cd0add}} 
         ex      (sp),hl           ;{{dce1:e3}} 
-        call    prob_parse_and_find_or_create_a_var;{{dce2:cdbfd6}} 
+        call    parse_and_find_or_create_a_var;{{dce2:cdbfd6}} 
         ex      (sp),hl           ;{{dce5:e3}} 
         inc     hl                ;{{dce6:23}} 
         ld      a,$01             ;{{dce7:3e01}} 
-        call    _redo_from_start_message_22;{{dce9:cdbddb}} 
-        ld      a,(hl)            ;{{dcec:7e}} 
+        call    input_parse_item_or_error;{{dce9:cdbddb}} read data
+        ld      a,(hl)            ;{{dcec:7e}} next token
         cp      $02               ;{{dced:fe02}} 
-        jr      c,_command_read_17;{{dcef:380d}}  (+$0d)
+        jr      c,_read_item_loop_15;{{dcef:380d}}  (+$0d) end of line/statement
         cp      $2c               ;{{dcf1:fe2c}} ','
-        jr      z,_command_read_17;{{dcf3:2809}}  (+$09)
-        ld      hl,(address_of_line_number_LB_of_last_BASIC_);{{dcf5:2a15ae}} 
+        jr      z,_read_item_loop_15;{{dcf3:2809}}  (+$09) comma
+        ld      hl,(address_of_line_number_LB_of_last_BASIC_);{{dcf5:2a15ae}} anything else is error
         call    set_current_line_address;{{dcf8:cdadde}} 
         jp      Error_Syntax_Error;{{dcfb:c349cb}}  Error: Syntax Error
 
-_command_read_17:                 ;{{Addr=$dcfe Code Calls/jump count: 2 Data use count: 0}}
+_read_item_loop_15:               ;{{Addr=$dcfe Code Calls/jump count: 2 Data use count: 0}}
         ex      (sp),hl           ;{{dcfe:e3}} 
-        call    next_token_if_prev_is_comma;{{dcff:cd41de}} 
+        call    next_token_if_prev_is_comma;{{dcff:cd41de}} another value to read?
         ex      (sp),hl           ;{{dd02:e3}} 
-        jr      c,_command_read_2 ;{{dd03:38d9}}  (-$27)
-_command_read_21:                 ;{{Addr=$dd05 Code Calls/jump count: 2 Data use count: 0}}
-        ld      (address_of_byte_before_next_DATA_item_),hl;{{dd05:2217ae}} 
+        jr      c,READ_item_loop  ;{{dd03:38d9}}  (-$27) if so, loop
+;;=set READ pointer
+set_READ_pointer:                 ;{{Addr=$dd05 Code Calls/jump count: 2 Data use count: 0}}
+        ld      (READ_pointer),hl ;{{dd05:2217ae}} 
         pop     hl                ;{{dd08:e1}} 
         ret                       ;{{dd09:c9}} 
 
-_command_read_24:                 ;{{Addr=$dd0a Code Calls/jump count: 1 Data use count: 0}}
+;;=update READ pointer
+;move to comma before next data item, if not currently at one
+update_READ_pointer:              ;{{Addr=$dd0a Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(hl)            ;{{dd0a:7e}} 
         cp      $2c               ;{{dd0b:fe2c}} ','
         ret     z                 ;{{dd0d:c8}} 
 
-_command_read_27:                 ;{{Addr=$dd0e Code Calls/jump count: 1 Data use count: 0}}
-        call    command_DATA      ;{{dd0e:cda3e9}} ; DATA
+_update_read_pointer_3:           ;{{Addr=$dd0e Code Calls/jump count: 1 Data use count: 0}}
+        call    skip_to_end_of_statement;{{dd0e:cda3e9}} ; DATA
         or      a                 ;{{dd11:b7}} 
-        jr      nz,_command_read_39;{{dd12:200e}}  (+$0e)
+        jr      nz,_update_read_pointer_15;{{dd12:200e}}  (+$0e) not end of line
         inc     hl                ;{{dd14:23}} 
-        ld      a,(hl)            ;{{dd15:7e}} 
+        ld      a,(hl)            ;{{dd15:7e}} test for last line
         inc     hl                ;{{dd16:23}} 
         or      (hl)              ;{{dd17:b6}} 
         inc     hl                ;{{dd18:23}} 
         ld      a,$04             ;{{dd19:3e04}} DATA exhausted error
         jp      z,raise_error     ;{{dd1b:ca55cb}} 
-        ld      (address_of_line_number_LB_of_last_BASIC_),hl;{{dd1e:2215ae}} 
+        ld      (address_of_line_number_LB_of_last_BASIC_),hl;{{dd1e:2215ae}} update line address
         inc     hl                ;{{dd21:23}} 
-_command_read_39:                 ;{{Addr=$dd22 Code Calls/jump count: 1 Data use count: 0}}
+_update_read_pointer_15:          ;{{Addr=$dd22 Code Calls/jump count: 1 Data use count: 0}}
         call    get_next_token_skipping_space;{{dd22:cd2cde}}  get next token skipping space
-        cp      $8c               ;{{dd25:fe8c}} 
-        jr      nz,_command_read_27;{{dd27:20e5}}  (-$1b)
+        cp      $8c               ;{{dd25:fe8c}} DATA token
+        jr      nz,_update_read_pointer_3;{{dd27:20e5}}  (-$1b) loop if not DATA token
         ret                       ;{{dd29:c9}} 
 
 
@@ -6455,8 +6663,8 @@ next_token_if_close_bracket:      ;{{Addr=$de1d Code Calls/jump count: 16 Data u
         jr      next_token_if_value_in_A;{{de1f:1808}} 
 
 ;;+----------------------------------------------------------
-;; next token if $ef token for equals sign
-next_token_if_ef_token_for_equals_sign:;{{Addr=$de21 Code Calls/jump count: 4 Data use count: 0}}
+;; next token if equals sign
+next_token_if_equals_sign:        ;{{Addr=$de21 Code Calls/jump count: 4 Data use count: 0}}
         ld      a,$ef             ;{{de21:3eef}} token for '='
         jr      next_token_if_value_in_A;{{de23:1804}} 
 
@@ -6473,7 +6681,7 @@ next_token_if_equals_inline_data_byte:;{{Addr=$de25 Code Calls/jump count: 15 Da
 ;; A = char to check against
 next_token_if_value_in_A:         ;{{Addr=$de29 Code Calls/jump count: 4 Data use count: 0}}
         cp      (hl)              ;{{de29:be}} 
-        jr      nz,raise_syntax_error_C;{{de2a:200f}}  (+$0f)
+        jr      nz,raise_syntax_error_D;{{de2a:200f}}  (+$0f)
 
 ;;=get next token skipping space
 ;; skip spaces
@@ -6497,10 +6705,11 @@ syntax_error_if_not_02:           ;{{Addr=$de37 Code Calls/jump count: 16 Data u
         ret     c                 ;{{de3a:d8}} 
 
 ;;=raise syntax error
-raise_syntax_error_C:             ;{{Addr=$de3b Code Calls/jump count: 1 Data use count: 0}}
-        jr      raise_syntax_error_D;{{de3b:186a}}  (+$6a)
+raise_syntax_error_D:             ;{{Addr=$de3b Code Calls/jump count: 1 Data use count: 0}}
+        jr      raise_syntax_error_E;{{de3b:186a}}  (+$6a)
 
 ;;=is next $02
+;Carry set if EOLN or end of statement
 is_next_02:                       ;{{Addr=$de3d Code Calls/jump count: 9 Data use count: 0}}
         ld      a,(hl)            ;{{de3d:7e}} 
         cp      $02               ;{{de3e:fe02}} 
@@ -6533,16 +6742,17 @@ skip_space_tab_or_line_feed:      ;{{Addr=$de4d Code Calls/jump count: 20 Data u
 
 
 
-
+;**tk
 ;;=======================================================================
 ;; execute tokenised line
 execute_tokenised_line:           ;{{Addr=$de5d Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,(address_of_byte_before_current_statement);{{de5d:2a1bae}} 
 
 ;;=execute line atHL
+;HL points to first token, NOT line number
 execute_line_atHL:                ;{{Addr=$de60 Code Calls/jump count: 7 Data use count: 0}}
         ld      (address_of_byte_before_current_statement),hl;{{de60:221bae}} HL=current execution address
-        call    KL_POLL_SYNCHRONOUS;{{de63:cd21b9}} 
+        call    KL_POLL_SYNCHRONOUS;{{de63:cd21b9}} handle pending events
         call    c,prob_process_pending_events;{{de66:dcb2c8}} 
         call    get_next_token_skipping_space;{{de69:cd2cde}}  get next token skipping space
         call    nz,execute_command_token;{{de6c:c48fde}} end of buffer?
@@ -6550,7 +6760,7 @@ execute_line_atHL:                ;{{Addr=$de60 Code Calls/jump count: 7 Data us
         cp      $01               ;{{de70:fe01}} next statement on same line
         jr      z,execute_line_atHL;{{de72:28ec}}  (-$14) Loop until end of line
 
-        jr      nc,raise_syntax_error_D;{{de74:3031}}  (+$31)
+        jr      nc,raise_syntax_error_E;{{de74:3031}}  (+$31)
         inc     hl                ;{{de76:23}} 
 
 ;;=execute end of line
@@ -6563,7 +6773,7 @@ execute_end_of_line:              ;{{Addr=$de77 Code Calls/jump count: 4 Data us
 
         ld      (address_of_line_number_LB_of_line_of_cur),hl;{{de7d:221dae}}  Start of current line
         inc     hl                ;{{de80:23}} 
-        ld      a,(trace_flag_)   ;{{de81:3a1fae}} trace on??
+        ld      a,(trace_flag)    ;{{de81:3a1fae}} trace on??
         or      a                 ;{{de84:b7}} 
         jr      z,execute_line_atHL;{{de85:28d9}}  (-$27) if not loop - execute next line
         call    do_trace          ;{{de87:cdcade}}  trace
@@ -6576,11 +6786,15 @@ end_execution:                    ;{{Addr=$de8c Code Calls/jump count: 1 Data us
 
 ;;============================================
 ;;execute command token
+;A=token
+;Tokens >= &80 are tokenised words
+;the only token < &80 we should have here are for bar commands or variable names (implicit LET)
 execute_command_token:            ;{{Addr=$de8f Code Calls/jump count: 2 Data use count: 0}}
         add     a,a               ;{{de8f:87}} 
-        jp      nc,_command_defreal_23;{{de90:d289d6}} 
-        cp      $c3               ;{{de93:fec3}} 
-        jr      nc,raise_syntax_error_D;{{de95:3010}}  (+$10)
+        jp      nc,BAR_command_or_implicit_LET;{{de90:d289d6}} token < &80: either a bar command or a variable (implicit LET)
+        cp tokenise_a_BASIC_line - command_to_code_address_LUT - 1;{{de93:fec3}} version with formula;WARNING: Code area used as literal
+;OLD de93 fec3      cp      $c3              ;the last valid token is &e1 which doubles to &c2, so >= &c3 is error
+        jr      nc,raise_syntax_error_E;{{de95:3010}}  (+$10)
         ex      de,hl             ;{{de97:eb}} 
         add     a,command_to_code_address_LUT and $ff;{{de98:c6e0}} $e0 lookup token in table
         ld      l,a               ;{{de9a:6f}} 
@@ -6595,13 +6809,13 @@ execute_command_token:            ;{{Addr=$de8f Code Calls/jump count: 2 Data us
         jp      get_next_token_skipping_space;{{dea4:c32cde}}  get next token skipping space
 
 ;;=raise syntax error
-raise_syntax_error_D:             ;{{Addr=$dea7 Code Calls/jump count: 3 Data use count: 0}}
+raise_syntax_error_E:             ;{{Addr=$dea7 Code Calls/jump count: 3 Data use count: 0}}
         jp      Error_Syntax_Error;{{dea7:c349cb}}  Error: Syntax Error
 
 ;;========================================================================
 ;; zero current line address
 zero_current_line_address:        ;{{Addr=$deaa Code Calls/jump count: 7 Data use count: 0}}
-        ld      hl,RESET_ENTRY    ;{{deaa:210000}} 
+        ld      hl,$0000          ;{{deaa:210000}} ##LIT##
 
 ;;=set current line address
 set_current_line_address:         ;{{Addr=$dead Code Calls/jump count: 15 Data use count: 0}}
@@ -6621,8 +6835,8 @@ get_current_line_address:         ;{{Addr=$deb1 Code Calls/jump count: 12 Data u
 get_current_line_number:          ;{{Addr=$deb5 Code Calls/jump count: 10 Data use count: 0}}
         ld      hl,(address_of_line_number_LB_of_line_of_cur);{{deb5:2a1dae}} address of current line
 
-;;+get line number at HL
-get_line_number_at_HL:            ;{{Addr=$deb8 Code Calls/jump count: 1 Data use count: 0}}
+;;+get line number atHL
+get_line_number_atHL:             ;{{Addr=$deb8 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,h               ;{{deb8:7c}} 
         or      l                 ;{{deb9:b5}} 
         ret     z                 ;{{deba:c8}} ; no current line 
@@ -6645,13 +6859,13 @@ command_TRON:                     ;{{Addr=$dec1 Code Calls/jump count: 0 Data us
 command_TROFF:                    ;{{Addr=$dec5 Code Calls/jump count: 1 Data use count: 1}}
         xor     a                 ;{{dec5:af}} 
 _command_troff_1:                 ;{{Addr=$dec6 Code Calls/jump count: 1 Data use count: 0}}
-        ld      (trace_flag_),a   ;{{dec6:321fae}} 
+        ld      (trace_flag),a    ;{{dec6:321fae}} 
         ret                       ;{{dec9:c9}} 
 
 ;;=============
 ;;do trace
 do_trace:                         ;{{Addr=$deca Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,"["             ;{{deca:3e5b}} 
+        ld      a,$5b             ;{{deca:3e5b}} '['
         call    output_char       ;{{decc:cda0c3}} ; display text char
         push    hl                ;{{decf:e5}} 
         ld      hl,(address_of_line_number_LB_of_line_of_cur);{{ded0:2a1dae}} Current line address
@@ -6661,12 +6875,15 @@ do_trace:                         ;{{Addr=$deca Code Calls/jump count: 1 Data us
         ld      l,a               ;{{ded6:6f}} 
         call    display_decimal_number;{{ded7:cd44ef}} Display current line number
         pop     hl                ;{{deda:e1}} 
-        ld      a,"]"             ;{{dedb:3e5d}} 
+        ld      a,$5d             ;{{dedb:3e5d}} ']'
         jp      output_char       ;{{dedd:c3a0c3}} ; display text char
 
 ;;====================================================
 ;; command to code address LUT
-command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data use count: 2}}
+
+;you can add extra items to the end of this list, HOWEVER, there is only one unused item before
+;current last item in the table is &e1. You can add an item &e2. Items &e3 onwards are used for other keywords
+command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data use count: 3}}
                                   
         defw command_AFTER        ; AFTER  ##LABEL##
         defw command_AUTO         ; AUTO  ##LABEL##
@@ -6680,7 +6897,7 @@ command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data us
         defw command_CLOSEOUT     ; CLOSEOUT  ##LABEL##
         defw command_CLS          ; CLS   ##LABEL##
         defw command_CONT         ; CONT  ##LABEL##
-        defw command_DATA         ; DATA  ##LABEL##
+        defw skip_to_end_of_statement; DATA  ##LABEL##
         defw command_DEF          ; DEF   ##LABEL##
         defw command_DEFINT       ; DEFINT  ##LABEL##
         defw command_DEFREAL      ; DEFREAL  ##LABEL##
@@ -6690,8 +6907,8 @@ command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data us
         defw command_DIM          ; DIM  ##LABEL##
         defw command_DRAW         ; DRAW  ##LABEL##
         defw command_DRAWR        ; DRAWR  ##LABEL##
-        defw REPL_loop_EDIT_AUTO_NEW_CLEAR_INPUT; EDIT  ##LABEL##
-        defw command_ELSE         ; ELSE  ##LABEL##
+        defw command_EDIT         ; EDIT  ##LABEL##
+        defw skip_to_end_of_line  ; ELSE  ##LABEL##
         defw command_END          ; END  ##LABEL##
         defw command_ENT          ; ENT  ##LABEL##
         defw command_ENV          ; ENV  ##LABEL##
@@ -6706,7 +6923,7 @@ command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data us
         defw command_INPUT        ; INPUT  ##LABEL##
         defw command_KEY          ; KEY  ##LABEL##
         defw command_LET          ; LET   ##LABEL##
-        defw command_LINE         ; LINE  ##LABEL##
+        defw command_LINE_INPUT   ; LINE  ##LABEL##
         defw command_LIST         ; LIST  ##LABEL##
         defw command_LOAD         ; LOAD  ##LABEL##
         defw command_LOCATE       ; LOCATE  ##LABEL##
@@ -6775,15 +6992,15 @@ command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data us
 ;;<< TOKENISING SOURCE CODE
 ;;==================================================
 ;; tokenise a BASIC line
-tokenise_a_BASIC_line:            ;{{Addr=$dfa4 Code Calls/jump count: 2 Data use count: 0}}
+tokenise_a_BASIC_line:            ;{{Addr=$dfa4 Code Calls/jump count: 2 Data use count: 1}}
         push    de                ;{{dfa4:d5}} 
         ld de,(address_of_start_of_ROM_lower_reserved_a);{{dfa5:ed5b62ae}} input buffer address
         push    de                ;{{dfa9:d5}} 
-        call    zero_ae20_called_at_start_of_statement;{{dfaa:cd35e0}} 
-        ld      bc,$012c          ;{{dfad:012c01}} 
+        call    clear_tokenisation_state_flag;{{dfaa:cd35e0}} 
+        ld      bc,$012c          ;{{dfad:012c01}} max tokenised line length/buffer length
 
 _tokenise_a_basic_line_5:         ;{{Addr=$dfb0 Code Calls/jump count: 1 Data use count: 0}}
-        call    _tokenise_a_basic_line_24;{{dfb0:cdc8df}} 
+        call    tokenise_item     ;{{dfb0:cdc8df}} 
         ld      a,(hl)            ;{{dfb3:7e}} 
         or      a                 ;{{dfb4:b7}} 
         jr      nz,_tokenise_a_basic_line_5;{{dfb5:20f9}}  (-$07) Loop until end of buffer
@@ -6804,13 +7021,14 @@ _tokenise_a_basic_line_5:         ;{{Addr=$dfb0 Code Calls/jump count: 1 Data us
         pop     de                ;{{dfc6:d1}} 
         ret                       ;{{dfc7:c9}} 
 
-_tokenise_a_basic_line_24:        ;{{Addr=$dfc8 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(hl)            ;{{dfc8:7e}} 
+;;=tokenise item
+tokenise_item:                    ;{{Addr=$dfc8 Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,(hl)            ;{{dfc8:7e}} get char
         or      a                 ;{{dfc9:b7}} 
-        ret     z                 ;{{dfca:c8}} 
+        ret     z                 ;{{dfca:c8}} end of buffer
 
         call    test_if_letter    ;{{dfcb:cd92ff}}  is a alphabetical letter?
-        jr      c,tokenise_a_keyword;{{dfce:381c}}  (+$1c)
+        jr      c,tokenise_letters;{{dfce:381c}}  (+$1c)
         call    test_if_period_or_digit;{{dfd0:cda0ff}} 
         jp      c,tokenise_a_number;{{dfd3:dae2e0}} 
         cp      "&"               ;{{dfd6:fe26}} '&' = hex or binary prefix
@@ -6820,42 +7038,44 @@ _tokenise_a_basic_line_24:        ;{{Addr=$dfc8 Code Calls/jump count: 1 Data us
         ret     m                 ;{{dfdd:f8}} 
 
         cp      "!"               ;{{dfde:fe21}} '!'
-        jp      nc,tokenise_any_other_ascii_char;{{dfe0:d25ce1}} 
-        ld      a,(program_line_redundant_spaces_flag_);{{dfe3:3a00ac}} 
+        jp      nc,tokenise_any_other_ascii_char;{{dfe0:d25ce1}} anything else which is not whitespace
+
+        ld      a,(program_line_redundant_spaces_flag_);{{dfe3:3a00ac}} do we store whitespace?
         or      a                 ;{{dfe6:b7}} 
         ret     nz                ;{{dfe7:c0}} 
 
         ld      a," "             ;{{dfe8:3e20}} ' '
-        jr      write_token_data_to_memory;{{dfea:181c}}  (+$1c)
+        jr      write_tokenised_byte_to_memory;{{dfea:181c}}  (+$1c)
 
 ;;+----------------
-;;tokenise a keyword
-tokenise_a_keyword:               ;{{Addr=$dfec Code Calls/jump count: 1 Data use count: 0}}
-        call    get_token_for_keyword;{{dfec:cd3ae0}} 
-        ret     c                 ;{{dfef:d8}} 
-
+;;tokenise letters
+;keywords and variables??
+tokenise_letters:                 ;{{Addr=$dfec Code Calls/jump count: 1 Data use count: 0}}
+        call    tokenise_identifiers;{{dfec:cd3ae0}} 
+        ret     c                 ;{{dfef:d8}} carry set if it's already been written
+                                  ;othwise it's a token >= &80
         cp      $c5               ;{{dff0:fec5}} REM
         jp      z,copy_until_end_of_buffer;{{dff2:cac3e1}} 
         push    hl                ;{{dff5:e5}} 
-        ld      hl,tokenisation_table_A;{{dff6:2112e0}} 
+        ld      hl,tokenisation_table_A;{{dff6:2112e0}} DATA and DEFxxxx
         call    check_if_byte_exists_in_table;{{dff9:cdcaff}} ; check if byte exists in table 
         pop     hl                ;{{dffc:e1}} 
-        jr      c,token_is_in_tokenisation_table_A;{{dffd:3818}}  (+$18)
+        jr      c,token_is_in_tokenisation_table_A;{{dffd:3818}}  (+$18) copy sanitised ASCII until end of statement
         push    af                ;{{dfff:f5}} 
         cp      $97               ;{{e000:fe97}} ELSE
         ld      a,$01             ;{{e002:3e01}} 
-        call    z,write_token_data_to_memory;{{e004:cc08e0}} 
+        call    z,write_tokenised_byte_to_memory;{{e004:cc08e0}} insert a New Statement token before an ELSE
         pop     af                ;{{e007:f1}} 
 
 ;;+-----------------------------
-;; write token data to memory
-write_token_data_to_memory:       ;{{Addr=$e008 Code Calls/jump count: 22 Data use count: 0}}
-        ld      (de),a            ;{{e008:12}} 
+;; write tokenised byte to memory
+write_tokenised_byte_to_memory:   ;{{Addr=$e008 Code Calls/jump count: 22 Data use count: 0}}
+        ld      (de),a            ;{{e008:12}} write token
         inc     de                ;{{e009:13}} 
         dec     bc                ;{{e00a:0b}} 
         ld      a,c               ;{{e00b:79}} 
         or      b                 ;{{e00c:b0}} 
-        ret     nz                ;{{e00d:c0}} 
+        ret     nz                ;{{e00d:c0}} buffer full?
 
         call    byte_following_call_is_error_code;{{e00e:cd45cb}} 
         defb $17                  ;Inline error code: Line too long
@@ -6874,10 +7094,13 @@ tokenisation_table_A:             ;{{Addr=$e012 Data Calls/jump count: 0 Data us
 ;;+------------------------------------------
 ;; token is in tokenisation table A
 ;; copy literal data until end of statement or end of line
+;ignores chars >= &80
+;chars < &20 are converted to spaces
+;quoted strings are copied unmodified
 ;; Code is jumped to - loop until return
 
 token_is_in_tokenisation_table_A: ;{{Addr=$e017 Code Calls/jump count: 2 Data use count: 0}}
-        call    write_token_data_to_memory;{{e017:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e017:cd08e0}} 
 
 _token_is_in_tokenisation_table_a_1:;{{Addr=$e01a Code Calls/jump count: 2 Data use count: 0}}
         ld      a,(hl)            ;{{e01a:7e}} 
@@ -6885,31 +7108,33 @@ _token_is_in_tokenisation_table_a_1:;{{Addr=$e01a Code Calls/jump count: 2 Data 
         ret     z                 ;{{e01c:c8}}  End of buffer
 
         cp      ":"               ;{{e01d:fe3a}} ':' - end of statement
-        jr      z,zero_ae20_called_at_start_of_statement;{{e01f:2814}}  (+$14)
+        jr      z,clear_tokenisation_state_flag;{{e01f:2814}}  (+$14)
         inc     hl                ;{{e021:23}} 
         or      a                 ;{{e022:b7}} 
-        jp      m,_token_is_in_tokenisation_table_a_1;{{e023:fa1ae0}} 
+        jp      m,_token_is_in_tokenisation_table_a_1;{{e023:fa1ae0}} ignore chars >= &80
 
         cp      " "               ;{{e026:fe20}}  ' '
         jr      nc,_token_is_in_tokenisation_table_a_12;{{e028:3002}}  (+$02)
         ld      a,$20             ;{{e02a:3e20}}  convert control codes to spaces
 _token_is_in_tokenisation_table_a_12:;{{Addr=$e02c Code Calls/jump count: 1 Data use count: 0}}
         cp      $22               ;{{e02c:fe22}}  '"'
-        jr      nz,token_is_in_tokenisation_table_A;{{e02e:20e7}}  (-$19)
+        jr      nz,token_is_in_tokenisation_table_A;{{e02e:20e7}}  (-$19) write byte and next
         call    tokenise_string   ;{{e030:cd95e1}} 
-        jr      _token_is_in_tokenisation_table_a_1;{{e033:18e5}}  (-$1b)
+        jr      _token_is_in_tokenisation_table_a_1;{{e033:18e5}}  (-$1b) next
 
 ;;+----------------------
-;;zero ae20 called at start of statement
-zero_ae20_called_at_start_of_statement:;{{Addr=$e035 Code Calls/jump count: 2 Data use count: 0}}
+;;clear tokenisation state flag
+clear_tokenisation_state_flag:    ;{{Addr=$e035 Code Calls/jump count: 2 Data use count: 0}}
         xor     a                 ;{{e035:af}} 
-        ld      (flag_used_with_Trace_),a;{{e036:3220ae}} 
+        ld      (tokenisation_state_flag),a;{{e036:3220ae}} 
         ret                       ;{{e039:c9}} 
 
 ;;===================================================
-;; get token for keyword
+;; tokenise identifiers
+;tokens >= &80 are returned with carry set, for caller to process
+;other items are written by as, and carry returns clear
 
-get_token_for_keyword:            ;{{Addr=$e03a Code Calls/jump count: 1 Data use count: 0}}
+tokenise_identifiers:             ;{{Addr=$e03a Code Calls/jump count: 1 Data use count: 0}}
         push    bc                ;{{e03a:c5}} 
         push    de                ;{{e03b:d5}} 
         push    hl                ;{{e03c:e5}} 
@@ -6919,88 +7144,97 @@ get_token_for_keyword:            ;{{Addr=$e03a Code Calls/jump count: 1 Data us
         call    convert_character_to_upper_case;{{e03f:cdabff}} ; convert character to upper case
         call    get_keyword_table_for_letter;{{e042:cda8e3}} ; get list of keywords beginning with this letter
         call    keyword_to_token_within_single_table;{{e045:cdebe3}} 
-        jr      nc,_get_token_for_keyword_31;{{e048:3026}} ;
+        jr      nc,tokenise_variable;{{e048:3026}} ;not found? - it's a variable!
 
         ld      a,c               ;{{e04a:79}} 
         and     $7f               ;{{e04b:e67f}} 
         call    test_if_letter_period_or_digit;{{e04d:cd9cff}} 
-        jr      nc,_get_token_for_keyword_18;{{e050:3009}}  (+$09)
-        ld      a,(de)            ;{{e052:1a}} 
-        cp      $e4               ;{{e053:fee4}} 
+        jr      nc,_tokenise_identifiers_18;{{e050:3009}}  (+$09)
+        ld      a,(de)            ;{{e052:1a}} get prev token
+        cp      $e4               ;{{e053:fee4}} FN token
         ld      a,(hl)            ;{{e055:7e}} 
         call    nz,test_if_letter_period_or_digit;{{e056:c49cff}} 
-        jr      c,_get_token_for_keyword_31;{{e059:3815}}  (+$15)
-_get_token_for_keyword_18:        ;{{Addr=$e05b Code Calls/jump count: 1 Data use count: 0}}
+        jr      c,tokenise_variable;{{e059:3815}}  (+$15) tokenise variable name after FN
+
+_tokenise_identifiers_18:         ;{{Addr=$e05b Code Calls/jump count: 1 Data use count: 0}}
         pop     af                ;{{e05b:f1}} 
-        ld      a,(de)            ;{{e05c:1a}} 
-        or      a                 ;{{e05d:b7}} 
-        jp      m,handle_keywords_invalid_in_immediate_mode;{{e05e:faafe0}} 
-        pop     de                ;{{e061:d1}} 
+        ld      a,(de)            ;{{e05c:1a}} get prev token
+        or      a                 ;{{e05d:b7}} tokens >= &80 = statements and miscellaneous
+        jp      m,test_for_specially_encoded_keywords;{{e05e:faafe0}} do tests and return the token for caller to process
+        pop     de                ;{{e061:d1}} tokens <&80 = functions
         pop     bc                ;{{e062:c1}} 
         push    af                ;{{e063:f5}} 
-        ld      a,$ff             ;{{e064:3eff}} 
-        call    write_token_data_to_memory;{{e066:cd08e0}} 
+        ld      a,$ff             ;{{e064:3eff}} functions have a &ff prefix
+        call    write_tokenised_byte_to_memory;{{e066:cd08e0}} 
         pop     af                ;{{e069:f1}} 
-        call    write_token_data_to_memory;{{e06a:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e06a:cd08e0}} write function token
         xor     a                 ;{{e06d:af}} 
-        jr      _get_token_for_keyword_64;{{e06e:183a}}  (+$3a)
+        jr      set_tokenisation_status_flag;{{e06e:183a}}  (+$3a)
 
-_get_token_for_keyword_31:        ;{{Addr=$e070 Code Calls/jump count: 2 Data use count: 0}}
+;;=tokenise variable
+tokenise_variable:                ;{{Addr=$e070 Code Calls/jump count: 2 Data use count: 0}}
         pop     hl                ;{{e070:e1}} 
         pop     de                ;{{e071:d1}} 
         pop     bc                ;{{e072:c1}} 
         push    hl                ;{{e073:e5}} 
         dec     hl                ;{{e074:2b}} 
-_get_token_for_keyword_36:        ;{{Addr=$e075 Code Calls/jump count: 1 Data use count: 0}}
-        inc     hl                ;{{e075:23}} 
+
+_tokenise_variable_5:             ;{{Addr=$e075 Code Calls/jump count: 1 Data use count: 0}}
+        inc     hl                ;{{e075:23}} skip over the variable name to get to the type char
         ld      a,(hl)            ;{{e076:7e}} 
-        call    test_if_letter_period_or_digit;{{e077:cd9cff}} 
-        jr      c,_get_token_for_keyword_36;{{e07a:38f9}}  (-$07)
-        call    prob_variable_type_suffix;{{e07c:cdd1e0}} 
-        jr      c,_get_token_for_keyword_44;{{e07f:3804}}  (+$04)
-        ld      a,$0d             ;{{e081:3e0d}} 
-        jr      _get_token_for_keyword_48;{{e083:1806}}  (+$06)
+        call    test_if_letter_period_or_digit;{{e077:cd9cff}} I was today years old when I learnt variable names can contain periods :)
+        jr      c,_tokenise_variable_5;{{e07a:38f9}}  (-$07)
 
-_get_token_for_keyword_44:        ;{{Addr=$e085 Code Calls/jump count: 1 Data use count: 0}}
+        call    convert_variable_type_suffix;{{e07c:cdd1e0}} interpret the type suffix
+        jr      c,_tokenise_variable_13;{{e07f:3804}}  (+$04)
+        ld      a,$0d             ;{{e081:3e0d}} no type suffix - default to a real
+        jr      got_var_type      ;{{e083:1806}}  (+$06)
+
+_tokenise_variable_13:            ;{{Addr=$e085 Code Calls/jump count: 1 Data use count: 0}}
         inc     hl                ;{{e085:23}} 
-        cp      $05               ;{{e086:fe05}} 
-        jr      nz,_get_token_for_keyword_48;{{e088:2001}}  (+$01)
+        cp      $05               ;{{e086:fe05}} massage var type from 2/3/5 (internal data type) to 2/3/4 (token data type)
+        jr      nz,got_var_type   ;{{e088:2001}}  (+$01)
         dec     a                 ;{{e08a:3d}} 
-_get_token_for_keyword_48:        ;{{Addr=$e08b Code Calls/jump count: 2 Data use count: 0}}
-        call    write_token_data_to_memory;{{e08b:cd08e0}} 
-        xor     a                 ;{{e08e:af}} 
-        call    write_token_data_to_memory;{{e08f:cd08e0}} 
+;;=got var type
+got_var_type:                     ;{{Addr=$e08b Code Calls/jump count: 2 Data use count: 0}}
+        call    write_tokenised_byte_to_memory;{{e08b:cd08e0}} write type type token
+        xor     a                 ;{{e08e:af}} write null link pointer (to variable data storage)
+        call    write_tokenised_byte_to_memory;{{e08f:cd08e0}} 
         xor     a                 ;{{e092:af}} 
-        call    write_token_data_to_memory;{{e093:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e093:cd08e0}} 
         ex      (sp),hl           ;{{e096:e3}} 
-_get_token_for_keyword_54:        ;{{Addr=$e097 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(hl)            ;{{e097:7e}} 
-        call    test_if_letter_period_or_digit;{{e098:cd9cff}} 
-        jr      nc,_get_token_for_keyword_61;{{e09b:3007}}  (+$07)
-        ld      a,(hl)            ;{{e09d:7e}} 
-        call    write_token_data_to_memory;{{e09e:cd08e0}} 
-        inc     hl                ;{{e0a1:23}} 
-        jr      _get_token_for_keyword_54;{{e0a2:18f3}}  (-$0d)
 
-_get_token_for_keyword_61:        ;{{Addr=$e0a4 Code Calls/jump count: 1 Data use count: 0}}
-        call    _tokenise_bar_command_9;{{e0a4:cdb5e1}} 
+;;=tokenise variable name loop
+tokenise_variable_name_loop:      ;{{Addr=$e097 Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,(hl)            ;{{e097:7e}} copy the variable name
+        call    test_if_letter_period_or_digit;{{e098:cd9cff}} 
+        jr      nc,_tokenise_variable_name_loop_7;{{e09b:3007}}  (+$07) done
+        ld      a,(hl)            ;{{e09d:7e}} 
+        call    write_tokenised_byte_to_memory;{{e09e:cd08e0}} 
+        inc     hl                ;{{e0a1:23}} 
+        jr      tokenise_variable_name_loop;{{e0a2:18f3}}  (-$0d)
+
+_tokenise_variable_name_loop_7:   ;{{Addr=$e0a4 Code Calls/jump count: 1 Data use count: 0}}
+        call    set_bit7_of_prev_byte;{{e0a4:cdb5e1}} set bit 7 of last char of name
         pop     hl                ;{{e0a7:e1}} 
         ld      a,$ff             ;{{e0a8:3eff}} 
-_get_token_for_keyword_64:        ;{{Addr=$e0aa Code Calls/jump count: 1 Data use count: 0}}
-        ld      (flag_used_with_Trace_),a;{{e0aa:3220ae}} 
+;;=set tokenisation status flag
+set_tokenisation_status_flag:     ;{{Addr=$e0aa Code Calls/jump count: 1 Data use count: 0}}
+        ld      (tokenisation_state_flag),a;{{e0aa:3220ae}} 
         scf                       ;{{e0ad:37}} 
         ret                       ;{{e0ae:c9}} 
 
 ;;==================================
-;; handle keywords invalid in immediate mode
-handle_keywords_invalid_in_immediate_mode:;{{Addr=$e0af Code Calls/jump count: 1 Data use count: 0}}
+;; test for specially encoded keywords
+;sets tokenisation state flag (ae20) to &ff if token is one of these
+test_for_specially_encoded_keywords:;{{Addr=$e0af Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{e0af:e5}} 
         ld      c,a               ;{{e0b0:4f}} 
-        ld      hl,immediate_mode_only_token_table;{{e0b1:21c3e0}} 
+        ld      hl,specially_encoded_keywords;{{e0b1:21c3e0}} 
         call    check_if_byte_exists_in_table;{{e0b4:cdcaff}} ;check if byte exists in table
         sbc     a,a               ;{{e0b7:9f}} 
         and     $01               ;{{e0b8:e601}} 
-        ld      (flag_used_with_Trace_),a;{{e0ba:3220ae}} 
+        ld      (tokenisation_state_flag),a;{{e0ba:3220ae}} 
         ld      a,c               ;{{e0bd:79}} 
         pop     hl                ;{{e0be:e1}} 
         pop     de                ;{{e0bf:d1}} 
@@ -7009,9 +7243,9 @@ handle_keywords_invalid_in_immediate_mode:;{{Addr=$e0af Code Calls/jump count: 1
         ret                       ;{{e0c2:c9}} 
 
 ;;================================================
-;; immediate mode only token table
-;; keywords which are only valid in immediate mode(??)
-immediate_mode_only_token_table:  ;{{Addr=$e0c3 Data Calls/jump count: 0 Data use count: 1}}
+;; specially encoded keywords
+;; keywords which need special encoding(??)
+specially_encoded_keywords:       ;{{Addr=$e0c3 Data Calls/jump count: 0 Data use count: 1}}
                                   
         defb $c7                  ;RESTORE
         defb $81                  ;AUTO
@@ -7029,20 +7263,20 @@ immediate_mode_only_token_table:  ;{{Addr=$e0c3 Data Calls/jump count: 0 Data us
         defb $00                  
 
 ;;===========================================
-;; prob variable type suffix
+;; convert variable type suffix
 
-prob_variable_type_suffix:        ;{{Addr=$e0d1 Code Calls/jump count: 2 Data use count: 0}}
-        cp      "!"               ;{{e0d1:fe21}} '!'
-        jr      z,_prob_variable_type_suffix_7;{{e0d3:2807}}  (+$07)
-        cp      "&"               ;{{e0d5:fe26}} '&'
+convert_variable_type_suffix:     ;{{Addr=$e0d1 Code Calls/jump count: 2 Data use count: 0}}
+        cp      "!"               ;{{e0d1:fe21}} '!' real
+        jr      z,_convert_variable_type_suffix_7;{{e0d3:2807}}  (+$07)
+        cp      "&"               ;{{e0d5:fe26}} '&' we want < '&'
         ret     nc                ;{{e0d7:d0}} 
 
-        cp      "$"               ;{{e0d8:fe24}} '$'
+        cp      "$"               ;{{e0d8:fe24}} '$' string 
         ccf                       ;{{e0da:3f}} 
-        ret     nc                ;{{e0db:d0}} 
+        ret     nc                ;{{e0db:d0}} we want >= '$'
 
-_prob_variable_type_suffix_7:     ;{{Addr=$e0dc Code Calls/jump count: 1 Data use count: 0}}
-        sbc     a,$1f             ;{{e0dc:de1f}} 
+_convert_variable_type_suffix_7:  ;{{Addr=$e0dc Code Calls/jump count: 1 Data use count: 0}}
+        sbc     a,$1f             ;{{e0dc:de1f}} Use maths to massage them into 2,3,5 (int, string, real)
         xor     $07               ;{{e0de:ee07}} 
         scf                       ;{{e0e0:37}} 
         ret                       ;{{e0e1:c9}} 
@@ -7051,12 +7285,12 @@ _prob_variable_type_suffix_7:     ;{{Addr=$e0dc Code Calls/jump count: 1 Data us
 ;;tokenise a number
 
 tokenise_a_number:                ;{{Addr=$e0e2 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(flag_used_with_Trace_);{{e0e2:3a20ae}} 
+        ld      a,(tokenisation_state_flag);{{e0e2:3a20ae}} 
         or      a                 ;{{e0e5:b7}} 
         jr      z,_tokenise_a_number_12;{{e0e6:2810}}  (+$10)
         ld      a,(hl)            ;{{e0e8:7e}} 
         inc     hl                ;{{e0e9:23}} 
-        jp      m,write_token_data_to_memory;{{e0ea:fa08e0}} 
+        jp      m,write_tokenised_byte_to_memory;{{e0ea:fa08e0}} 
         dec     hl                ;{{e0ed:2b}} 
         push    de                ;{{e0ee:d5}} 
         call    convert_number_a  ;{{e0ef:cdcfee}} 
@@ -7088,18 +7322,18 @@ _tokenise_a_number_12:            ;{{Addr=$e0f8 Code Calls/jump count: 1 Data us
 
 _tokenise_a_number_32:            ;{{Addr=$e11c Code Calls/jump count: 1 Data use count: 0}}
         ld      a,$19             ;{{e11c:3e19}} 
-        call    write_token_data_to_memory;{{e11e:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e11e:cd08e0}} 
         ld      a,l               ;{{e121:7d}} 
 _tokenise_a_number_35:            ;{{Addr=$e122 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{e122:e1}} 
-        jp      write_token_data_to_memory;{{e123:c308e0}} 
+        jp      write_tokenised_byte_to_memory;{{e123:c308e0}} 
 
 _tokenise_a_number_37:            ;{{Addr=$e126 Code Calls/jump count: 4 Data use count: 0}}
         ld      a,(hl)            ;{{e126:7e}} 
         inc     hl                ;{{e127:23}} 
         ex      (sp),hl           ;{{e128:e3}} 
         ex      de,hl             ;{{e129:eb}} 
-        call    write_token_data_to_memory;{{e12a:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e12a:cd08e0}} 
         ex      de,hl             ;{{e12d:eb}} 
         ex      (sp),hl           ;{{e12e:e3}} 
         call    compare_HL_DE     ;{{e12f:cdd8ff}}  HL=DE?
@@ -7122,7 +7356,7 @@ tokenise_hex_or_binary_number:    ;{{Addr=$e136 Code Calls/jump count: 1 Data us
 
 _tokenise_hex_or_binary_number_9: ;{{Addr=$e145 Code Calls/jump count: 4 Data use count: 0}}
         pop     de                ;{{e145:d1}} 
-        call    write_token_data_to_memory;{{e146:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e146:cd08e0}} 
         push    hl                ;{{e149:e5}} 
         ld      hl,accumulator    ;{{e14a:21a0b0}} 
         call    get_accumulator_data_type;{{e14d:cd4bff}} 
@@ -7130,7 +7364,7 @@ _tokenise_hex_or_binary_number_14:;{{Addr=$e150 Code Calls/jump count: 1 Data us
         push    af                ;{{e150:f5}} 
         ld      a,(hl)            ;{{e151:7e}} 
         inc     hl                ;{{e152:23}} 
-        call    write_token_data_to_memory;{{e153:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e153:cd08e0}} 
         pop     af                ;{{e156:f1}} 
         dec     a                 ;{{e157:3d}} 
         jr      nz,_tokenise_hex_or_binary_number_14;{{e158:20f6}}  (-$0a)
@@ -7162,13 +7396,13 @@ _tokenise_any_other_ascii_char_16:;{{Addr=$e178 Code Calls/jump count: 1 Data us
         ld      b,a               ;{{e178:47}} 
         call    _tokenise_any_other_ascii_char_25;{{e179:cd89e1}} 
 _tokenise_any_other_ascii_char_18:;{{Addr=$e17c Code Calls/jump count: 1 Data use count: 0}}
-        ld      (flag_used_with_Trace_),a;{{e17c:3220ae}} 
+        ld      (tokenisation_state_flag),a;{{e17c:3220ae}} 
         ld      a,b               ;{{e17f:78}} 
         pop     de                ;{{e180:d1}} 
         pop     bc                ;{{e181:c1}} 
         cp      $c0               ;{{e182:fec0}} "'" comment
         jr      z,tokenise_single_quote_comment;{{e184:2836}}  (+$36)
-        jp      write_token_data_to_memory;{{e186:c308e0}} 
+        jp      write_tokenised_byte_to_memory;{{e186:c308e0}} 
 
 _tokenise_any_other_ascii_char_25:;{{Addr=$e189 Code Calls/jump count: 1 Data use count: 0}}
         dec     a                 ;{{e189:3d}} 
@@ -7177,7 +7411,7 @@ _tokenise_any_other_ascii_char_25:;{{Addr=$e189 Code Calls/jump count: 1 Data us
         xor     $22               ;{{e18b:ee22}}  '"'
         ret     z                 ;{{e18d:c8}} 
 
-        ld      a,(flag_used_with_Trace_);{{e18e:3a20ae}} 
+        ld      a,(tokenisation_state_flag);{{e18e:3a20ae}} 
         inc     a                 ;{{e191:3c}} 
         ret     z                 ;{{e192:c8}} 
 
@@ -7188,7 +7422,7 @@ _tokenise_any_other_ascii_char_25:;{{Addr=$e189 Code Calls/jump count: 1 Data us
 ;; tokenise string
 ;; Called after a double quote
 tokenise_string:                  ;{{Addr=$e195 Code Calls/jump count: 3 Data use count: 0}}
-        call    write_token_data_to_memory;{{e195:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e195:cd08e0}} 
         ld      a,(hl)            ;{{e198:7e}} 
         or      a                 ;{{e199:b7}} 
         ret     z                 ;{{e19a:c8}} 
@@ -7196,23 +7430,25 @@ tokenise_string:                  ;{{Addr=$e195 Code Calls/jump count: 3 Data us
         inc     hl                ;{{e19b:23}} 
         cp      $22               ;{{e19c:fe22}}  '"'
         jr      nz,tokenise_string;{{e19e:20f5}}  (-$0b)
-        jp      write_token_data_to_memory;{{e1a0:c308e0}} 
+        jp      write_tokenised_byte_to_memory;{{e1a0:c308e0}} 
 
 ;;=============================
 ;;tokenise bar command
 
 tokenise_bar_command:             ;{{Addr=$e1a3 Code Calls/jump count: 1 Data use count: 0}}
-        call    write_token_data_to_memory;{{e1a3:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e1a3:cd08e0}} 
         xor     a                 ;{{e1a6:af}} 
-        ld      (flag_used_with_Trace_),a;{{e1a7:3220ae}} 
+        ld      (tokenisation_state_flag),a;{{e1a7:3220ae}} 
 _tokenise_bar_command_3:          ;{{Addr=$e1aa Code Calls/jump count: 1 Data use count: 0}}
-        call    write_token_data_to_memory;{{e1aa:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e1aa:cd08e0}} 
         ld      a,(hl)            ;{{e1ad:7e}} 
         inc     hl                ;{{e1ae:23}} 
         call    test_if_letter_period_or_digit;{{e1af:cd9cff}} 
         jr      c,_tokenise_bar_command_3;{{e1b2:38f6}}  (-$0a)
         dec     hl                ;{{e1b4:2b}} 
-_tokenise_bar_command_9:          ;{{Addr=$e1b5 Code Calls/jump count: 1 Data use count: 0}}
+
+;;=set bit7 of prev byte
+set_bit7_of_prev_byte:            ;{{Addr=$e1b5 Code Calls/jump count: 1 Data use count: 0}}
         dec     de                ;{{e1b5:1b}} 
         ld      a,(de)            ;{{e1b6:1a}} 
         or      $80               ;{{e1b7:f680}} 
@@ -7224,11 +7460,11 @@ _tokenise_bar_command_9:          ;{{Addr=$e1b5 Code Calls/jump count: 1 Data us
 ;; tokenise single quote comment
 tokenise_single_quote_comment:    ;{{Addr=$e1bc Code Calls/jump count: 1 Data use count: 0}}
         ld      a,$01             ;{{e1bc:3e01}} 
-        call    write_token_data_to_memory;{{e1be:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e1be:cd08e0}} 
         ld      a,$c0             ;{{e1c1:3ec0}} "'"
 ;;=copy until end of buffer
 copy_until_end_of_buffer:         ;{{Addr=$e1c3 Code Calls/jump count: 2 Data use count: 0}}
-        call    write_token_data_to_memory;{{e1c3:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e1c3:cd08e0}} 
         ld      a,(hl)            ;{{e1c6:7e}} 
         inc     hl                ;{{e1c7:23}} 
         or      a                 ;{{e1c8:b7}} 
@@ -7386,7 +7622,7 @@ detokenise_single_item:           ;{{Addr=$e266 Code Calls/jump count: 1 Data us
         jr      c,detokenise_number;{{e277:3831}}  (+$31)
         cp      $7c               ;{{e279:fe7c}}  '|'
         jr      z,detokenise_bar_command;{{e27b:2854}}  (+$54)
-        call    prob_variable_type_suffix;{{e27d:cdd1e0}} 
+        call    convert_variable_type_suffix;{{e27d:cdd1e0}} 
         call    nc,test_if_letter_period_or_digit;{{e280:d49cff}} 
         call    c,detokenise_append_space_if_needed;{{e283:dce6e2}} 
         ld      a,(hl)            ;{{e286:7e}} 
@@ -8195,7 +8431,7 @@ poss_clear_program_area:          ;{{Addr=$e761 Code Calls/jump count: 1 Data us
 ;;=convert all line addresses to line numbers
 ;Scoots over every line to convert the line numbers to line addresses
 convert_all_line_addresses_to_line_numbers:;{{Addr=$e770 Code Calls/jump count: 4 Data use count: 0}}
-        ld      a,(poss_line_address_vs_line_number_flag_);{{e770:3a21ae}} 
+        ld      a,(line_address_vs_line_number_flag);{{e770:3a21ae}} 
         or      a                 ;{{e773:b7}} 
         ret     z                 ;{{e774:c8}} Abort if we already have line numbers
 
@@ -8209,7 +8445,7 @@ convert_all_line_addresses_to_line_numbers:;{{Addr=$e770 Code Calls/jump count: 
         pop     bc                ;{{e780:c1}} 
 _convert_all_line_addresses_to_line_numbers_11:;{{Addr=$e781 Code Calls/jump count: 1 Data use count: 0}}
         xor     a                 ;{{e781:af}} 
-        ld      (poss_line_address_vs_line_number_flag_),a;{{e782:3221ae}} Set flag
+        ld      (line_address_vs_line_number_flag),a;{{e782:3221ae}} Set flag
         ret                       ;{{e785:c9}} 
 
 ;;=================================================
@@ -8357,7 +8593,7 @@ eval_and_convert_line_number_to_line_address:;{{Addr=$e827 Code Calls/jump count
         pop     hl                ;{{e83d:e1}} If target line after current then scan to next line and scan from there?
         push    hl                ;{{e83e:e5}} 
         inc     hl                ;{{e83f:23}} 
-        call    command_ELSE      ;{{e840:cdade9}} ; ELSE - scans to next statement ignoring nested IFs??
+        call    skip_to_end_of_line;{{e840:cdade9}} ; ELSE - scans to next statement ignoring nested IFs??
         inc     hl                ;{{e843:23}} 
         call    find_address_of_line_from_current;{{e844:cd68e8}} 
 
@@ -8371,7 +8607,7 @@ _eval_and_convert_line_number_to_line_address_18:;{{Addr=$e847 Code Calls/jump c
 
                                   ;write line address and suitable token
         ld      a,$1d             ;{{e84f:3e1d}}  16-bit line address pointer
-        ld      (poss_line_address_vs_line_number_flag_),a;{{e851:3221ae}} 
+        ld      (line_address_vs_line_number_flag),a;{{e851:3221ae}} 
         ld      (hl),a            ;{{e854:77}} 
         inc     hl                ;{{e855:23}} 
         ld      (hl),e            ;{{e856:73}} 
@@ -8589,7 +8825,7 @@ convert_line_numbers_to_line_addresses_callback:;{{Addr=$e920 Code Calls/jump co
         ld      a,$1d             ;{{e93b:3e1d}}  16 bit line address pointer
         ld      (hl),a            ;{{e93d:77}} 
 
-        ld      (poss_line_address_vs_line_number_flag_),a;{{e93e:3221ae}} 
+        ld      (line_address_vs_line_number_flag),a;{{e93e:3221ae}} 
 
 _convert_line_numbers_to_line_addresses_callback_22:;{{Addr=$e941 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{e941:e1}} 
@@ -8643,33 +8879,34 @@ _skip_to_else_statement_4:        ;{{Addr=$e962 Code Calls/jump count: 1 Data us
         inc     b                 ;{{e978:04}} 
         ret                       ;{{e979:c9}} 
 
-_skip_to_else_statement_17:       ;{{Addr=$e97a Code Calls/jump count: 1 Data use count: 0}}
+;;=skip over batched braces
+skip_over_batched_braces:         ;{{Addr=$e97a Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(hl)            ;{{e97a:7e}} 
-        cp      $5b               ;{{e97b:fe5b}} 
-        jr      z,_skip_to_else_statement_22;{{e97d:2803}}  (+$03)
-        cp      $28               ;{{e97f:fe28}} 
+        cp      $5b               ;{{e97b:fe5b}}  '['
+        jr      z,_skip_over_batched_braces_5;{{e97d:2803}}  (+$03)
+        cp      $28               ;{{e97f:fe28}}  '('
         ret     nz                ;{{e981:c0}} 
 
-_skip_to_else_statement_22:       ;{{Addr=$e982 Code Calls/jump count: 1 Data use count: 0}}
+_skip_over_batched_braces_5:      ;{{Addr=$e982 Code Calls/jump count: 1 Data use count: 0}}
         ld      b,$00             ;{{e982:0600}} 
-_skip_to_else_statement_23:       ;{{Addr=$e984 Code Calls/jump count: 2 Data use count: 0}}
+_skip_over_batched_braces_6:      ;{{Addr=$e984 Code Calls/jump count: 2 Data use count: 0}}
         inc     b                 ;{{e984:04}} 
-_skip_to_else_statement_24:       ;{{Addr=$e985 Code Calls/jump count: 2 Data use count: 0}}
+_skip_over_batched_braces_7:      ;{{Addr=$e985 Code Calls/jump count: 2 Data use count: 0}}
         call    skip_next_tokenised_item;{{e985:cdfde9}} 
-        cp      $5b               ;{{e988:fe5b}} 
-        jr      z,_skip_to_else_statement_23;{{e98a:28f8}}  (-$08)
-        cp      $28               ;{{e98c:fe28}} 
-        jr      z,_skip_to_else_statement_23;{{e98e:28f4}}  (-$0c)
-        cp      $5d               ;{{e990:fe5d}} 
-        jr      z,_skip_to_else_statement_36;{{e992:280b}}  (+$0b)
-        cp      $29               ;{{e994:fe29}} 
-        jr      z,_skip_to_else_statement_36;{{e996:2807}}  (+$07)
+        cp      $5b               ;{{e988:fe5b}} '['
+        jr      z,_skip_over_batched_braces_6;{{e98a:28f8}}  (-$08)
+        cp      $28               ;{{e98c:fe28}} '('
+        jr      z,_skip_over_batched_braces_6;{{e98e:28f4}}  (-$0c)
+        cp      $5d               ;{{e990:fe5d}} ']'
+        jr      z,_skip_over_batched_braces_19;{{e992:280b}}  (+$0b)
+        cp      $29               ;{{e994:fe29}} ')'
+        jr      z,_skip_over_batched_braces_19;{{e996:2807}}  (+$07)
         cp      $02               ;{{e998:fe02}} 
-        jr      nc,_skip_to_else_statement_24;{{e99a:30e9}}  (-$17)
+        jr      nc,_skip_over_batched_braces_7;{{e99a:30e9}}  (-$17)
         jp      Error_Syntax_Error;{{e99c:c349cb}}  Error: Syntax Error
 
-_skip_to_else_statement_36:       ;{{Addr=$e99f Code Calls/jump count: 2 Data use count: 0}}
-        djnz    _skip_to_else_statement_24;{{e99f:10e4}}  (-$1c)
+_skip_over_batched_braces_19:     ;{{Addr=$e99f Code Calls/jump count: 2 Data use count: 0}}
+        djnz    _skip_over_batched_braces_7;{{e99f:10e4}}  (-$1c)
         inc     hl                ;{{e9a1:23}} 
         ret                       ;{{e9a2:c9}} 
 
@@ -8678,10 +8915,11 @@ _skip_to_else_statement_36:       ;{{Addr=$e99f Code Calls/jump count: 2 Data us
 
 
 ;;=============================================================================
+;;skip to end of statement
 ;; command DATA
-command_DATA:                     ;{{Addr=$e9a3 Code Calls/jump count: 4 Data use count: 1}}
+skip_to_end_of_statement:         ;{{Addr=$e9a3 Code Calls/jump count: 4 Data use count: 1}}
         ld      b,$01             ;{{e9a3:0601}} 
-        jr      _command_else_1   ;{{e9a5:1808}}  (+$08)
+        jr      skip_to_EOLN_or_token_B;{{e9a5:1808}}  (+$08)
 
 ;;========================================================================
 ;; command ' or REM
@@ -8693,24 +8931,23 @@ command__or_REM:                  ;{{Addr=$e9a7 Code Calls/jump count: 2 Data us
         jr      command__or_REM   ;{{e9ab:18fa}}  (-$06)
 
 ;;========================================================================
-;; command ELSE
+;; skip to end of line
+;;command ELSE
 ;We arrive at an ELSE because we've just executed the preceding THEN code.
-;We need to skip past the ELSE code and continue with the code after it
-;whilst ignoring any nested IFs in the ELSE code. This is done by storing the IF
-;nesting level in the B register.
 
-command_ELSE:                     ;{{Addr=$e9ad Code Calls/jump count: 1 Data use count: 1}}
-        ld      b,$00             ;{{e9ad:0600}} IF nesting level
-_command_else_1:                  ;{{Addr=$e9af Code Calls/jump count: 1 Data use count: 0}}
+skip_to_end_of_line:              ;{{Addr=$e9ad Code Calls/jump count: 1 Data use count: 1}}
+        ld      b,$00             ;{{e9ad:0600}} 
+;;=skip to EOLN or token B
+skip_to_EOLN_or_token_B:          ;{{Addr=$e9af Code Calls/jump count: 1 Data use count: 0}}
         dec     hl                ;{{e9af:2b}} 
-_command_else_2:                  ;{{Addr=$e9b0 Code Calls/jump count: 1 Data use count: 0}}
+_skip_to_eoln_or_token_b_1:       ;{{Addr=$e9b0 Code Calls/jump count: 1 Data use count: 0}}
         call    skip_next_tokenised_item;{{e9b0:cdfde9}} 
         or      a                 ;{{e9b3:b7}} 
-        ret     z                 ;{{e9b4:c8}} return at end of statement
+        ret     z                 ;{{e9b4:c8}} return at end of line
 
-        cp      b                 ;{{e9b5:b8}} check nesting level
-        jr      nz,_command_else_2;{{e9b6:20f8}}  (-$08) non-zero: keep going
-        ret                       ;{{e9b8:c9}} otherwise (zero) exit
+        cp      b                 ;{{e9b5:b8}} check for koen
+        jr      nz,_skip_to_eoln_or_token_b_1;{{e9b6:20f8}}  (-$08) keep going if no match
+        ret                       ;{{e9b8:c9}} 
 
 ;;=iterator - call BC for each line
 ;Iterates over every line/statement (not totally sure)
@@ -8874,46 +9111,45 @@ skip_over_comment:                ;{{Addr=$ea45 Code Calls/jump count: 2 Data us
         dec     hl                ;{{ea4b:2b}} 
         ret                       ;{{ea4c:c9}} 
 
-;;=prob reset links to variables data
-;poss clear goto and gosub target addresses?
+;;=reset variable types and pointers
 ;Could also be removing links to allocated strings, arrays etc.
-;Iterates over every statement and converts some tokens to %0d and 
-;zeroes out the two bytes after
-prob_reset_links_to_variables_data:;{{Addr=$ea4d Code Calls/jump count: 4 Data use count: 0}}
+;Iterates over program and resets all variable type tokens to &0d (real)
+;and two bytes after word pointer after to &0000 (ptr to variable data)
+reset_variable_types_and_pointers:;{{Addr=$ea4d Code Calls/jump count: 4 Data use count: 0}}
         push    bc                ;{{ea4d:c5}} 
         push    de                ;{{ea4e:d5}} 
         push    hl                ;{{ea4f:e5}} 
-        ld      bc,callback_for_prob_reset_links_to_variables_data;{{ea50:015aea}} ##LABEL##
+        ld      bc,callback_for_reset_variable_types_and_pointers;{{ea50:015aea}} ##LABEL##
         call    iterator__call_BC_for_each_line;{{ea53:cdb9e9}} 
         pop     hl                ;{{ea56:e1}} 
         pop     de                ;{{ea57:d1}} 
         pop     bc                ;{{ea58:c1}} 
         ret                       ;{{ea59:c9}} 
 
-;;=callback for prob reset links to variables data
-;callback for poss clear goto and gosub target addresses
-callback_for_prob_reset_links_to_variables_data:;{{Addr=$ea5a Code Calls/jump count: 2 Data use count: 1}}
+;;=callback for reset variable types and pointers
+callback_for_reset_variable_types_and_pointers:;{{Addr=$ea5a Code Calls/jump count: 2 Data use count: 1}}
         push    hl                ;{{ea5a:e5}} 
         call    skip_next_tokenised_item;{{ea5b:cdfde9}} 
         pop     de                ;{{ea5e:d1}} 
-        cp      $02               ;{{ea5f:fe02}} 
+        cp      $02               ;{{ea5f:fe02}} Tokens $02 ..$0d are for variables
         ret     c                 ;{{ea61:d8}} Exit at end of line or end (&00) of statement (&01)
 
         cp      $0e               ;{{ea62:fe0e}} 
-        jr      nc,callback_for_prob_reset_links_to_variables_data;{{ea64:30f4}}  (-$0c) Loop for values > &0e
-        ex      de,hl             ;{{ea66:eb}} 
+        jr      nc,callback_for_reset_variable_types_and_pointers;{{ea64:30f4}}  (-$0c) Loop for values > &0e
+
+        ex      de,hl             ;{{ea66:eb}} So, token is a variable
         call    get_next_token_skipping_space;{{ea67:cd2cde}}  get next token skipping space
         cp      $0d               ;{{ea6a:fe0d}} 
-        jr      c,_callback_for_prob_reset_links_to_variables_data_12;{{ea6c:3802}}  (+$02) Skip changing token for $0d and higher
+        jr      c,_callback_for_reset_variable_types_and_pointers_12;{{ea6c:3802}}  (+$02) Skip changing token for $0d and higher
         ld      (hl),$0d          ;{{ea6e:360d}} So we change tokens $02..$0c to $0d??
-_callback_for_prob_reset_links_to_variables_data_12:;{{Addr=$ea70 Code Calls/jump count: 1 Data use count: 0}}
+_callback_for_reset_variable_types_and_pointers_12:;{{Addr=$ea70 Code Calls/jump count: 1 Data use count: 0}}
         inc     hl                ;{{ea70:23}} 
         xor     a                 ;{{ea71:af}} Then zero the two bytes after
         ld      (hl),a            ;{{ea72:77}} 
         inc     hl                ;{{ea73:23}} 
         ld      (hl),a            ;{{ea74:77}} 
         ex      de,hl             ;{{ea75:eb}} 
-        jr      callback_for_prob_reset_links_to_variables_data;{{ea76:18e2}}  (-$1e) loop for more
+        jr      callback_for_reset_variable_types_and_pointers;{{ea76:18e2}}  (-$1e) loop for more
 
 
 
@@ -9034,7 +9270,7 @@ _command_chain_17:                ;{{Addr=$eb24 Code Calls/jump count: 1 Data us
         call    syntax_error_if_not_02;{{eb25:cd37de}} 
         call    _function_instr_70;{{eb28:cd4dfb}} 
         call    _function_fre_6   ;{{eb2b:cd64fc}} 
-        call    _zero_6_bytes_at_aded_7;{{eb2e:cd0ed6}} 
+        call    clear_DEFFN_list_and_reset_variable_types_and_pointers;{{eb2e:cd0ed6}} 
         pop     af                ;{{eb31:f1}} 
         call    c,do_DELETE_find_last_line;{{eb32:dc1ae8}} 
         call    _command_chain_34 ;{{eb35:cd47eb}} 
@@ -9372,7 +9608,7 @@ save_BASIC_normal:                ;{{Addr=$ed0e Code Calls/jump count: 1 Data us
         push hl                   ;{{ed11:e5}} 
         push    bc                ;{{ed12:c5}} 
         call    convert_all_line_addresses_to_line_numbers;{{ed13:cd70e7}}  line address to line number
-        call    prob_reset_links_to_variables_data;{{ed16:cd4dea}} 
+        call    reset_variable_types_and_pointers;{{ed16:cd4dea}} 
 ;; save basic?
         ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{ed19:2a64ae}} 
         inc     hl                ;{{ed1c:23}} 
@@ -9530,12 +9766,12 @@ _possibly_validate_input_buffer_is_a_number_74:;{{Addr=$edf7 Code Calls/jump cou
         ld      a,d               ;{{edf7:7a}} 
         ld      c,(hl)            ;{{edf8:4e}} 
         inc     hl                ;{{edf9:23}} 
-        call    internal_subroutine__not_useful_B;{{edfa:cdb8bd}} 
+        call    REAL_5byte_to_real;{{edfa:cdb8bd}} 
         ld      a,e               ;{{edfd:7b}} 
         call    REAL_10A          ;{{edfe:cd79bd}} 
         ex      de,hl             ;{{ee01:eb}} 
         call    set_accumulator_type_to_real_and_HL_to_accumulator_addr;{{ee02:cd3eff}} 
-        call    c,$bd61           ;{{ee05:dc61bd}} 
+        call    c,REAL_copy_atDE_to_atHL;{{ee05:dc61bd}} 
 _possibly_validate_input_buffer_is_a_number_83:;{{Addr=$ee08 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,$0a             ;{{ee08:3e0a}} 
         pop     hl                ;{{ee0a:e1}} 
@@ -10657,7 +10893,7 @@ _print_do_other_33:               ;{{Addr=$f309 Code Calls/jump count: 2 Data us
 _print_do_other_34:               ;{{Addr=$f30a Code Calls/jump count: 1 Data use count: 0}}
         call    poss_validate_xpos_in_D;{{f30a:cde7c2}} 
         call    nc,output_new_line;{{f30d:d498c3}} ; new text line
-        call    xf8d0_code        ;{{f310:cdd0f8}} 
+        call    output_accumulator_string;{{f310:cdd0f8}} 
         pop     hl                ;{{f313:e1}} 
         pop     af                ;{{f314:f1}} 
         call    z,output_new_line ;{{f315:cc98c3}} ; new text line
@@ -10863,7 +11099,7 @@ _print_using_93:                  ;{{Addr=$f41c Code Calls/jump count: 2 Data us
         ld      a,(RAM_ae5d)      ;{{f420:3a5dae}} 
         or      a                 ;{{f423:b7}} 
         jr      nz,_print_using_103;{{f424:2007}}  (+$07)
-        call    xf8dc_code        ;{{f426:cddcf8}} 
+        call    unknown_output_accumulator_string;{{f426:cddcf8}} 
         ld      a,c               ;{{f429:79}} 
         call    _print_do_tab_12  ;{{f42a:cd52f3}} 
 _print_using_103:                 ;{{Addr=$f42d Code Calls/jump count: 1 Data use count: 0}}
@@ -11070,7 +11306,7 @@ _command_write_3:                 ;{{Addr=$f511 Code Calls/jump count: 1 Data us
 _command_write_11:                ;{{Addr=$f523 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,$22             ;{{f523:3e22}} '"'
         call    output_char       ;{{f525:cda0c3}} ; display text char
-        call    xf8d0_code        ;{{f528:cdd0f8}} 
+        call    output_accumulator_string;{{f528:cdd0f8}} 
         ld      a,$22             ;{{f52b:3e22}} '"'
         call    output_char       ;{{f52d:cda0c3}} ; display text char
 _command_write_16:                ;{{Addr=$f530 Code Calls/jump count: 1 Data use count: 0}}
@@ -11662,7 +11898,7 @@ _symbol_after_18:                 ;{{Addr=$f808 Code Calls/jump count: 5 Data us
         ld      (RAM_b07a),hl     ;{{f821:227ab0}} 
         push    hl                ;{{f824:e5}} 
         ld      de,_symbol_after_72;{{f825:1165f8}}   ##LABEL##
-        call    _prob_alloc_an_fn_parameter_on_execution_stack_24;{{f828:cd93da}} 
+        call    iterate_all_string_variables;{{f828:cd93da}} 
         pop     bc                ;{{f82b:c1}} 
         ld      a,b               ;{{f82c:78}} 
         rlca                      ;{{f82d:07}} 
@@ -11821,31 +12057,34 @@ _right_trim_loop_12:              ;{{Addr=$f8ce Code Calls/jump count: 1 Data us
         ret                       ;{{f8cf:c9}}  return to string getter
 
 ;;=============================================
-xf8d0_code:                       ;{{Addr=$f8d0 Code Calls/jump count: 3 Data use count: 0}}
+;; output accumulator string
+output_accumulator_string:        ;{{Addr=$f8d0 Code Calls/jump count: 3 Data use count: 0}}
         call    get_accumulator_string_length;{{f8d0:cdf5fb}} 
         ret     z                 ;{{f8d3:c8}} 
 
-xf8d4_code:                       ;{{Addr=$f8d4 Code Calls/jump count: 2 Data use count: 0}}
+;;=output string atDE length B
+output_string_atDE_length_B:      ;{{Addr=$f8d4 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,(de)            ;{{f8d4:1a}} 
         inc     de                ;{{f8d5:13}} 
         call    output_raw_char   ;{{f8d6:cdb8c3}} 
-        djnz    xf8d4_code        ;{{f8d9:10f9}}  (-$07)
+        djnz    output_string_atDE_length_B;{{f8d9:10f9}}  (-$07)
         ret                       ;{{f8db:c9}} 
 
-xf8dc_code:                       ;{{Addr=$f8dc Code Calls/jump count: 1 Data use count: 0}}
+;;=unknown output accumulator string
+unknown_output_accumulator_string:;{{Addr=$f8dc Code Calls/jump count: 1 Data use count: 0}}
         call    get_accumulator_string_length;{{f8dc:cdf5fb}} 
         ret     z                 ;{{f8df:c8}} 
 
         ld      a,c               ;{{f8e0:79}} 
         sub     b                 ;{{f8e1:90}} 
-        jr      nc,xf8e9_code     ;{{f8e2:3005}}  (+$05)
+        jr      nc,_unknown_output_accumulator_string_9;{{f8e2:3005}}  (+$05)
         add     a,b               ;{{f8e4:80}} 
-        jr      z,xf8e9_code      ;{{f8e5:2802}}  (+$02)
+        jr      z,_unknown_output_accumulator_string_9;{{f8e5:2802}}  (+$02)
         ld      b,a               ;{{f8e7:47}} 
         xor     a                 ;{{f8e8:af}} 
-xf8e9_code:                       ;{{Addr=$f8e9 Code Calls/jump count: 2 Data use count: 0}}
+_unknown_output_accumulator_string_9:;{{Addr=$f8e9 Code Calls/jump count: 2 Data use count: 0}}
         ld      c,a               ;{{f8e9:4f}} 
-        jr      xf8d4_code        ;{{f8ea:18e8}}  (-$18)
+        jr      output_string_atDE_length_B;{{f8ea:18e8}}  (-$18)
 
 ;;========================================================
 ;; function LOWER$
@@ -12084,7 +12323,7 @@ _prefix_mid_6:                    ;{{Addr=$f9f0 Code Calls/jump count: 3 Data us
 
 command_MID:                      ;{{Addr=$fa07 Code Calls/jump count: 0 Data use count: 1}}
         call    next_token_if_open_bracket;{{fa07:cd19de}}  check for open bracket
-        call    prob_parse_and_find_or_create_a_var;{{fa0a:cdbfd6}} 
+        call    parse_and_find_or_create_a_var;{{fa0a:cdbfd6}} 
         call    error_if_accumulator_is_not_a_string;{{fa0d:cd5eff}} 
         push    hl                ;{{fa10:e5}} 
         ex      de,hl             ;{{fa11:eb}} 
@@ -12096,7 +12335,7 @@ command_MID:                      ;{{Addr=$fa07 Code Calls/jump count: 0 Data us
         ld      c,a               ;{{fa1d:4f}} 
         call    _command_mid_40   ;{{fa1e:cd4ffa}} 
         call    next_token_if_close_bracket;{{fa21:cd1dde}}  check for close bracket
-        call    next_token_if_ef_token_for_equals_sign;{{fa24:cd21de}} 
+        call    next_token_if_equals_sign;{{fa24:cd21de}} 
         push    bc                ;{{fa27:c5}} 
         call    eval_expr_as_string_and_get_length;{{fa28:cd03cf}} 
         ld      a,b               ;{{fa2b:78}} 
@@ -12368,7 +12607,7 @@ _function_instr_70:               ;{{Addr=$fb4d Code Calls/jump count: 3 Data us
         push    de                ;{{fb4d:d5}} 
         push    hl                ;{{fb4e:e5}} 
         ld      de,_prob_copy_string_to_strings_area_11;{{fb4f:1165fb}}   ##LABEL##
-        call    _prob_alloc_an_fn_parameter_on_execution_stack_24;{{fb52:cd93da}} 
+        call    iterate_all_string_variables;{{fb52:cd93da}} 
         pop     hl                ;{{fb55:e1}} 
         pop     de                ;{{fb56:d1}} 
         ret                       ;{{fb57:c9}} 
@@ -12611,7 +12850,7 @@ _function_fre_21:                 ;{{Addr=$fc78 Code Calls/jump count: 1 Data us
         call    compare_HL_DE     ;{{fc7c:cdd8ff}}  HL=DE?
         jr      nz,_function_fre_11;{{fc7f:20eb}}  (-$15) 
         ld      de,poss_free_string_at_BC_length_A;{{fc81:11e3fc}}   ##LABEL##
-        call    _prob_alloc_an_fn_parameter_on_execution_stack_24;{{fc84:cd93da}} 
+        call    iterate_all_string_variables;{{fc84:cd93da}} 
         ld      hl,(address_of_end_of_Strings_area_);{{fc87:2a73b0}} 
         push    hl                ;{{fc8a:e5}} 
         ld      hl,(address_of_end_of_free_space_);{{fc8b:2a71b0}} 
@@ -12704,7 +12943,7 @@ poss_free_string_at_BC_length_A:  ;{{Addr=$fce3 Code Calls/jump count: 1 Data us
 
 _poss_free_string_at_bc_length_a_12:;{{Addr=$fcf3 Code Calls/jump count: 1 Data use count: 0}}
         call    return_accumulator_value_if_int_or_address_if_real;{{fcf3:cd4fff}} 
-        jp      nc,INTERNAL_SUBROUTINE__not_useful;{{fcf6:d276bd}}  firmware maths??
+        jp      nc,REAL_prepare_for_decimal;{{fcf6:d276bd}}  firmware maths??
         call    unknown_maths_fixup;{{fcf9:cd2add}} 
         ld      (accumulator),hl  ;{{fcfc:22a0b0}} 
         ld      hl,accumulator_plus_1;{{fcff:21a1b0}} 
@@ -12981,10 +13220,10 @@ _function_int_11:                 ;{{Addr=$fe2c Code Calls/jump count: 2 Data us
 convert_accum_and_param_to_same_numeric_type:;{{Addr=$fe3b Code Calls/jump count: 5 Data use count: 0}}
         ld      a,c               ;{{fe3b:79}} C contains a type specifier
         cp      $03               ;{{fe3c:fe03}} 
-        jr      z,raise_Type_mismatch_error;{{fe3e:282d}}  (+$2d) if string?
+        jr      z,raise_type_mismatch_error_B;{{fe3e:282d}}  (+$2d) if string?
         ld      a,(accumulator_data_type);{{fe40:3a9fb0}} 
         cp      $03               ;{{fe43:fe03}} 
-        jr      z,raise_Type_mismatch_error;{{fe45:2826}}  (+$26) if string
+        jr      z,raise_type_mismatch_error_B;{{fe45:2826}}  (+$26) if string
         cp      c                 ;{{fe47:b9}} 
         jr      z,_convert_accum_and_param_to_same_numeric_type_22;{{fe48:2817}}  (+$17) if same type as C
         jr      nc,_convert_accum_and_param_to_same_numeric_type_17;{{fe4a:300c}}  (+$0c) accum is real C is int
@@ -13016,8 +13255,8 @@ _convert_accum_and_param_to_same_numeric_type_22:;{{Addr=$fe61 Code Calls/jump c
         ret                       ;{{fe6c:c9}} 
 
 ;;=raise Type mismatch error
-raise_Type_mismatch_error:        ;{{Addr=$fe6d Code Calls/jump count: 2 Data use count: 0}}
-        jp      raise_type_mismatch_error_B;{{fe6d:c362ff}} 
+raise_type_mismatch_error_B:      ;{{Addr=$fe6d Code Calls/jump count: 2 Data use count: 0}}
+        jp      raise_type_mismatch_error_C;{{fe6d:c362ff}} 
 
 ;;==================================
 ;;convert accum and param to REAL
@@ -13125,7 +13364,7 @@ _function_cint_12:                ;{{Addr=$fece Code Calls/jump count: 2 Data us
 _function_cint_16:                ;{{Addr=$fed5 Code Calls/jump count: 1 Data use count: 0}}
         cp      $03               ;{{fed5:fe03}} 
         jr      c,_function_cint_25;{{fed7:380d}}  (+$0d) if type is int treat it as a pointer to the actual real and redo
-        jp      z,raise_type_mismatch_error_B;{{fed9:ca62ff}}  error if string
+        jp      z,raise_type_mismatch_error_C;{{fed9:ca62ff}}  error if string
         push    bc                ;{{fedc:c5}} 
         call    REAL_TO_INTEGER   ;{{fedd:cd6abd}}  firmware REAL to INT
         ld      b,a               ;{{fee0:47}} 
@@ -13254,7 +13493,7 @@ get_accumulator_data_type:        ;{{Addr=$ff4b Code Calls/jump count: 2 Data us
 return_accumulator_value_if_int_or_address_if_real:;{{Addr=$ff4f Code Calls/jump count: 7 Data use count: 0}}
         ld      a,(accumulator_data_type);{{ff4f:3a9fb0}} 
         cp      $03               ;{{ff52:fe03}} string
-        jr      z,raise_type_mismatch_error_B;{{ff54:280c}}  (+$0c) error if string
+        jr      z,raise_type_mismatch_error_C;{{ff54:280c}}  (+$0c) error if string
         ld      hl,(accumulator)  ;{{ff56:2aa0b0}} 
         ret     c                 ;{{ff59:d8}} 
 
@@ -13268,7 +13507,7 @@ error_if_accumulator_is_not_a_string:;{{Addr=$ff5e Code Calls/jump count: 6 Data
         ret     z                 ;{{ff61:c8}} 
 
 ;;=raise Type Mismatch error
-raise_type_mismatch_error_B:      ;{{Addr=$ff62 Code Calls/jump count: 3 Data use count: 0}}
+raise_type_mismatch_error_C:      ;{{Addr=$ff62 Code Calls/jump count: 3 Data use count: 0}}
         call    byte_following_call_is_error_code;{{ff62:cd45cb}} 
         defb $0d                  ;Inline error code: Type mismatch
 
@@ -13296,14 +13535,14 @@ probably_push_accumulator_on_execution_stack:;{{Addr=$ff74 Code Calls/jump count
         ld      a,(accumulator_data_type);{{ff76:3a9fb0}} 
         ld      c,a               ;{{ff79:4f}} 
         call    possibly_alloc_A_bytes_on_execution_stack;{{ff7a:cd72f6}} 
-        call    copy_accumulator_to_athl_B;{{ff7d:cd83ff}} 
+        call    copy_numeric_accumulator_to_atHL;{{ff7d:cd83ff}} 
         pop     hl                ;{{ff80:e1}} 
         pop     de                ;{{ff81:d1}} 
         ret                       ;{{ff82:c9}} 
 
 ;;========================================
-;;copy accumulator to atHL
-copy_accumulator_to_athl_B:       ;{{Addr=$ff83 Code Calls/jump count: 6 Data use count: 0}}
+;;copy numeric accumulator to atHL
+copy_numeric_accumulator_to_atHL: ;{{Addr=$ff83 Code Calls/jump count: 6 Data use count: 0}}
         ex      de,hl             ;{{ff83:eb}} 
         ld      hl,accumulator    ;{{ff84:21a0b0}} 
 

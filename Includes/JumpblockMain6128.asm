@@ -258,19 +258,20 @@ KM_SCAN_KEYS         EQU $BDF4
 ;Undocumented maths routines (664/6128)
 ;The constants here are only applicable to the 664/6128.
 ;For the 464 addresses see the Jumblocks.txt file in the same folder
-MOVE_REAL            EQU $BDC1
+REAL_copy_atDE_to_atHL EQU $BD61
 INTEGER_TO_REAL      EQU $BD64
 BINARY_TO_REAL       EQU $BD67
 REAL_TO_INTEGER      EQU $BD6A
 REAL_TO_BINARY       EQU $BD6D
 REAL_FIX             EQU $BD70
 REAL_INT             EQU $BD73
-INTERNAL_SUBROUTINE__not_useful EQU $BD76
+REAL_prepare_for_decimal EQU $BD76
 REAL_10A             EQU $BD79
 REAL_ADDITION        EQU $BD7C
 REAL_REVERSE_SUBTRACTION EQU $BD82
 REAL_MULTIPLICATION  EQU $BD85
 REAL_DIVISION        EQU $BD88
+REAL_rnd0            EQU $BD8B
 REAL_COMPARISON      EQU $BD8E
 REAL_UNARY_MINUS     EQU $BD91
 REAL_SIGNUMSGN       EQU $BD94
@@ -285,9 +286,9 @@ REAL_SINE            EQU $BDAC
 REAL_COSINE          EQU $BDAF
 REAL_TANGENT         EQU $BDB2
 REAL_ARCTANGENT      EQU $BDB5
-internal_subroutine__not_useful_B EQU $BDB8
-internal_subroutine__not_useful_C EQU $BDBB
-internal_subroutine__not_useful_D EQU $BDBE
+REAL_5byte_to_real   EQU $BDB8
+REAL_init_random_number_generator EQU $BDBB
+REAL_RANDOMIZE_seed  EQU $BDBE
 
 ;Undocumented 664/6128 only entries
 TEXT_INPUT           EQU $BD5E

@@ -40,7 +40,7 @@ infix_power_:                     ;{{Addr=$d536 Code Calls/jump count: 0 Data us
         call    function_CREAL    ;{{d538:cd14ff}} 
         ex      de,hl             ;{{d53b:eb}} 
         ld      hl,RAM_adb2       ;{{d53c:21b2ad}} 
-        call    $bd61             ;{{d53f:cd61bd}} 
+        call    REAL_copy_atDE_to_atHL;{{d53f:cd61bd}} 
         pop     bc                ;{{d542:c1}} 
         ex      (sp),hl           ;{{d543:e3}} 
         ld      a,c               ;{{d544:79}} 
@@ -119,27 +119,30 @@ random_number_seed_message:       ;{{Addr=$d583 Data Calls/jump count: 0 Data us
 ;;========================================================================
 ;; command RANDOMIZE
 command_RANDOMIZE:                ;{{Addr=$d599 Code Calls/jump count: 0 Data use count: 1}}
-        jr      z,_command_randomize_4;{{d599:2806}}  (+$06) Do we have inline parameter, if not prompt for input
+        jr      z,random_seed_prompt;{{d599:2806}}  (+$06) Do we have inline parameter, if not prompt for input
         call    eval_expression   ;{{d59b:cd62cf}}  if so read it
         push    hl                ;{{d59e:e5}}  Save code ptr
-        jr      _command_randomize_14;{{d59f:1818}}  (+$18)
+        jr      dorandomize       ;{{d59f:1818}}  (+$18)
 
-_command_randomize_4:             ;{{Addr=$d5a1 Code Calls/jump count: 1 Data use count: 0}}
+;;=random seed prompt
+random_seed_prompt:               ;{{Addr=$d5a1 Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{d5a1:e5}}  Save code ptr
-_command_randomize_5:             ;{{Addr=$d5a2 Code Calls/jump count: 2 Data use count: 0}}
+;;=random seed loop
+random_seed_loop:                 ;{{Addr=$d5a2 Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,random_number_seed_message;{{d5a2:2183d5}} ; "Random number seed?" message
         call    output_ASCIIZ_string;{{d5a5:cd8bc3}} ; display 0 terminated string
         call    prob_read_buffer_and_or_break;{{d5a8:cdecca}}  Key input text
         call    output_new_line   ;{{d5ab:cd98c3}} ; new text line
         call    possibly_validate_input_buffer_is_a_number;{{d5ae:cd6fed}}  Validate/convert to a number
-        jr      nc,_command_randomize_5;{{d5b1:30ef}}  (-$11) Loop if invalid
+        jr      nc,random_seed_loop;{{d5b1:30ef}}  (-$11) Loop if invalid
         call    skip_space_tab_or_line_feed;{{d5b3:cd4dde}}  skip space, lf or tab
         or      a                 ;{{d5b6:b7}} 
-        jr      nz,_command_randomize_5;{{d5b7:20e9}}  (-$17) Loop if invalid
+        jr      nz,random_seed_loop;{{d5b7:20e9}}  (-$17) Loop if invalid
 
-_command_randomize_14:            ;{{Addr=$d5b9 Code Calls/jump count: 1 Data use count: 0}}
+;;=do_randomize
+dorandomize:                      ;{{Addr=$d5b9 Code Calls/jump count: 1 Data use count: 0}}
         call    function_CREAL    ;{{d5b9:cd14ff}}  Convert to a real
-        call    internal_subroutine__not_useful_D;{{d5bc:cdbebd}}  Firmware: RANDOMIZE seed
+        call    REAL_RANDOMIZE_seed;{{d5bc:cdbebd}}  Firmware: RANDOMIZE seed
         pop     hl                ;{{d5bf:e1}}  Retrieve code ptr
         ret                       ;{{d5c0:c9}} 
 
@@ -147,25 +150,27 @@ _command_randomize_14:            ;{{Addr=$d5b9 Code Calls/jump count: 1 Data us
 ;; variable RND
 
 variable_RND:                     ;{{Addr=$d5c1 Code Calls/jump count: 0 Data use count: 1}}
-        ld      a,(hl)            ;{{d5c1:7e}} 
+        ld      a,(hl)            ;{{d5c1:7e}} Do we have a parameter?
         cp      $28               ;{{d5c2:fe28}}  '('
-        jr      nz,_variable_rnd_15;{{d5c4:201b}} 
+        jr      nz,rnd_generate   ;{{d5c4:201b}} If not return simple value
 
         call    get_next_token_skipping_space;{{d5c6:cd2cde}}  get next token skipping space
         call    eval_expression   ;{{d5c9:cd62cf}} 
         call    next_token_if_close_bracket;{{d5cc:cd1dde}}  check for close bracket
         push    hl                ;{{d5cf:e5}} 
         call    function_CREAL    ;{{d5d0:cd14ff}} 
-        call    REAL_SIGNUMSGN    ;{{d5d3:cd94bd}} 
-        jr      nz,_variable_rnd_13;{{d5d6:2005}}  (+$05)
-        call    REAL_RN           ;{{d5d8:cd8bbd}} 
+        call    REAL_SIGNUMSGN    ;{{d5d3:cd94bd}} Is parameter +ve, zero or -ve?
+        jr      nz,rnd_param_nonzero;{{d5d6:2005}}  (+$05) Non-zero
+        call    REAL_rnd0         ;{{d5d8:cd8bbd}} If zero, return copy of previous value
         pop     hl                ;{{d5db:e1}} 
         ret                       ;{{d5dc:c9}} 
 
-_variable_rnd_13:                 ;{{Addr=$d5dd Code Calls/jump count: 1 Data use count: 0}}
-        call    m,internal_subroutine__not_useful_D;{{d5dd:fcbebd}} 
+;;=rnd param non-zero
+rnd_param_nonzero:                ;{{Addr=$d5dd Code Calls/jump count: 1 Data use count: 0}}
+        call    m,REAL_RANDOMIZE_seed;{{d5dd:fcbebd}} If parameter is negative, new random seed
         pop     hl                ;{{d5e0:e1}} 
-_variable_rnd_15:                 ;{{Addr=$d5e1 Code Calls/jump count: 1 Data use count: 0}}
+;;=rnd generate
+rnd_generate:                     ;{{Addr=$d5e1 Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{d5e1:e5}} 
         call    set_accumulator_type_to_real_and_HL_to_accumulator_addr;{{d5e2:cd3eff}} 
         call    REAL_RND          ;{{d5e5:cd7fbd}} 

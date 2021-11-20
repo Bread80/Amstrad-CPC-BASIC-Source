@@ -21,8 +21,8 @@ next_token_if_close_bracket:      ;{{Addr=$de1d Code Calls/jump count: 16 Data u
         jr      next_token_if_value_in_A;{{de1f:1808}} 
 
 ;;+----------------------------------------------------------
-;; next token if $ef token for equals sign
-next_token_if_ef_token_for_equals_sign:;{{Addr=$de21 Code Calls/jump count: 4 Data use count: 0}}
+;; next token if equals sign
+next_token_if_equals_sign:        ;{{Addr=$de21 Code Calls/jump count: 4 Data use count: 0}}
         ld      a,$ef             ;{{de21:3eef}} token for '='
         jr      next_token_if_value_in_A;{{de23:1804}} 
 
@@ -39,7 +39,7 @@ next_token_if_equals_inline_data_byte:;{{Addr=$de25 Code Calls/jump count: 15 Da
 ;; A = char to check against
 next_token_if_value_in_A:         ;{{Addr=$de29 Code Calls/jump count: 4 Data use count: 0}}
         cp      (hl)              ;{{de29:be}} 
-        jr      nz,raise_syntax_error_C;{{de2a:200f}}  (+$0f)
+        jr      nz,raise_syntax_error_D;{{de2a:200f}}  (+$0f)
 
 ;;=get next token skipping space
 ;; skip spaces
@@ -63,10 +63,11 @@ syntax_error_if_not_02:           ;{{Addr=$de37 Code Calls/jump count: 16 Data u
         ret     c                 ;{{de3a:d8}} 
 
 ;;=raise syntax error
-raise_syntax_error_C:             ;{{Addr=$de3b Code Calls/jump count: 1 Data use count: 0}}
-        jr      raise_syntax_error_D;{{de3b:186a}}  (+$6a)
+raise_syntax_error_D:             ;{{Addr=$de3b Code Calls/jump count: 1 Data use count: 0}}
+        jr      raise_syntax_error_E;{{de3b:186a}}  (+$6a)
 
 ;;=is next $02
+;Carry set if EOLN or end of statement
 is_next_02:                       ;{{Addr=$de3d Code Calls/jump count: 9 Data use count: 0}}
         ld      a,(hl)            ;{{de3d:7e}} 
         cp      $02               ;{{de3e:fe02}} 
@@ -99,16 +100,17 @@ skip_space_tab_or_line_feed:      ;{{Addr=$de4d Code Calls/jump count: 20 Data u
 
 
 
-
+;**tk
 ;;=======================================================================
 ;; execute tokenised line
 execute_tokenised_line:           ;{{Addr=$de5d Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,(address_of_byte_before_current_statement);{{de5d:2a1bae}} 
 
 ;;=execute line atHL
+;HL points to first token, NOT line number
 execute_line_atHL:                ;{{Addr=$de60 Code Calls/jump count: 7 Data use count: 0}}
         ld      (address_of_byte_before_current_statement),hl;{{de60:221bae}} HL=current execution address
-        call    KL_POLL_SYNCHRONOUS;{{de63:cd21b9}} 
+        call    KL_POLL_SYNCHRONOUS;{{de63:cd21b9}} handle pending events
         call    c,prob_process_pending_events;{{de66:dcb2c8}} 
         call    get_next_token_skipping_space;{{de69:cd2cde}}  get next token skipping space
         call    nz,execute_command_token;{{de6c:c48fde}} end of buffer?
@@ -116,7 +118,7 @@ execute_line_atHL:                ;{{Addr=$de60 Code Calls/jump count: 7 Data us
         cp      $01               ;{{de70:fe01}} next statement on same line
         jr      z,execute_line_atHL;{{de72:28ec}}  (-$14) Loop until end of line
 
-        jr      nc,raise_syntax_error_D;{{de74:3031}}  (+$31)
+        jr      nc,raise_syntax_error_E;{{de74:3031}}  (+$31)
         inc     hl                ;{{de76:23}} 
 
 ;;=execute end of line
@@ -129,7 +131,7 @@ execute_end_of_line:              ;{{Addr=$de77 Code Calls/jump count: 4 Data us
 
         ld      (address_of_line_number_LB_of_line_of_cur),hl;{{de7d:221dae}}  Start of current line
         inc     hl                ;{{de80:23}} 
-        ld      a,(trace_flag_)   ;{{de81:3a1fae}} trace on??
+        ld      a,(trace_flag)    ;{{de81:3a1fae}} trace on??
         or      a                 ;{{de84:b7}} 
         jr      z,execute_line_atHL;{{de85:28d9}}  (-$27) if not loop - execute next line
         call    do_trace          ;{{de87:cdcade}}  trace
@@ -142,11 +144,15 @@ end_execution:                    ;{{Addr=$de8c Code Calls/jump count: 1 Data us
 
 ;;============================================
 ;;execute command token
+;A=token
+;Tokens >= &80 are tokenised words
+;the only token < &80 we should have here are for bar commands or variable names (implicit LET)
 execute_command_token:            ;{{Addr=$de8f Code Calls/jump count: 2 Data use count: 0}}
         add     a,a               ;{{de8f:87}} 
-        jp      nc,_command_defreal_23;{{de90:d289d6}} 
-        cp      $c3               ;{{de93:fec3}} 
-        jr      nc,raise_syntax_error_D;{{de95:3010}}  (+$10)
+        jp      nc,BAR_command_or_implicit_LET;{{de90:d289d6}} token < &80: either a bar command or a variable (implicit LET)
+        cp tokenise_a_BASIC_line - command_to_code_address_LUT - 1;{{de93:fec3}} version with formula;WARNING: Code area used as literal
+;OLD de93 fec3      cp      $c3              ;the last valid token is &e1 which doubles to &c2, so >= &c3 is error
+        jr      nc,raise_syntax_error_E;{{de95:3010}}  (+$10)
         ex      de,hl             ;{{de97:eb}} 
         add     a,command_to_code_address_LUT and $ff;{{de98:c6e0}} $e0 lookup token in table
         ld      l,a               ;{{de9a:6f}} 
@@ -161,13 +167,13 @@ execute_command_token:            ;{{Addr=$de8f Code Calls/jump count: 2 Data us
         jp      get_next_token_skipping_space;{{dea4:c32cde}}  get next token skipping space
 
 ;;=raise syntax error
-raise_syntax_error_D:             ;{{Addr=$dea7 Code Calls/jump count: 3 Data use count: 0}}
+raise_syntax_error_E:             ;{{Addr=$dea7 Code Calls/jump count: 3 Data use count: 0}}
         jp      Error_Syntax_Error;{{dea7:c349cb}}  Error: Syntax Error
 
 ;;========================================================================
 ;; zero current line address
 zero_current_line_address:        ;{{Addr=$deaa Code Calls/jump count: 7 Data use count: 0}}
-        ld      hl,RESET_ENTRY    ;{{deaa:210000}} 
+        ld      hl,$0000          ;{{deaa:210000}} ##LIT##
 
 ;;=set current line address
 set_current_line_address:         ;{{Addr=$dead Code Calls/jump count: 15 Data use count: 0}}
@@ -187,8 +193,8 @@ get_current_line_address:         ;{{Addr=$deb1 Code Calls/jump count: 12 Data u
 get_current_line_number:          ;{{Addr=$deb5 Code Calls/jump count: 10 Data use count: 0}}
         ld      hl,(address_of_line_number_LB_of_line_of_cur);{{deb5:2a1dae}} address of current line
 
-;;+get line number at HL
-get_line_number_at_HL:            ;{{Addr=$deb8 Code Calls/jump count: 1 Data use count: 0}}
+;;+get line number atHL
+get_line_number_atHL:             ;{{Addr=$deb8 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,h               ;{{deb8:7c}} 
         or      l                 ;{{deb9:b5}} 
         ret     z                 ;{{deba:c8}} ; no current line 
@@ -211,13 +217,13 @@ command_TRON:                     ;{{Addr=$dec1 Code Calls/jump count: 0 Data us
 command_TROFF:                    ;{{Addr=$dec5 Code Calls/jump count: 1 Data use count: 1}}
         xor     a                 ;{{dec5:af}} 
 _command_troff_1:                 ;{{Addr=$dec6 Code Calls/jump count: 1 Data use count: 0}}
-        ld      (trace_flag_),a   ;{{dec6:321fae}} 
+        ld      (trace_flag),a    ;{{dec6:321fae}} 
         ret                       ;{{dec9:c9}} 
 
 ;;=============
 ;;do trace
 do_trace:                         ;{{Addr=$deca Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,"["             ;{{deca:3e5b}} 
+        ld      a,$5b             ;{{deca:3e5b}} '['
         call    output_char       ;{{decc:cda0c3}} ; display text char
         push    hl                ;{{decf:e5}} 
         ld      hl,(address_of_line_number_LB_of_line_of_cur);{{ded0:2a1dae}} Current line address
@@ -227,12 +233,15 @@ do_trace:                         ;{{Addr=$deca Code Calls/jump count: 1 Data us
         ld      l,a               ;{{ded6:6f}} 
         call    display_decimal_number;{{ded7:cd44ef}} Display current line number
         pop     hl                ;{{deda:e1}} 
-        ld      a,"]"             ;{{dedb:3e5d}} 
+        ld      a,$5d             ;{{dedb:3e5d}} ']'
         jp      output_char       ;{{dedd:c3a0c3}} ; display text char
 
 ;;====================================================
 ;; command to code address LUT
-command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data use count: 2}}
+
+;you can add extra items to the end of this list, HOWEVER, there is only one unused item before
+;current last item in the table is &e1. You can add an item &e2. Items &e3 onwards are used for other keywords
+command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data use count: 3}}
                                   
         defw command_AFTER        ; AFTER  ##LABEL##
         defw command_AUTO         ; AUTO  ##LABEL##
@@ -246,7 +255,7 @@ command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data us
         defw command_CLOSEOUT     ; CLOSEOUT  ##LABEL##
         defw command_CLS          ; CLS   ##LABEL##
         defw command_CONT         ; CONT  ##LABEL##
-        defw command_DATA         ; DATA  ##LABEL##
+        defw skip_to_end_of_statement; DATA  ##LABEL##
         defw command_DEF          ; DEF   ##LABEL##
         defw command_DEFINT       ; DEFINT  ##LABEL##
         defw command_DEFREAL      ; DEFREAL  ##LABEL##
@@ -256,8 +265,8 @@ command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data us
         defw command_DIM          ; DIM  ##LABEL##
         defw command_DRAW         ; DRAW  ##LABEL##
         defw command_DRAWR        ; DRAWR  ##LABEL##
-        defw REPL_loop_EDIT_AUTO_NEW_CLEAR_INPUT; EDIT  ##LABEL##
-        defw command_ELSE         ; ELSE  ##LABEL##
+        defw command_EDIT         ; EDIT  ##LABEL##
+        defw skip_to_end_of_line  ; ELSE  ##LABEL##
         defw command_END          ; END  ##LABEL##
         defw command_ENT          ; ENT  ##LABEL##
         defw command_ENV          ; ENV  ##LABEL##
@@ -272,7 +281,7 @@ command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data us
         defw command_INPUT        ; INPUT  ##LABEL##
         defw command_KEY          ; KEY  ##LABEL##
         defw command_LET          ; LET   ##LABEL##
-        defw command_LINE         ; LINE  ##LABEL##
+        defw command_LINE_INPUT   ; LINE  ##LABEL##
         defw command_LIST         ; LIST  ##LABEL##
         defw command_LOAD         ; LOAD  ##LABEL##
         defw command_LOCATE       ; LOCATE  ##LABEL##

@@ -14,6 +14,7 @@ In the associated files you will find:
 * Amstrad CPC 6128 BASIC (1986).rom is a ROM image taken from a CPC6128 and used to verify (diff) the output of the unassembly process.
 * rasmoutput.bin is the output of running the source files (Main.asm or BASIC1.1.asm) through the RASM assembler which should be identical to the original ROM image.
 * The includes folder contains various include files needed to assemble the source code. This includes lists of firmware jumpblock addresses and memory addresses used by the code.
+* The Examples folder contains Amstrad BASIC programs to explore, test or demonstrate features.
 
 Project Status
 ---
@@ -71,7 +72,7 @@ After entering some code you'll want to run it. This can be either running a pro
 
 Either way we'll find ourselves in Execution.asm.
 
-At this point it's worth describing the execution process. The code in Execution.asm executes 'statements'. Statements are things you can have at the start of a line and which do useful things on their own. Things like PRINT, LIST and POKE. Contrast that with 'functions' such as PEEK, ROUND and CHR$. While functions may have useful side effects on their own they're more ususally used to return some kind of data. As such they form part of an 'expression'. An equation is a kind of mathematical formula which can contain constants, operators ('+', '<>', 'AND' etc) and function calls. And expressions can also use parenthesis to indicate the correct sequence of evaluation.
+At this point it's worth describing the execution process. The code in Execution.asm executes 'statements'. Statements are things you can have at the start of a line and which do useful things on their own. Things like PRINT, LIST and POKE. Contrast that with 'functions' such as PEEK, ROUND and CHR$. While functions may have useful side effects on their own they're more usually used to return some kind of data. As such they form part of an 'expression'. An equation is a kind of mathematical formula which can contain constants, operators ('+', '<>', 'AND' etc) and function calls. And expressions can also use parenthesis to indicate the correct sequence of evaluation.
 
 So a statement such as
 LIST 100,1000
@@ -81,7 +82,7 @@ The code in Execution.asm will parse the token for LIST then look up and call it
 
 The Expression Evaluator
 ---
-Which brings us to the expresion evaluator itself in ExprEvaluator.asm. This is a complex piece of code which will recursively call itself to evaluate sub-expressions within parenthesis. It can handle infix operators (which are in the middle of two expressions - think of '*', '<=', and 'OR'), prefix operators (such as the '+', '-' or 'NOT' before a constant or expression) and function calls. It also deals with 'operator precedence' - multiplication before addition and so on.
+Which brings us to the expression evaluator itself in ExprEvaluator.asm. This is a complex piece of code which will recursively call itself to evaluate sub-expressions within parenthesis. It can handle infix operators (which are in the middle of two expressions - think of '*', '<=', and 'OR'), prefix operators (such as the '+', '-' or 'NOT' before a constant or expression) and function calls. It also deals with 'operator precedence' - multiplication before addition and so on.
 
 Function calls involve looking up the code address for the function (as we did for statements) (FunctionTable.asm) and calling the function. The function will recursively call the expression evaluator to handle it's parameters (if any) and return to a value so the expression evaluator can continue where it left off.
 
@@ -89,7 +90,7 @@ There are also a number of 'system variables' (mostly in SysVars.asm) which are 
 
 To do all this BASIC maintains an 'accumulator' (sometimes termed the 'virtual accumulator') which functions in the same way as the accumulator in a processor, storing the result of previous operations and being used as one of the operands in the next. There is also an 'execution stack' which can be used to 'push' and 'pop' values between steps. (The execution stack is also used by control flow statements which will be described shortly). I'd suggest looking at the MemoryBASIC.txt file in the includes folder for more practical details on the accumulator and execution stack.
 
-Within ExprEvaluation.asm you'll find look up tables for both infix operators (InfixOperators.asm) and prefix operators (hnalded by the espression evaluator). There's also a table here for system variables. Comparisons are handle by a single entry in the infix operator table. This calls the correct routine for the type of the expression (int, real, string) to do the comparison. (And consider here that '=' is just the inversion of '<>', '<=' is inverted '>' and '>=' is inverted '<'. Separate routines would be wasteful when a single comparison can set multiple flags). (The actual comparison routines are in Strings.asm and InfixOperators.asm (which calls code the firmware's real library or IntegerMaths.asm depending on the operator types).
+Within ExprEvaluation.asm you'll find look up tables for both infix operators (InfixOperators.asm) and prefix operators (handled by the expression evaluator). There's also a table here for system variables. Comparisons are handle by a single entry in the infix operator table. This calls the correct routine for the type of the expression (int, real, string) to do the comparison. (And consider here that '=' is just the inversion of '<>', '<=' is inverted '>' and '>=' is inverted '<'. Separate routines would be wasteful when a single comparison can set multiple flags). (The actual comparison routines are in Strings.asm and InfixOperators.asm (which calls code the firmware's real library or IntegerMaths.asm depending on the operator types).
 
 The main look up table for functions is in FunctionTable.asm. It's worth noting that this is divided into two parts, one for functions which take a single numerical parameter, the other for ones wich don't.
 
@@ -111,9 +112,9 @@ This module also contains the event related functions (which the CPC is well pro
 
 The commands here which perform GOSUBs will use the execution stack, as does a normal GOSUB.
 
-Error and exception handling (as we'd say these days) is handled in the Errors.asm module. There's also code here for the closely related STOP and END commands (which BASIC needs when it encouters an error) plus CONT(inue) and RESUME and ON ERROR GOTO 0. 
+Error and exception handling (as we'd say these days) is handled in the Errors.asm module. There's also code here for the closely related STOP and END commands (which BASIC needs when it encounters an error) plus CONT(inue) and RESUME and ON ERROR GOTO 0. 
 
-(Interesting factoid: ON ERROR GOTO 0 (which turns off the error handler) is an entirely separate command to ON ERROR GOTO n (which turns it on). The latter is handled by a 'generalised' ON command - but which also doesn't process ON SQ or ON BREAK. Trust me, I did a double take and some serious investigatio when I noticed this, but it's there in black and white in the tables in the KeywordLUTs.asm module).
+(Interesting factoid: ON ERROR GOTO 0 (which turns off the error handler) is an entirely separate command to ON ERROR GOTO n (which turns it on). The latter is handled by a 'generalised' ON command - but which also doesn't process ON SQ or ON BREAK. Trust me, I did a double take and some serious investigation when I noticed this, but it's there in black and white in the tables in the KeywordLUTs.asm module).
 
 Keyboard related event handling (ie the BREAK key) is handled within Keyboard.asm (see Data Input and Output below).
 
@@ -163,7 +164,7 @@ Maths, Strings and System Utilities
 ---
 This is the bulk of the functions available in BASIC, many of which are also used by the system when necessary:
 
-IntegerMaths.asm is used by the system, or called from functions elswehere (Note that floating point maths code is in the lower/firmware ROM and called via the REAL_xxxx jumpblocks).
+IntegerMaths.asm is used by the system, or called from functions elsewhere (Note that floating point maths code is in the lower/firmware ROM and called via the REAL_xxxx jumpblocks).
 Maths.asm contains most of the maths functions with a couple for unknown reasons located in MathsAgain.asm (MAX, MIN and ROUND).
 Infix operators are in InfixOperators.asm (Prefix operators - '+','-' and 'NOT' are processed within the expression parser itself).
 SystemVars.asm contains (most of) the system variables (HIMEM, TIME etc).
@@ -185,11 +186,11 @@ Explanation to follow
 
 Execution Stack
 ---
-Exlanantion to follow
+Exlanation to follow
 
 String Stack
 ---
-Explanantion to follow
+Explanation to follow
 
 Tokens and code format
 ---
@@ -210,7 +211,7 @@ It's also necessary to identify memory addresses being used a constants in the c
 
 A lot of this work had already been done in the aforementioned disassembly listings, for which a huge amount of credit is given here.
 
-As part of ths project utility software was developed perform to certain steps to massively cut the workload. The project has also involved a large amount of manual work to determine the function of various areas of code and add comments, labels and tags.
+As part of this project utility software was developed perform to certain steps to massively cut the workload. The project has also involved a large amount of manual work to determine the function of various areas of code and add comments, labels and tags.
 
 As a summary of the work undertaken to get these source files:
 

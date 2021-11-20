@@ -144,7 +144,7 @@ detokenise_single_item:           ;{{Addr=$e266 Code Calls/jump count: 1 Data us
         jr      c,detokenise_number;{{e277:3831}}  (+$31)
         cp      $7c               ;{{e279:fe7c}}  '|'
         jr      z,detokenise_bar_command;{{e27b:2854}}  (+$54)
-        call    prob_variable_type_suffix;{{e27d:cdd1e0}} 
+        call    convert_variable_type_suffix;{{e27d:cdd1e0}} 
         call    nc,test_if_letter_period_or_digit;{{e280:d49cff}} 
         call    c,detokenise_append_space_if_needed;{{e283:dce6e2}} 
         ld      a,(hl)            ;{{e286:7e}} 

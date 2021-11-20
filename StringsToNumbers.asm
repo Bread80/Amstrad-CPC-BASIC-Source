@@ -97,12 +97,12 @@ _possibly_validate_input_buffer_is_a_number_74:;{{Addr=$edf7 Code Calls/jump cou
         ld      a,d               ;{{edf7:7a}} 
         ld      c,(hl)            ;{{edf8:4e}} 
         inc     hl                ;{{edf9:23}} 
-        call    internal_subroutine__not_useful_B;{{edfa:cdb8bd}} 
+        call    REAL_5byte_to_real;{{edfa:cdb8bd}} 
         ld      a,e               ;{{edfd:7b}} 
         call    REAL_10A          ;{{edfe:cd79bd}} 
         ex      de,hl             ;{{ee01:eb}} 
         call    set_accumulator_type_to_real_and_HL_to_accumulator_addr;{{ee02:cd3eff}} 
-        call    c,$bd61           ;{{ee05:dc61bd}} 
+        call    c,REAL_copy_atDE_to_atHL;{{ee05:dc61bd}} 
 _possibly_validate_input_buffer_is_a_number_83:;{{Addr=$ee08 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,$0a             ;{{ee08:3e0a}} 
         pop     hl                ;{{ee0a:e1}} 

@@ -47,7 +47,7 @@ match_within_NEXT:                ;{{Addr=$ca93 Code Calls/jump count: 1 Data us
 _match_within_next_11:            ;{{Addr=$caa6 Code Calls/jump count: 1 Data use count: 0}}
         push    bc                ;{{caa6:c5}} NEXT has one or more variable names listed - check them
         push    de                ;{{caa7:d5}} 
-        call    prob_parse_and_find_or_create_a_var;{{caa8:cdbfd6}} 
+        call    parse_and_find_or_create_a_var;{{caa8:cdbfd6}} 
         pop     de                ;{{caab:d1}} 
         pop     bc                ;{{caac:c1}} 
         call    next_token_if_prev_is_comma;{{caad:cd41de}} 

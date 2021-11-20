@@ -6,7 +6,6 @@ include "Includes/JumpblockLow.asm"
 include "Includes/JumpblockMain6128.asm"
 include "Includes/MemoryBASIC.asm"
                                   
-
 ;ROM header
         defb $80                  ; foreground rom
         defb $01                  ;mark
@@ -32,7 +31,7 @@ include "Includes/MemoryBASIC.asm"
 
         call    zero_current_line_address;{{c01c:cdaade}} 
         call    clear_errors_and_set_resume_addr_to_current;{{c01f:cd37cb}} 
-        call    internal_subroutine__not_useful_C;{{c022:cdbbbd}}  maths function - initialise random number generator?
+        call    REAL_init_random_number_generator;{{c022:cdbbbd}}  maths function - initialise random number generator?
         call    cancel_AUTO_mode  ;{{c025:cddec0}} 
         call    reset_basic       ;{{c028:cd45c1}} 
         ld      de,$00f0          ;{{c02b:11f000}}  DE = 240
@@ -48,7 +47,6 @@ version_string_message:           ;{{Addr=$c033 Data Calls/jump count: 0 Data us
 rsx_name_table:                   ;{{Addr=$c040 Data Calls/jump count: 0 Data use count: 1}}
         defb "BASI","C"+$80       ; |BASIC
         defb 0                    ;end of rsx name table
-
 
 
 

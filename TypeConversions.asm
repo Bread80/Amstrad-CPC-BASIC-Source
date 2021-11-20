@@ -119,10 +119,10 @@ _function_int_11:                 ;{{Addr=$fe2c Code Calls/jump count: 2 Data us
 convert_accum_and_param_to_same_numeric_type:;{{Addr=$fe3b Code Calls/jump count: 5 Data use count: 0}}
         ld      a,c               ;{{fe3b:79}} C contains a type specifier
         cp      $03               ;{{fe3c:fe03}} 
-        jr      z,raise_Type_mismatch_error;{{fe3e:282d}}  (+$2d) if string?
+        jr      z,raise_type_mismatch_error_B;{{fe3e:282d}}  (+$2d) if string?
         ld      a,(accumulator_data_type);{{fe40:3a9fb0}} 
         cp      $03               ;{{fe43:fe03}} 
-        jr      z,raise_Type_mismatch_error;{{fe45:2826}}  (+$26) if string
+        jr      z,raise_type_mismatch_error_B;{{fe45:2826}}  (+$26) if string
         cp      c                 ;{{fe47:b9}} 
         jr      z,_convert_accum_and_param_to_same_numeric_type_22;{{fe48:2817}}  (+$17) if same type as C
         jr      nc,_convert_accum_and_param_to_same_numeric_type_17;{{fe4a:300c}}  (+$0c) accum is real C is int
@@ -154,8 +154,8 @@ _convert_accum_and_param_to_same_numeric_type_22:;{{Addr=$fe61 Code Calls/jump c
         ret                       ;{{fe6c:c9}} 
 
 ;;=raise Type mismatch error
-raise_Type_mismatch_error:        ;{{Addr=$fe6d Code Calls/jump count: 2 Data use count: 0}}
-        jp      raise_type_mismatch_error_B;{{fe6d:c362ff}} 
+raise_type_mismatch_error_B:      ;{{Addr=$fe6d Code Calls/jump count: 2 Data use count: 0}}
+        jp      raise_type_mismatch_error_C;{{fe6d:c362ff}} 
 
 ;;==================================
 ;;convert accum and param to REAL
@@ -263,7 +263,7 @@ _function_cint_12:                ;{{Addr=$fece Code Calls/jump count: 2 Data us
 _function_cint_16:                ;{{Addr=$fed5 Code Calls/jump count: 1 Data use count: 0}}
         cp      $03               ;{{fed5:fe03}} 
         jr      c,_function_cint_25;{{fed7:380d}}  (+$0d) if type is int treat it as a pointer to the actual real and redo
-        jp      z,raise_type_mismatch_error_B;{{fed9:ca62ff}}  error if string
+        jp      z,raise_type_mismatch_error_C;{{fed9:ca62ff}}  error if string
         push    bc                ;{{fedc:c5}} 
         call    REAL_TO_INTEGER   ;{{fedd:cd6abd}}  firmware REAL to INT
         ld      b,a               ;{{fee0:47}} 
@@ -392,7 +392,7 @@ get_accumulator_data_type:        ;{{Addr=$ff4b Code Calls/jump count: 2 Data us
 return_accumulator_value_if_int_or_address_if_real:;{{Addr=$ff4f Code Calls/jump count: 7 Data use count: 0}}
         ld      a,(accumulator_data_type);{{ff4f:3a9fb0}} 
         cp      $03               ;{{ff52:fe03}} string
-        jr      z,raise_type_mismatch_error_B;{{ff54:280c}}  (+$0c) error if string
+        jr      z,raise_type_mismatch_error_C;{{ff54:280c}}  (+$0c) error if string
         ld      hl,(accumulator)  ;{{ff56:2aa0b0}} 
         ret     c                 ;{{ff59:d8}} 
 
@@ -406,7 +406,7 @@ error_if_accumulator_is_not_a_string:;{{Addr=$ff5e Code Calls/jump count: 6 Data
         ret     z                 ;{{ff61:c8}} 
 
 ;;=raise Type Mismatch error
-raise_type_mismatch_error_B:      ;{{Addr=$ff62 Code Calls/jump count: 3 Data use count: 0}}
+raise_type_mismatch_error_C:      ;{{Addr=$ff62 Code Calls/jump count: 3 Data use count: 0}}
         call    byte_following_call_is_error_code;{{ff62:cd45cb}} 
         defb $0d                  ;Inline error code: Type mismatch
 
@@ -434,14 +434,14 @@ probably_push_accumulator_on_execution_stack:;{{Addr=$ff74 Code Calls/jump count
         ld      a,(accumulator_data_type);{{ff76:3a9fb0}} 
         ld      c,a               ;{{ff79:4f}} 
         call    possibly_alloc_A_bytes_on_execution_stack;{{ff7a:cd72f6}} 
-        call    copy_accumulator_to_athl_B;{{ff7d:cd83ff}} 
+        call    copy_numeric_accumulator_to_atHL;{{ff7d:cd83ff}} 
         pop     hl                ;{{ff80:e1}} 
         pop     de                ;{{ff81:d1}} 
         ret                       ;{{ff82:c9}} 
 
 ;;========================================
-;;copy accumulator to atHL
-copy_accumulator_to_athl_B:       ;{{Addr=$ff83 Code Calls/jump count: 6 Data use count: 0}}
+;;copy numeric accumulator to atHL
+copy_numeric_accumulator_to_atHL: ;{{Addr=$ff83 Code Calls/jump count: 6 Data use count: 0}}
         ex      de,hl             ;{{ff83:eb}} 
         ld      hl,accumulator    ;{{ff84:21a0b0}} 
 

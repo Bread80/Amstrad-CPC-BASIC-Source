@@ -35,7 +35,7 @@ _command_on_on_error_goto_12:     ;{{Addr=$c899 Code Calls/jump count: 1 Data us
 ;;=do on goto gosub
 do_on_goto_gosub:                 ;{{Addr=$c8a6 Code Calls/jump count: 1 Data use count: 0}}
         call    eval_and_convert_line_number_to_line_address;{{c8a6:cd27e8}} 
-        call    nz,command_DATA   ;{{c8a9:c4a3e9}} NZ means item not found - call DATA to 
+        call    nz,skip_to_end_of_statement;{{c8a9:c4a3e9}} NZ means item not found - call DATA to 
                                   ;skip over list and contnue execution at the next line
         pop     af                ;{{c8ac:f1}} 
         jp      nz,GOSUB_HL       ;{{c8ad:c290c7}} Do a GOSUB

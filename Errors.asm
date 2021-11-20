@@ -52,7 +52,7 @@ raise_error_no_tracking:          ;{{Addr=$cb64 Code Calls/jump count: 1 Data us
         ld      hl,(cache_of_execution_stack_next_free_ptr);{{cb67:2a19ae}} 
         call    set_execution_stack_next_free_ptr;{{cb6a:cd6ef6}} 
         call    get_string_stack_first_free_ptr;{{cb6d:cdccfb}} 
-        call    clear_AE12_AE10_words;{{cb70:cd20da}} 
+        call    clear_FN_params_data;{{cb70:cd20da}} 
         call    get_resume_line_number;{{cb73:cdaacb}} C set if we have resume address
         ld      hl,(address_line_specified_by_the_ON_ERROR_);{{cb76:2a96ad}} 
         ex      de,hl             ;{{cb79:eb}} 
@@ -88,7 +88,7 @@ _display_error_then_do_repl_10:   ;{{Addr=$cba4 Code Calls/jump count: 1 Data us
 ;C set if we have a resume line
 get_resume_line_number:           ;{{Addr=$cbaa Code Calls/jump count: 3 Data use count: 0}}
         ld      hl,(address_of_line_number_LB_in_line_contai);{{cbaa:2a8cad}} resume address
-        call    get_line_number_at_HL;{{cbad:cdb8de}} 
+        call    get_line_number_atHL;{{cbad:cdb8de}} 
         ret     c                 ;{{cbb0:d8}} 
         ld      hl,$0000          ;{{cbb1:210000}} ##LIT##
         ret                       ;{{cbb4:c9}} 
@@ -354,7 +354,7 @@ resume_skip_statement_and_execute:;{{Addr=$ccef Code Calls/jump count: 1 Data us
 
         call    restore_RESUME_data_or_error;{{ccf3:cdfacc}} 
         inc     hl                ;{{ccf6:23}} 
-        jp      command_DATA      ;{{ccf7:c3a3e9}} ; DATA
+        jp      skip_to_end_of_statement;{{ccf7:c3a3e9}} ; DATA
 
 ;;=restore RESUME data or error
 restore_RESUME_data_or_error:     ;{{Addr=$ccfa Code Calls/jump count: 3 Data use count: 0}}

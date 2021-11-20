@@ -93,7 +93,7 @@ _print_do_other_33:               ;{{Addr=$f309 Code Calls/jump count: 2 Data us
 _print_do_other_34:               ;{{Addr=$f30a Code Calls/jump count: 1 Data use count: 0}}
         call    poss_validate_xpos_in_D;{{f30a:cde7c2}} 
         call    nc,output_new_line;{{f30d:d498c3}} ; new text line
-        call    xf8d0_code        ;{{f310:cdd0f8}} 
+        call    output_accumulator_string;{{f310:cdd0f8}} 
         pop     hl                ;{{f313:e1}} 
         pop     af                ;{{f314:f1}} 
         call    z,output_new_line ;{{f315:cc98c3}} ; new text line
@@ -299,7 +299,7 @@ _print_using_93:                  ;{{Addr=$f41c Code Calls/jump count: 2 Data us
         ld      a,(RAM_ae5d)      ;{{f420:3a5dae}} 
         or      a                 ;{{f423:b7}} 
         jr      nz,_print_using_103;{{f424:2007}}  (+$07)
-        call    xf8dc_code        ;{{f426:cddcf8}} 
+        call    unknown_output_accumulator_string;{{f426:cddcf8}} 
         ld      a,c               ;{{f429:79}} 
         call    _print_do_tab_12  ;{{f42a:cd52f3}} 
 _print_using_103:                 ;{{Addr=$f42d Code Calls/jump count: 1 Data use count: 0}}
@@ -506,7 +506,7 @@ _command_write_3:                 ;{{Addr=$f511 Code Calls/jump count: 1 Data us
 _command_write_11:                ;{{Addr=$f523 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,$22             ;{{f523:3e22}} '"'
         call    output_char       ;{{f525:cda0c3}} ; display text char
-        call    xf8d0_code        ;{{f528:cdd0f8}} 
+        call    output_accumulator_string;{{f528:cdd0f8}} 
         ld      a,$22             ;{{f52b:3e22}} '"'
         call    output_char       ;{{f52d:cda0c3}} ; display text char
 _command_write_16:                ;{{Addr=$f530 Code Calls/jump count: 1 Data use count: 0}}

@@ -90,31 +90,34 @@ _right_trim_loop_12:              ;{{Addr=$f8ce Code Calls/jump count: 1 Data us
         ret                       ;{{f8cf:c9}}  return to string getter
 
 ;;=============================================
-xf8d0_code:                       ;{{Addr=$f8d0 Code Calls/jump count: 3 Data use count: 0}}
+;; output accumulator string
+output_accumulator_string:        ;{{Addr=$f8d0 Code Calls/jump count: 3 Data use count: 0}}
         call    get_accumulator_string_length;{{f8d0:cdf5fb}} 
         ret     z                 ;{{f8d3:c8}} 
 
-xf8d4_code:                       ;{{Addr=$f8d4 Code Calls/jump count: 2 Data use count: 0}}
+;;=output string atDE length B
+output_string_atDE_length_B:      ;{{Addr=$f8d4 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,(de)            ;{{f8d4:1a}} 
         inc     de                ;{{f8d5:13}} 
         call    output_raw_char   ;{{f8d6:cdb8c3}} 
-        djnz    xf8d4_code        ;{{f8d9:10f9}}  (-$07)
+        djnz    output_string_atDE_length_B;{{f8d9:10f9}}  (-$07)
         ret                       ;{{f8db:c9}} 
 
-xf8dc_code:                       ;{{Addr=$f8dc Code Calls/jump count: 1 Data use count: 0}}
+;;=unknown output accumulator string
+unknown_output_accumulator_string:;{{Addr=$f8dc Code Calls/jump count: 1 Data use count: 0}}
         call    get_accumulator_string_length;{{f8dc:cdf5fb}} 
         ret     z                 ;{{f8df:c8}} 
 
         ld      a,c               ;{{f8e0:79}} 
         sub     b                 ;{{f8e1:90}} 
-        jr      nc,xf8e9_code     ;{{f8e2:3005}}  (+$05)
+        jr      nc,_unknown_output_accumulator_string_9;{{f8e2:3005}}  (+$05)
         add     a,b               ;{{f8e4:80}} 
-        jr      z,xf8e9_code      ;{{f8e5:2802}}  (+$02)
+        jr      z,_unknown_output_accumulator_string_9;{{f8e5:2802}}  (+$02)
         ld      b,a               ;{{f8e7:47}} 
         xor     a                 ;{{f8e8:af}} 
-xf8e9_code:                       ;{{Addr=$f8e9 Code Calls/jump count: 2 Data use count: 0}}
+_unknown_output_accumulator_string_9:;{{Addr=$f8e9 Code Calls/jump count: 2 Data use count: 0}}
         ld      c,a               ;{{f8e9:4f}} 
-        jr      xf8d4_code        ;{{f8ea:18e8}}  (-$18)
+        jr      output_string_atDE_length_B;{{f8ea:18e8}}  (-$18)
 
 ;;========================================================
 ;; function LOWER$
@@ -353,7 +356,7 @@ _prefix_mid_6:                    ;{{Addr=$f9f0 Code Calls/jump count: 3 Data us
 
 command_MID:                      ;{{Addr=$fa07 Code Calls/jump count: 0 Data use count: 1}}
         call    next_token_if_open_bracket;{{fa07:cd19de}}  check for open bracket
-        call    prob_parse_and_find_or_create_a_var;{{fa0a:cdbfd6}} 
+        call    parse_and_find_or_create_a_var;{{fa0a:cdbfd6}} 
         call    error_if_accumulator_is_not_a_string;{{fa0d:cd5eff}} 
         push    hl                ;{{fa10:e5}} 
         ex      de,hl             ;{{fa11:eb}} 
@@ -365,7 +368,7 @@ command_MID:                      ;{{Addr=$fa07 Code Calls/jump count: 0 Data us
         ld      c,a               ;{{fa1d:4f}} 
         call    _command_mid_40   ;{{fa1e:cd4ffa}} 
         call    next_token_if_close_bracket;{{fa21:cd1dde}}  check for close bracket
-        call    next_token_if_ef_token_for_equals_sign;{{fa24:cd21de}} 
+        call    next_token_if_equals_sign;{{fa24:cd21de}} 
         push    bc                ;{{fa27:c5}} 
         call    eval_expr_as_string_and_get_length;{{fa28:cd03cf}} 
         ld      a,b               ;{{fa2b:78}} 
@@ -637,7 +640,7 @@ _function_instr_70:               ;{{Addr=$fb4d Code Calls/jump count: 3 Data us
         push    de                ;{{fb4d:d5}} 
         push    hl                ;{{fb4e:e5}} 
         ld      de,_prob_copy_string_to_strings_area_11;{{fb4f:1165fb}}   ##LABEL##
-        call    _prob_alloc_an_fn_parameter_on_execution_stack_24;{{fb52:cd93da}} 
+        call    iterate_all_string_variables;{{fb52:cd93da}} 
         pop     hl                ;{{fb55:e1}} 
         pop     de                ;{{fb56:d1}} 
         ret                       ;{{fb57:c9}} 
@@ -880,7 +883,7 @@ _function_fre_21:                 ;{{Addr=$fc78 Code Calls/jump count: 1 Data us
         call    compare_HL_DE     ;{{fc7c:cdd8ff}}  HL=DE?
         jr      nz,_function_fre_11;{{fc7f:20eb}}  (-$15) 
         ld      de,poss_free_string_at_BC_length_A;{{fc81:11e3fc}}   ##LABEL##
-        call    _prob_alloc_an_fn_parameter_on_execution_stack_24;{{fc84:cd93da}} 
+        call    iterate_all_string_variables;{{fc84:cd93da}} 
         ld      hl,(address_of_end_of_Strings_area_);{{fc87:2a73b0}} 
         push    hl                ;{{fc8a:e5}} 
         ld      hl,(address_of_end_of_free_space_);{{fc8b:2a71b0}} 
@@ -973,7 +976,7 @@ poss_free_string_at_BC_length_A:  ;{{Addr=$fce3 Code Calls/jump count: 1 Data us
 
 _poss_free_string_at_bc_length_a_12:;{{Addr=$fcf3 Code Calls/jump count: 1 Data use count: 0}}
         call    return_accumulator_value_if_int_or_address_if_real;{{fcf3:cd4fff}} 
-        jp      nc,INTERNAL_SUBROUTINE__not_useful;{{fcf6:d276bd}}  firmware maths??
+        jp      nc,REAL_prepare_for_decimal;{{fcf6:d276bd}}  firmware maths??
         call    unknown_maths_fixup;{{fcf9:cd2add}} 
         ld      (accumulator),hl  ;{{fcfc:22a0b0}} 
         ld      hl,accumulator_plus_1;{{fcff:21a1b0}} 

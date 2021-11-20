@@ -45,7 +45,7 @@ variable_HIMEM:                   ;{{Addr=$d148 Code Calls/jump count: 0 Data us
 ;returns the address of (pointer to) a variable
 
 prefix_at_operator_:              ;{{Addr=$d14e Code Calls/jump count: 0 Data use count: 1}}
-        call    prob_parse_and_find_var;{{d14e:cdc9d6}} 
+        call    parse_and_find_var;{{d14e:cdc9d6}} 
         jp      nc,Error_Improper_Argument;{{d151:d24dcb}}  Error: Improper Argument
 
         push    hl                ;{{d154:e5}} 

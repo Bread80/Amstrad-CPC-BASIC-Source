@@ -6,7 +6,7 @@ function_INKEY:                   ;{{Addr=$d456 Code Calls/jump count: 0 Data us
         call    function_CINT     ;{{d456:cdb6fe}} 
         ld      de,$0050          ;{{d459:115000}} 
         call    compare_HL_DE     ;{{d45c:cdd8ff}}  HL=DE?
-        jr      nc,_function_joy_12;{{d45f:3022}}  (+$22)
+        jr      nc,raise_improper_argument;{{d45f:3022}}  (+$22)
         ld      a,l               ;{{d461:7d}} 
         call    KM_TEST_KEY       ;{{d462:cd1ebb}}  firmware function: km read key
         ld      hl,$ffff          ;{{d465:21ffff}} ##LIT##;WARNING: Code area used as literal
@@ -32,7 +32,9 @@ _function_joy_8:                  ;{{Addr=$d47d Code Calls/jump count: 1 Data us
         or      l                 ;{{d47e:b5}} 
         ld      a,d               ;{{d47f:7a}} 
         jp      z,store_A_in_accumulator_as_INT;{{d480:ca32ff}} 
-_function_joy_12:                 ;{{Addr=$d483 Code Calls/jump count: 2 Data use count: 0}}
+
+;;=raise improper argument
+raise_improper_argument:          ;{{Addr=$d483 Code Calls/jump count: 2 Data use count: 0}}
         jp      Error_Improper_Argument;{{d483:c34dcb}}  Error: Improper Argument
 
 ;;========================================================================
@@ -53,7 +55,7 @@ command_KEY:                      ;{{Addr=$d486 Code Calls/jump count: 0 Data us
         ex      de,hl             ;{{d498:eb}} 
         call    KM_SET_EXPAND     ;{{d499:cd0fbb}}  firmware function: KM SET EXPAND
         pop     hl                ;{{d49c:e1}} 
-        jr      nc,_function_joy_12;{{d49d:30e4}}  (-$1c)
+        jr      nc,raise_improper_argument;{{d49d:30e4}}  (-$1c)
         ret                       ;{{d49f:c9}} 
 
 ;;========================================================================
@@ -98,17 +100,18 @@ _key_def_21:                      ;{{Addr=$d4cb Code Calls/jump count: 2 Data us
 
 command_SPEED_WRITE_SPEED_KEY_SPEED_INK:;{{Addr=$d4db Code Calls/jump count: 0 Data use count: 1}}
         cp      $d9               ;{{d4db:fed9}}  token for "WRITE"
-        jr      z,SPEED_WRITE_0_SPEED_WRITE_1;{{d4dd:2826}} 
+        jr      z,do_SPEED_WRITE  ;{{d4dd:2826}} 
 
         cp      $a4               ;{{d4df:fea4}}  token for "KEY"
         ld      bc,KM_SET_DELAY   ;{{d4e1:013fbb}}  firmware function: KM SET DELAY
-        jr      z,_command_speed_write_speed_key_speed_ink_8;{{d4e4:2808}}  
+        jr      z,do_SPEED_KEY_SPEED_INK;{{d4e4:2808}}  
         cp      $a2               ;{{d4e6:fea2}}  token for "INK"
         ld      bc,SCR_SET_FLASHING;{{d4e8:013ebc}}  firmware function: SCR SET FLASHING
         jp      nz,Error_Syntax_Error;{{d4eb:c249cb}}  Error: Syntax Error
 
-_command_speed_write_speed_key_speed_ink_8:;{{Addr=$d4ee Code Calls/jump count: 1 Data use count: 0}}
-        push    bc                ;{{d4ee:c5}} 
+;;=do SPEED KEY, SPEED INK
+do_SPEED_KEY_SPEED_INK:           ;{{Addr=$d4ee Code Calls/jump count: 1 Data use count: 0}}
+        push    bc                ;{{d4ee:c5}} BC = routine to call to set delay
         call    get_next_token_skipping_space;{{d4ef:cd2cde}}  get next token skipping space
         call    eval_expr_as_int_less_than_256;{{d4f2:cdc3ce}} 
         ld      c,a               ;{{d4f5:4f}} 
@@ -122,10 +125,8 @@ _command_speed_write_speed_key_speed_ink_8:;{{Addr=$d4ee Code Calls/jump count: 
         ex      de,hl             ;{{d503:eb}} 
         ret                       ;{{d504:c9}} 
 
-;;========================================================================
-;; SPEED WRITE 0, SPEED WRITE 1
-
-SPEED_WRITE_0_SPEED_WRITE_1:      ;{{Addr=$d505 Code Calls/jump count: 1 Data use count: 0}}
+;;=do SPEED WRITE
+do_SPEED_WRITE:                   ;{{Addr=$d505 Code Calls/jump count: 1 Data use count: 0}}
         call    get_next_token_skipping_space;{{d505:cd2cde}}  get next token skipping space
         ld      b,$02             ;{{d508:0602}} 
         call    eval_expr_and_check_less_than_B;{{d50a:cd69d3}} 
@@ -133,10 +134,10 @@ SPEED_WRITE_0_SPEED_WRITE_1:      ;{{Addr=$d505 Code Calls/jump count: 1 Data us
         ld      hl,$00a7          ;{{d50e:21a700}} 
         dec     a                 ;{{d511:3d}} 
         ld      a,$32             ;{{d512:3e32}} 
-        jr      z,_speed_write_0_speed_write_1_10;{{d514:2802}}  (+$02)
+        jr      z,_do_speed_write_10;{{d514:2802}}  (+$02)
         add     hl,hl             ;{{d516:29}} 
         rrca                      ;{{d517:0f}} 
-_speed_write_0_speed_write_1_10:  ;{{Addr=$d518 Code Calls/jump count: 1 Data use count: 0}}
+_do_speed_write_10:               ;{{Addr=$d518 Code Calls/jump count: 1 Data use count: 0}}
         call    CAS_SET_SPEED     ;{{d518:cd68bc}}  firmware function: cas set speed
         pop     hl                ;{{d51b:e1}} 
         ret                       ;{{d51c:c9}} 

@@ -5,7 +5,7 @@
 ;; command FOR
 
 command_FOR:                      ;{{Addr=$c5d4 Code Calls/jump count: 0 Data use count: 1}}
-        call    prob_parse_and_find_FOR_var;{{c5d4:cdecd6}} 
+        call    parse_and_find_or_alloc_FOR_var;{{c5d4:cdecd6}} 
         push    hl                ;{{c5d7:e5}} 
         push    bc                ;{{c5d8:c5}} 
         push    de                ;{{c5d9:d5}} 
@@ -19,7 +19,7 @@ command_FOR:                      ;{{Addr=$c5d4 Code Calls/jump count: 0 Data us
         pop     hl                ;{{c5e9:e1}} 
         call    is_next_02        ;{{c5ea:cd3dde}} 
         ld      de,$0000          ;{{c5ed:110000}} ##LIT##
-        call    nc,prob_parse_and_find_or_create_a_var;{{c5f0:d4bfd6}} 
+        call    nc,parse_and_find_or_create_a_var;{{c5f0:d4bfd6}} 
         ld      b,h               ;{{c5f3:44}} 
         ld      c,l               ;{{c5f4:4d}} 
         pop     hl                ;{{c5f5:e1}} 
@@ -57,13 +57,13 @@ _command_for_40:                  ;{{Addr=$c61c Code Calls/jump count: 1 Data us
         inc     hl                ;{{c623:23}} 
         ex      (sp),hl           ;{{c624:e3}} 
 
-        call    next_token_if_ef_token_for_equals_sign;{{c625:cd21de}} test for "=" after var name
+        call    next_token_if_equals_sign;{{c625:cd21de}} test for "=" after var name
         call    eval_expression   ;{{c628:cd62cf}} Get initial value
         ld      a,c               ;{{c62b:79}} 
         call    convert_accumulator_to_type_in_A;{{c62c:cdfffe}} 
         push    hl                ;{{c62f:e5}} 
         ld      hl,FOR_start_value_;{{c630:210dac}} 
-        call    copy_accumulator_to_athl_B;{{c633:cd83ff}} 
+        call    copy_numeric_accumulator_to_atHL;{{c633:cd83ff}} 
         pop     hl                ;{{c636:e1}} 
 
         call    next_token_if_equals_inline_data_byte;{{c637:cd25de}} 
@@ -72,7 +72,7 @@ _command_for_40:                  ;{{Addr=$c61c Code Calls/jump count: 1 Data us
         ex      (sp),hl           ;{{c63e:e3}} 
         ld      a,c               ;{{c63f:79}} 
         call    convert_accumulator_to_type_in_A;{{c640:cdfffe}} 
-        call    copy_accumulator_to_athl_B;{{c643:cd83ff}} 
+        call    copy_numeric_accumulator_to_atHL;{{c643:cd83ff}} 
         ex      de,hl             ;{{c646:eb}} 
         ex      (sp),hl           ;{{c647:e3}} 
         ex      de,hl             ;{{c648:eb}} 
@@ -91,7 +91,7 @@ _command_for_73:                  ;{{Addr=$c65b Code Calls/jump count: 1 Data us
         ld      a,c               ;{{c65b:79}} 
         call    convert_accumulator_to_type_in_A;{{c65c:cdfffe}} 
         ex      (sp),hl           ;{{c65f:e3}} 
-        call    copy_accumulator_to_athl_B;{{c660:cd83ff}} 
+        call    copy_numeric_accumulator_to_atHL;{{c660:cd83ff}} 
         call    get_raw_abs_of_accumulator_with_reg_preserve;{{c663:cdc4fd}} 
         ex      de,hl             ;{{c666:eb}} 
         ld      (hl),a            ;{{c667:77}} 
@@ -256,7 +256,7 @@ update_and_test_FOR_loop_counter: ;{{Addr=$c702 Code Calls/jump count: 1 Data us
         dec     hl                ;{{c723:2b}} 
         ld      e,(hl)            ;{{c724:5e}} 
         ex      de,hl             ;{{c725:eb}} 
-        call    copy_accumulator_to_athl_B;{{c726:cd83ff}} 
+        call    copy_numeric_accumulator_to_atHL;{{c726:cd83ff}} 
         pop     hl                ;{{c729:e1}} 
 
 _update_and_test_for_loop_counter_27:;{{Addr=$c72a Code Calls/jump count: 1 Data use count: 0}}

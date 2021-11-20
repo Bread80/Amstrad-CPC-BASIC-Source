@@ -40,6 +40,7 @@ get_output_stream:                ;{{Addr=$c1be Code Calls/jump count: 4 Data us
 
 ;;-----------------------------------------------------------------
 ;;=get input stream
+;returns Carry clear if stream is on screen, Carry set if not on screen (i.e. a file)
 get_input_stream:                 ;{{Addr=$c1c4 Code Calls/jump count: 7 Data use count: 0}}
         ld      a,(current_input_stream_);{{c1c4:3a07ac}} 
         cp      $09               ;{{c1c7:fe09}} 
@@ -56,8 +57,8 @@ exec_BC_on_evalled_stream_and_swap_back:;{{Addr=$c1cf Code Calls/jump count: 2 D
         call    eval_and_validate_stream_number_if_present;{{c1cf:cdfbc1}} 
         jr      exec_TOS_on_stream_and_swap_back;{{c1d2:1818}}  (+$18)
 
-;;=swap boths streams, exec TOS and swap back
-swap_boths_streams_exec_TOS_and_swap_back:;{{Addr=$c1d4 Code Calls/jump count: 2 Data use count: 0}}
+;;=swap both streams, exec TOS and swap back
+swap_both_streams_exec_TOS_and_swap_back:;{{Addr=$c1d4 Code Calls/jump count: 2 Data use count: 0}}
         call    eval_and_validate_stream_number_if_present;{{c1d4:cdfbc1}} 
         call    swap_input_streams;{{c1d7:cdb3c1}} 
         pop     bc                ;{{c1da:c1}} 

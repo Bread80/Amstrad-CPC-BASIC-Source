@@ -29,7 +29,6 @@
 ;;BASIC 1.1
 
 c000
-
 ;ROM header
 defb $80		;; foreground rom
 defb $01        ;mark
@@ -73,12 +72,10 @@ c045 defb 0                         ;end of rsx name table
 
 
 
-
 ;;***ProgramEntry.asm
 ;;<< PROGRAM ENTRY ROUTINES
-;;========================================================================
 ;;< REPL loop, EDIT, AUTO, NEW, CLEAR (INPUT)
-
+;;========================================================================
 ;; command EDIT
 c046 cd48cf    call    $cf48
 c049 c0        ret     nz
@@ -185,6 +182,7 @@ c0e4 3eff      ld      a,$ff            ;auto mode active
 c0e6 3201ac    ld      ($ac01),a        ;current auto mode
 c0e9 c9        ret   
   
+ 
 ;;==================================================================
 ;; command AUTO
 c0ea 110a00    ld      de,$000a			; default line number is 10
@@ -341,6 +339,7 @@ c1c3 c9        ret
 
 ;;-----------------------------------------------------------------
 ;;=get input stream
+;returns Carry clear if stream is on screen, Carry set if not on screen (i.e. a file)
 c1c4 3a07ac    ld      a,($ac07)
 c1c7 fe09      cp      $09
 c1c9 c9        ret     
@@ -354,7 +353,7 @@ c1cd 18d7      jr      $c1a6            ; (-$29)
 c1cf cdfbc1    call    $c1fb
 c1d2 1818      jr      $c1ec            ; (+$18)
 
-;;=swap boths streams, exec TOS and swap back
+;;=swap both streams, exec TOS and swap back
 c1d4 cdfbc1    call    $c1fb
 c1d7 cdb3c1    call    $c1b3
 c1da c1        pop     bc
@@ -3171,7 +3170,7 @@ d055 cd45cb    call    $cb45
 d058 defb $16									; Error: Operand Missing
 
 ;;===========================================================================
-;; prefix token table d059
+;; prefix token table
 d059
 
 ;(call this entry if token not found)
@@ -3517,56 +3516,57 @@ d187 c3a3e9    jp      $e9a3			;; DATA
 ;;=======================================================================
 ;; prefix FN
 
-d18a cddbd6    call    $d6db
+d18a cddbd6    call    $d6db            ;find the DEF FN for this item
 d18d c5        push    bc
 d18e e5        push    hl
 d18f eb        ex      de,hl
-d190 5e        ld      e,(hl)
+d190 5e        ld      e,(hl)           ;read DEF FN address
 d191 23        inc     hl
 d192 56        ld      d,(hl)
-d193 eb        ex      de,hl
-d194 7c        ld      a,h
+d193 eb        ex      de,hl            ;HL=DEF FN address. We are now 'executing' the DEF FN code
+d194 7c        ld      a,h              ;is address zero?
 d195 b5        or      l
 d196 3e12      ld      a,$12            ;Unknown user function error
 d198 ca55cb    jp      z,$cb55
 
 ;alloc space on execution stack for the FN and any parameters
 d19b cd2ada    call    $da2a
-d19e 7e        ld      a,(hl)
-d19f fe28      cp      $28
-d1a1 2028      jr      nz,$d1cb         ; (+$28)
+d19e 7e        ld      a,(hl)           ;Does the DEF FN have any parameters?
+d19f fe28      cp      $28              ; '('
+d1a1 2028      jr      nz,$d1cb         ; (+$28) no params, skip next bit
 d1a3 cd2cde    call    $de2c			; get next token skipping space
 d1a6 e3        ex      (sp),hl
 d1a7 cd19de    call    $de19 ; check for open bracket
 d1aa e3        ex      (sp),hl
 
 ;;=prefix FN read params loop
-d1ab cd6ada    call    $da6a
-d1ae e3        ex      (sp),hl
+d1ab cd6ada    call    $da6a            ;Read both DEF FN definition parameter list...
+d1ae e3        ex      (sp),hl          ;...and parameters passed in FN invocation
 d1af d5        push    de
-d1b0 cd62cf    call    $cf62
+d1b0 cd62cf    call    $cf62            ;eval parameter
 d1b3 e3        ex      (sp),hl
 d1b4 78        ld      a,b
 d1b5 cd9fd6    call    $d69f
 d1b8 e1        pop     hl
-d1b9 cd41de    call    $de41
-d1bc 3006      jr      nc,$d1c4         ; (+$06)
+d1b9 cd41de    call    $de41            ;more parameters?
+d1bc 3006      jr      nc,$d1c4         ; (+$06) nope, done
 d1be e3        ex      (sp),hl
 d1bf cd15de    call    $de15 ; check for comma
 d1c2 18e7      jr      $d1ab            ; (-$19)
 
 ;;=prefix FN finished reading params
-d1c4 cd1dde    call    $de1d ; check for close bracket
+d1c4 cd1dde    call    $de1d            ; check for close bracket at end of FN
 d1c7 e3        ex      (sp),hl
-d1c8 cd1dde    call    $de1d ; check for close bracket
-;;=prefix FN no params
-d1cb cd49da    call    $da49
-d1ce cd21de    call    $de21
+d1c8 cd1dde    call    $de1d            ; check for close bracket at end of DEF FN
+;;=prefix FN execute
+d1cb cd49da    call    $da49            ;tidy up system variables?
+
+d1ce cd21de    call    $de21            ;HL=address of the equals sign in the DEF FN
 d1d1 cd62cf    call    $cf62            ;eval the FN (ie run it as code)
 d1d4 c249cb    jp      nz,$cb49			; Error: Syntax Error
-
 d1d7 cd66ff    call    $ff66
 d1da cc8afb    call    z,$fb8a
+
 d1dd cd52da    call    $da52
 d1e0 e1        pop     hl
 d1e1 f1        pop     af
@@ -4018,7 +4018,10 @@ d450 e6f0      and     $f0
 d452 c29bd3    jp      nz,$d39b
 d455 c9        ret     
 
-;**tk
+
+
+
+
 ;;***Input.asm
 ;;<< INPUT FUNCTIONS
 ;;< INKEY, JOY, KEY (DEF). Also SPEED (WRITE/KEY/INK)
@@ -4050,6 +4053,8 @@ d47d 7c        ld      a,h
 d47e b5        or      l
 d47f 7a        ld      a,d
 d480 ca32ff    jp      z,$ff32
+
+;;=raise improper argument
 d483 c34dcb    jp      $cb4d			; Error: Improper Argument
 
 ;;========================================================================
@@ -4120,7 +4125,8 @@ d4e6 fea2      cp      $a2				; token for "INK"
 d4e8 013ebc    ld      bc,$bc3e			; firmware function: SCR SET FLASHING
 d4eb c249cb    jp      nz,$cb49			; Error: Syntax Error
 
-d4ee c5        push    bc
+;;=do SPEED KEY, SPEED INK
+d4ee c5        push    bc               ;BC = routine to call to set delay
 d4ef cd2cde    call    $de2c			; get next token skipping space
 d4f2 cdc3ce    call    $cec3
 d4f5 4f        ld      c,a
@@ -4134,9 +4140,7 @@ d500 cdfcff    call    $fffc			; JP (BC)
 d503 eb        ex      de,hl
 d504 c9        ret     
 
-;;========================================================================
-;; SPEED WRITE 0, SPEED WRITE 1
-
+;;=do SPEED WRITE
 d505 cd2cde    call    $de2c			; get next token skipping space
 d508 0602      ld      b,$02
 d50a cd69d3    call    $d369
@@ -4262,7 +4266,9 @@ d59b cd62cf    call    $cf62            ; if so read it
 d59e e5        push    hl               ; Save code ptr
 d59f 1818      jr      $d5b9            ; (+$18)
 
+;;=random seed prompt
 d5a1 e5        push    hl               ; Save code ptr
+;;=random seed loop
 d5a2 2183d5    ld      hl,$d583			;; "Random number seed?" message
 d5a5 cd8bc3    call    $c38b			;; display 0 terminated string
 d5a8 cdecca    call    $caec            ; Key input text
@@ -4273,6 +4279,7 @@ d5b3 cd4dde    call    $de4d			; skip space, lf or tab
 d5b6 b7        or      a
 d5b7 20e9      jr      nz,$d5a2         ; (-$17) Loop if invalid
 
+;;=do_randomize
 d5b9 cd14ff    call    $ff14            ; Convert to a real
 d5bc cdbebd    call    $bdbe            ; Firmware: RANDOMIZE seed
 d5bf e1        pop     hl               ; Retrieve code ptr
@@ -4281,23 +4288,25 @@ d5c0 c9        ret
 ;;========================================================================
 ;; variable RND
 
-d5c1 7e        ld      a,(hl)
+d5c1 7e        ld      a,(hl)           ;Do we have a parameter?
 d5c2 fe28      cp      $28				; '('
-d5c4 201b      jr      nz,$d5e1         
+d5c4 201b      jr      nz,$d5e1         ;If not return simple value
 
 d5c6 cd2cde    call    $de2c			; get next token skipping space
 d5c9 cd62cf    call    $cf62
 d5cc cd1dde    call    $de1d ; check for close bracket
 d5cf e5        push    hl
 d5d0 cd14ff    call    $ff14
-d5d3 cd94bd    call    $bd94
-d5d6 2005      jr      nz,$d5dd         ; (+$05)
-d5d8 cd8bbd    call    $bd8b
+d5d3 cd94bd    call    $bd94            ;Is parameter +ve, zero or -ve?
+d5d6 2005      jr      nz,$d5dd         ; (+$05) Non-zero
+d5d8 cd8bbd    call    $bd8b            ;If zero, return copy of previous value
 d5db e1        pop     hl
 d5dc c9        ret     
 
-d5dd fcbebd    call    m,$bdbe
+;;=rnd param non-zero
+d5dd fcbebd    call    m,$bdbe          ;If parameter is negative, new random seed
 d5e0 e1        pop     hl
+;;=rnd generate
 d5e1 e5        push    hl
 d5e2 cd3eff    call    $ff3e
 d5e5 cd7fbd    call    $bd7f
@@ -4314,7 +4323,7 @@ d5e9 c9        ret
 ;;< (Lots more work to do here)
 ;;===================================
 
-;;=prob delete program
+;;=delete program
 d5ea cdfad5    call    $d5fa
 d5ed 2a66ae    ld      hl,($ae66)
 d5f0 2268ae    ld      ($ae68),hl
@@ -4322,61 +4331,99 @@ d5f3 226aae    ld      ($ae6a),hl
 d5f6 226cae    ld      ($ae6c),hl
 d5f9 c9        ret     
 
-;;=zero &36 bytes at adb7
+;;=prob reset variable linked list pointers
+;zero 36h bytes at adb7
 d5fa 21b7ad    ld      hl,$adb7
 d5fd 3e36      ld      a,$36
 d5ff cd07d6    call    $d607
 
-;;=zero 6 bytes at aded
+;;=reset array linked list headers
+;zero 6 bytes at aded
 d602 21edad    ld      hl,$aded
 d605 3e06      ld      a,$06
+
+;;=zero A bytes at HL
 d607 3600      ld      (hl),$00
 d609 23        inc     hl
 d60a 3d        dec     a
 d60b 20fa      jr      nz,$d607         ; (-$06)
 d60d c9        ret     
 
-d60e 210000    ld      hl,$0000
+;;===================================
+;;=clear DEFFN list and reset variable types and pointers
+d60e 210000    ld      hl,$0000         ;##LIT##
 d611 22ebad    ld      ($adeb),hl
 d614 c34dea    jp      $ea4d
 
-d617 3e5b      ld      a,$5b
+;;===================================
+;;=get VarFN area and FN list head ptr
+d617 3e5b      ld      a,$5b            ;91 Returns with HL=&ade6
+
+;;=get VarFN area and list head ptr
+;Calculates an address for a linked list header relative to &ad35
+;Entry: A=a value between &41 .. &5b, i.e. one of 'A'..'Z','[' (that final entry is for DEF FNs)
+;Exit: BC=addr of variables/DEF FN area -1
+;HL=address (based on A) in the BASIC data area of a pointer to a linked list
+;HL=&ad35 + (A*2) = (&adb7 - ('A' * 2)) + (A * 2)
+;where &adb7 is the block of data for the variable linked list headers
 d619 ed4b68ae  ld      bc,($ae68)
-d61d 0b        dec     bc
-d61e 87        add     a,a
-d61f c635      add     a,$35
-d621 6f        ld      l,a
-d622 cead      adc     a,$ad
-d624 95        sub     l
-d625 67        ld      h,a
+d61d 0b        dec     bc               ;A=&41   |&5b 
+d61e 87        add     a,a              ;A=&82   |&b6  A=A*2
+d61e c635 add a,$adb7 - ('A' * 2) and $ff ;formula version
+;OLDd61f c635      add     a,$35            ;A=&b7   |&eb. A=A*2+53
+d621 6f        ld      l,a              ;L=&b7   |&eb
+d622 cead adc a,$adb7 >> 8 ;formula version
+;OLDd622 cead      adc     a,$ad            ;A=&(1)64|$(1)98 (ie. carry)  173 
+d624 95        sub     l                ;A=&ad   |$ad
+d625 67        ld      h,a              ;HL=&adb7|&adeb
 d626 c9        ret     
 
+;;===================================
+;;=get array area and array list head ptr for type
+;Usually (always?) called with A=a variable data type 
+;Entry: A=variable data type (which equals a variable data size) = 2,3 or 5
+;Exit: BC=addr of arrays area -1
+;HL=address (based on A) in the BASIC data area (adef, adf1, or aded) of
+;a pointer for a linked list of arrays of the given type
+;Calculates: HL=&aded + (((A and 3) - 1) * 2)
 d627 ed4b6aae  ld      bc,($ae6a)
-d62b 0b        dec     bc
-d62c e603      and     $03
-d62e 3d        dec     a
-d62f 87        add     a,a
-d630 c6ed      add     a,$ed
-d632 6f        ld      l,a
-d633 cead      adc     a,$ad
-d635 95        sub     l
-d636 67        ld      h,a
+d62b 0b        dec     bc               ;A=   2  |  3  |  5    (int|string|real)
+d62c e603      and     $03              ;A=   2  |  3  |  1
+d62e 3d        dec     a                ;A=   1  |  2  |  0
+d62f 87        add     a,a              ;A=   2  |  4  |  0
+d630 c6ed      add     a,$aded and 255 ;formula version
+;OLDd630 c6ed      add     a,$ed            ;A= $ef  |$f1  |$ed  I.e add a,$aded and $ff
+d632 6f        ld      l,a              ;L= $ef  |$f1  |$ed
+d633 cead      adc     a,$aded >> 8 ;formula version
+;OLDd633 cead      adc     a,$ad            ;A= $19c |$19e |$19a (i.e. carry)  I.e. adc a,&aded shr 8
+d635 95        sub     l                ;A= $ad  |$ad  |$ad
+d636 67        ld      h,a              ;HL=$adef|$adf1|$aded -> addresses in BASIC data area!
 d637 c9        ret     
 
-d638 015a41    ld      bc,$415a
-d63b 1e05      ld      e,$05
+;;===================================
+;;=defreal a to z
+d638 015a41    ld      bc,$415a         ;'A''Z' - letter range
+d63b 1e05      ld      e,$05            ;REAL data type
+
+;;=def letters BC to type E
+;DEFs the type of a range of variables
+;B=start of letter range ('A' to 'Z')
+;C=end of letter range ('A' to 'Z')
+;E=variable type (2,3,5)
 d63d 79        ld      a,c
-d63e 90        sub     b
+d63e 90        sub     b                ;calc number of items to set
 d63f 383d      jr      c,$d67e          ; (+$3d)
 d641 e5        push    hl
 d642 3c        inc     a
-d643 21b2ad    ld      hl,$adb2
+d643 21b2ad    ld      hl,$adf3 - 'A'   ;Relative to start of DEFxxxx table
 d646 0600      ld      b,$00
-d648 09        add     hl,bc
+d648 09        add     hl,bc            ;HL=last item in range
+
 d649 73        ld      (hl),e
 d64a 2b        dec     hl
 d64b 3d        dec     a
-d64c 20fb      jr      nz,$d649         ; (-$05)
+d64c 20fb      jr      nz,$d649         ; (-$05) Loop
+
 d64e e1        pop     hl
 d64f c9        ret     
 
@@ -4384,60 +4431,67 @@ d64f c9        ret
 ;;======================================================
 ;; command DEFSTR
 
-d650 1e03      ld      e,$03
+d650 1e03      ld      e,$03            ;String type
 d652 1806      jr      $d65a            ; (+$06)
 
 ;;=============================================================================
 ;; command DEFINT
 
-d654 1e02      ld      e,$02
+d654 1e02      ld      e,$02            ;Int type
 d656 1802      jr      $d65a            ; (+$02)
 
 ;;=============================================================================
 ;; command DEFREAL
-d658 1e05      ld      e,$05
-;;-----------------------------------------------------------------------------
+d658 1e05      ld      e,$05            ;Real type
 
+;;-----------------------------------------------------------------------------
+;;=do DEFtype
 d65a 7e        ld      a,(hl)
 d65b cd92ff    call    $ff92			; is a alphabetical letter?
 d65e 301e      jr      nc,$d67e         ; (+$1e)
 d660 4f        ld      c,a
 d661 47        ld      b,a
 d662 cd2cde    call    $de2c			; get next token skipping space
-d665 fe2d      cp      $2d				; '-'
+d665 fe2d      cp      $2d				; '-' - range of values
 d667 200c      jr      nz,$d675         ; (+$0c)
 d669 cd2cde    call    $de2c			; get next token skipping space
 d66c cd92ff    call    $ff92			; is a alphabetical letter?
 d66f 300d      jr      nc,$d67e         ; (+$0d)
 d671 4f        ld      c,a
 d672 cd2cde    call    $de2c			; get next token skipping space
+
 d675 cd3dd6    call    $d63d
 d678 cd41de    call    $de41
-d67b 38dd      jr      c,$d65a          ; (-$23)
+d67b 38dd      jr      c,$d65a          ; (-$23) comma = more items in list
 d67d c9        ret     
 
+;;=raise Syntax Error
 d67e c349cb    jp      $cb49			; Error: Syntax Error
 
+;;=raise Subscript out of range
 d681 cd45cb    call    $cb45
 d684 defb $09                         ;Inline error code: Subscript out of range
 
+;;=raise Array already dimensioned
 d685 cd45cb    call    $cb45
 d688 defb $0a                         ;Inline error code: Array already dimensioned
 
+;;========================================================================
+;; BAR command or implicit LET
 d689 fef8      cp      $f8				; '|'
 d68b ca45f2    jp      z,$f245
 
 ;;========================================================================
 ;; command LET
 
-d68e cdbfd6    call    $d6bf
-d691 d5        push    de
-d692 cd21de    call    $de21
-d695 cd62cf    call    $cf62
+d68e cdbfd6    call    $d6bf            ;Find (or alloc) the variables
+d691 d5        push    de               ;Preserve address(?)
+d692 cd21de    call    $de21            ;Test for '=' sign
+d695 cd62cf    call    $cf62            ;Evaluate the new value
 d698 78        ld      a,b
-d699 e3        ex      (sp),hl
-d69a cd9fd6    call    $d69f
-d69d e1        pop     hl
+d699 e3        ex      (sp),hl          ;Retrieve the address
+d69a cd9fd6    call    $d69f            ;Store the new value (also stores a string if appropriate)
+d69d e1        pop     hl               ;Retrieve code pointer
 d69e c9        ret     
 
 ;;=copy accumulator to atHL as type B
@@ -4448,9 +4502,9 @@ d6a4 78        ld      a,b
 d6a5 c4fffe    call    nz,$feff
 ;;=copy accumulator to atHL
 d6a8 cd66ff    call    $ff66
-d6ab c283ff    jp      nz,$ff83
-d6ae e5        push    hl
-d6af cd94fb    call    $fb94
+d6ab c283ff    jp      nz,$ff83         ;It's a number
+d6ae e5        push    hl               ;Otherwise it's a string
+d6af cd94fb    call    $fb94            ;Store string to strings area
 d6b2 d1        pop     de
 d6b3 c387ff    jp      $ff87
 
@@ -4459,53 +4513,63 @@ d6b3 c387ff    jp      $ff87
 
 d6b6 cde0d7    call    $d7e0
 d6b9 cd41de    call    $de41
-d6bc 38f8      jr      c,$d6b6          ; (-$08)
+d6bc 38f8      jr      c,$d6b6          ; (-$08) Comma = more items in list
 d6be c9        ret     
 
-;;=prob parse and find or create a var
+;;===================================================
+;The variable/array/deffn token is followed by a pointer into the variables/arrays/deffn area.
+;At reset this value is cleared to zero. Here we read the value. If it's set then add it to the base address,
+;if not the search the relevant linked list to: find it; store the found value (and possibly clarify the variables type);
+;(depeding on the routine) allocate space if the item isn't already created.
+
+
+;;=parse and find or create a var
+;Returns DE = address of variables value
 d6bf cd31d9    call    $d931
 d6c2 cd06d8    call    $d806
-d6c5 3842      jr      c,$d709          ; (+$42)
-d6c7 1828      jr      $d6f1            ; (+$28)
+d6c5 3842      jr      c,$d709          ; (+$42) variable offset set -> return
+d6c7 1828      jr      $d6f1            ; (+$28) variable offset not set -> find (and maybe alloc)
 
-;;=prob parse and find var
+;;=parse and find var
 d6c9 cd31d9    call    $d931
 d6cc cd06d8    call    $d806
-d6cf 3838      jr      c,$d709          ; (+$38)
+d6cf 3838      jr      c,$d709          ; (+$38) variable offset set -> return
 d6d1 e5        push    hl
 d6d2 79        ld      a,c
-d6d3 cd19d6    call    $d619
+d6d3 cd19d6    call    $d619            ;search list of vars (list depends on type)
 d6d6 cd17d7    call    $d717
-d6d9 182d      jr      $d708            ; (+$2d)
+d6d9 182d      jr      $d708            ; (+$2d) return
 
-;;=prob parse and find an FN
+;;=parse and find or create an FN
 d6db cd31d9    call    $d931
-d6de 3821      jr      c,$d701          ; (+$21)
+d6de 3821      jr      c,$d701          ; (+$21) variable offset set -> add offset and return
 d6e0 e5        push    hl
-d6e1 cd17d6    call    $d617
+d6e1 cd17d6    call    $d617            ;search list of DEF FNs
 d6e4 cd32d7    call    $d732
-d6e7 d46fd7    call    nc,$d76f
+d6e7 d46fd7    call    nc,$d76f         ;not found - alloc
 d6ea 181c      jr      $d708            ; (+$1c)
 
-;;=prob parse and find FOR var
+;;=parse and find or alloc FOR var
 d6ec cd31d9    call    $d931
-d6ef 3810      jr      c,$d701          ; (+$10)
+d6ef 3810      jr      c,$d701          ; (+$10) variable offset set -> return
+
+;;=find var and alloc if not found
 d6f1 e5        push    hl
 d6f2 79        ld      a,c
-d6f3 cd19d6    call    $d619
+d6f3 cd19d6    call    $d619            ;search list of variables (list depends on type)
 d6f6 cd17d7    call    $d717
 d6f9 3a9fb0    ld      a,($b09f)
-d6fc d47bd7    call    nc,$d77b
+d6fc d47bd7    call    nc,$d77b         ;not found - alloc
 d6ff 1807      jr      $d708            ; (+$07)
 
-;;=unknown alloc DE bytes at start of var FN area
+;;=add offset to addr in var FN area
 d701 e5        push    hl
 d702 2a68ae    ld      hl,($ae68)
 d705 2b        dec     hl
 d706 19        add     hl,de
 d707 eb        ex      de,hl
 
-;;=get accum data type in A B and C 
+;;=pop hl and get accum data type in A B and C 
 d708 e1        pop     hl
 
 ;;=get accum data type in A B and C
@@ -4515,31 +4579,38 @@ d70d 4f        ld      c,a
 d70e c9        ret     
 
 ;;============================
+;;prob just skip over variable
 d70f cd31d9    call    $d931
 d712 cd7ae9    call    $e97a
 d715 18f2      jr      $d709            ; (-$0e)
 
+;;==================================
+;;=find var in FN or var linked lists
+;Appears to check multiple lists? Maybe depends on variable type
 d717 d5        push    de
 d718 e5        push    hl
-d719 2a12ae    ld      hl,($ae12)
+d719 2a12ae    ld      hl,($ae12)       ;Are we in an FN?
 d71c 7c        ld      a,h
 d71d b5        or      l
-d71e 2810      jr      z,$d730          ; (+$10)
-d720 23        inc     hl
+d71e 2810      jr      z,$d730          ; (+$10) Nope - just check regular variables
+d720 23        inc     hl               ;otherwise check variable linked list for the FN...
 d721 23        inc     hl
 d722 c5        push    bc
-d723 010000    ld      bc,$0000
+d723 010000    ld      bc,$0000         ;which uses an absolute address (well, an offset from zero) ##LIT##
 d726 cd40d7    call    $d740
-d729 c1        pop     bc
+d729 c1        pop     bc               ;and then check the regular variable linked list
 d72a 3004      jr      nc,$d730         ; (+$04)
 d72c f1        pop     af
 d72d f1        pop     af
 d72e 37        scf     
 d72f c9        ret     
 
+;;=prob find item in linked list
+;finds an item within a single list
 d730 e1        pop     hl
 d731 d1        pop     de
-d732 d5        push    de
+
+d732 d5        push    de               ;this entry point searches DEF FNs list
 d733 e5        push    hl
 d734 cd40d7    call    $d740
 d737 e1        pop     hl
@@ -4550,33 +4621,52 @@ d73b c9        ret
 d73c e1        pop     hl
 d73d c39ed7    jp      $d79e
 
+;;==================================
+;;find named item in linked list
+;BC=start of linked list
+;HL=ptr to offset into list - item is at BC + (HL)
+;($AE0E) addr of ASCIIZ name to compare to
+;Type must match that of the accumulator
+;EXIT: Carry set if item found
+;(If found):
+;HL = address of start of item
+;DE = address of items data area (address after type specifier)
+
+;Table format:
+;Word: Offset (from BC) of next item in table (or zero if end of list)
+;ASCIIZ string: item name
+;Byte: Item type (2/3/5)
+;Data area
+
 d740 7e        ld      a,(hl)
 d741 23        inc     hl
 d742 66        ld      h,(hl)
 d743 6f        ld      l,a
 d744 b4        or      h
-d745 c8        ret     z
+d745 c8        ret     z                ;Offset? is zero - end of list (or empty list)  
 
-d746 09        add     hl,bc
+d746 09        add     hl,bc            ;Add offset to start of table
 d747 e5        push    hl
-d748 23        inc     hl
-d749 23        inc     hl
-d74a ed5b0eae  ld      de,($ae0e)
-d74e 1a        ld      a,(de)
+d748 23        inc     hl               ;Step over (pointer) to string (var name)
+d749 23        inc     hl               ;Ptr = offset of next item?
+d74a ed5b0eae  ld      de,($ae0e)       ;Address of another string
+
+d74e 1a        ld      a,(de)           ;Compare ASCII7 string at HL to that at DE
 d74f be        cp      (hl)
-d750 200d      jr      nz,$d75f         ; (+$0d)
-d752 23        inc     hl
+d750 200d      jr      nz,$d75f         ; (+$0d) Char doesn't match - fail
+d752 23        inc     hl               ;Next char
 d753 13        inc     de
-d754 17        rla     
-d755 30f7      jr      nc,$d74e         ; (-$09)
-d757 3a9fb0    ld      a,($b09f)
+d754 17        rla                      ;Is bit 7 set?
+d755 30f7      jr      nc,$d74e         ; (-$09) Loop for next char if not
+
+d757 3a9fb0    ld      a,($b09f)        ;Does the type also match?
 d75a 3d        dec     a
 d75b ae        xor     (hl)
 d75c e607      and     $07
 d75e eb        ex      de,hl
-d75f e1        pop     hl
-d760 20de      jr      nz,$d740         ; (-$22)
-d762 13        inc     de
+d75f e1        pop     hl               ;Retrieve start address of item = ptr to next item
+d760 20de      jr      nz,$d740         ; (-$22) Not a match, loop. 
+d762 13        inc     de               ;DE = ptr to the items data
 d763 37        scf     
 d764 c9        ret     
 
@@ -4590,7 +4680,7 @@ d76b 23        inc     hl
 d76c 28fb      jr      z,$d769          ; (-$05)
 d76e c9        ret     
 
-;;=unknown alloc var space
+;;=prob alloc space for a DEF FN
 d76f 3e02      ld      a,$02
 d771 cd7bd7    call    $d77b
 d774 1b        dec     de
@@ -4614,15 +4704,20 @@ d78a cd1af6    call    $f61a
 d78d f1        pop     af
 d78e cdb8d7    call    $d7b8
 d791 c1        pop     bc
-d792 af        xor     a
+
+d792 af        xor     a                ;Zero B bytes
 d793 2b        dec     hl
 d794 77        ld      (hl),a
 d795 10fc      djnz    $d793            ; (-$04)
+
 d797 c1        pop     bc
 d798 e3        ex      (sp),hl
 d799 cdd0d7    call    $d7d0
 d79c d1        pop     de
 d79d e1        pop     hl
+
+;;=prob store offset into code
+;stores the newly found/created variable/fn/array offset into the code where it is referenced
 d79e 23        inc     hl
 d79f 7b        ld      a,e
 d7a0 91        sub     c
@@ -4634,10 +4729,11 @@ d7a5 77        ld      (hl),a
 d7a6 37        scf     
 d7a7 c9        ret     
 
+;;=count length of cached string
 d7a8 c603      add     a,$03
 d7aa 4f        ld      c,a
-d7ab 2a0eae    ld      hl,($ae0e)
-d7ae af        xor     a
+d7ab 2a0eae    ld      hl,($ae0e)       ;Address of cached string
+d7ae af        xor     a                ;Count length of string
 d7af 47        ld      b,a
 d7b0 03        inc     bc
 d7b1 3c        inc     a
@@ -4646,6 +4742,7 @@ d7b4 23        inc     hl
 d7b5 28f9      jr      z,$d7b0          ; (-$07)
 d7b7 c9        ret     
 
+;;=copy cached string and store data type
 d7b8 62        ld      h,d
 d7b9 6b        ld      l,e
 d7ba 09        add     hl,bc
@@ -4665,6 +4762,7 @@ d7cd d1        pop     de
 d7ce e1        pop     hl
 d7cf c9        ret     
 
+;;=poss update list headers
 d7d0 7e        ld      a,(hl)
 d7d1 12        ld      (de),a
 d7d2 7b        ld      a,e
@@ -4684,30 +4782,34 @@ d7df c9        ret
 
 ;;==================================
 ;;do DIM item
-d7e0 cd31d9    call    $d931
-d7e3 7e        ld      a,(hl)
+d7e0 cd31d9    call    $d931            ;skip over the array name...
+d7e3 7e        ld      a,(hl)           ;...and we should have an open brace (either type)
 d7e4 fe28      cp      $28              ;'('
 d7e6 2805      jr      z,$d7ed          ; (+$05)
 d7e8 ee5b      xor     $5b              ;'['
 d7ea c249cb    jp      nz,$cb49			; Error: Syntax Error
+
 d7ed cd83d8    call    $d883
 d7f0 e5        push    hl
 d7f1 c5        push    bc
 d7f2 3a9fb0    ld      a,($b09f)
-d7f5 cd27d6    call    $d627
+d7f5 cd27d6    call    $d627            ;Is the array already dimmed? Go look for it
 d7f8 cd40d7    call    $d740
-d7fb da85d6    jp      c,$d685
+d7fb da85d6    jp      c,$d685          ;if so, error
+
 d7fe c1        pop     bc
 d7ff 3eff      ld      a,$ff
-d801 cdb3d8    call    $d8b3
+d801 cdb3d8    call    $d8b3            ;and create it
 d804 e1        pop     hl
 d805 c9        ret     
 
-;;=prob get var or array address
+;;=convert var or array offset into address
 ;allocates space for array if needed
-;;DE=offset into var table??
+;Entry: DE=offset into variables or arrays tables, unless:
+;Carry set if the address has stored in the code, and DE = offset of element
+;Exit: DE=absolute address of var/FN/array element data
 d806 f5        push    af
-d807 7e        ld      a,(hl)
+d807 7e        ld      a,(hl)           ;token after variable name/type
 d808 fe28      cp      $28              ;'('
 d80a 2810      jr      z,$d81c          ; (+$10)
 d80c ee5b      xor     $5b              ;'['
@@ -4715,7 +4817,7 @@ d80e 280c      jr      z,$d81c          ; (+$0c)
 d810 f1        pop     af
 d811 d0        ret     nc
 
-d812 e5        push    hl
+d812 e5        push    hl               ;variable of FN
 d813 2a68ae    ld      hl,($ae68)
 d816 2b        dec     hl
 d817 19        add     hl,de
@@ -4724,62 +4826,65 @@ d819 e1        pop     hl
 d81a 37        scf     
 d81b c9        ret     
 
-;;=prob get array element address
+;;=get array element address
 ;allocates space for array if needed
-d81c cd83d8    call    $d883
+d81c cd83d8    call    $d883            ;push array dimensions onto execution stack;count in B
 d81f f1        pop     af
 d820 e5        push    hl
-d821 3007      jr      nc,$d82a         ; (+$07)
-d823 2a6aae    ld      hl,($ae6a)
+d821 3007      jr      nc,$d82a         ; (+$07) 
+d823 2a6aae    ld      hl,($ae6a)       ;address stored in code (which means it's a constant value??)
 d826 2b        dec     hl
-d827 19        add     hl,de
+d827 19        add     hl,de            ;get absolute address
 d828 1815      jr      $d83f            ; (+$15)
 
 d82a c5        push    bc
 d82b d5        push    de
 d82c 3a9fb0    ld      a,($b09f)
-d82f cd27d6    call    $d627
+d82f cd27d6    call    $d627            ;try and find the array
 d832 cd40d7    call    $d740
-d835 300f      jr      nc,$d846         ; (+$0f)
+d835 300f      jr      nc,$d846         ; (+$0f) not found - create it
 d837 13        inc     de
 d838 13        inc     de
 d839 e1        pop     hl
 d83a cd9ed7    call    $d79e
 d83d c1        pop     bc
 d83e eb        ex      de,hl
-d83f 78        ld      a,b
-d840 96        sub     (hl)
+d83f 78        ld      a,b              ;number of dimensions
+d840 96        sub     (hl)             ;compare with stored value
 d841 c281d6    jp      nz,$d681
 d844 180a      jr      $d850            ; (+$0a)
 
-d846 e1        pop     hl
+d846 e1        pop     hl               ;create array
 d847 c1        pop     bc
 d848 af        xor     a
 d849 cdb3d8    call    $d8b3
 d84c cd9ed7    call    $d79e
 d84f eb        ex      de,hl
-d850 110000    ld      de,$0000
-d853 46        ld      b,(hl)
-d854 23        inc     hl
-d855 e5        push    hl
+
+d850 110000    ld      de,$0000         ;we now have the address of the array ##LIT##
+d853 46        ld      b,(hl)           ;get number of dimensions
+
+d854 23        inc     hl               ;point to size of first dimension
+d855 e5        push    hl               ;read size of dimension
 d856 d5        push    de
 d857 5e        ld      e,(hl)
 d858 23        inc     hl
 d859 56        ld      d,(hl)
-d85a cd27d9    call    $d927
-d85d cdd8ff    call    $ffd8 ; HL=DE?
-d860 d281d6    jp      nc,$d681
+d85a cd27d9    call    $d927            ;pop index into dimension
+d85d cdd8ff    call    $ffd8            ; HL=DE? validate
+d860 d281d6    jp      nc,$d681         ;index * size of dimension?
 d863 e3        ex      (sp),hl
 d864 cd72dd    call    $dd72
 d867 d1        pop     de
-d868 19        add     hl,de
+d868 19        add     hl,de            ;add to offset -> new offset
 d869 eb        ex      de,hl
 d86a e1        pop     hl
 d86b 23        inc     hl
 d86c 23        inc     hl
-d86d 10e6      djnz    $d855            ; (-$1a)
+d86d 10e6      djnz    $d855            ; (-$1a) loop for more dimensions
+
 d86f eb        ex      de,hl
-d870 44        ld      b,h
+d870 44        ld      b,h              ;Multiply index by element size
 d871 4d        ld      c,l
 d872 3a9fb0    ld      a,($b09f)
 d875 d603      sub     $03
@@ -4795,34 +4900,41 @@ d881 37        scf
 d882 c9        ret     
 
 ;;=read array dimensions
+;reads array dimensions and pushes them onto the execution stack
+;B returns the number of dimensions
 d883 d5        push    de
 d884 cd2cde    call    $de2c			; get next token skipping space
 d887 3a9fb0    ld      a,($b09f)
+
 d88a f5        push    af
-d88b 0600      ld      b,$00
-d88d cdcece    call    $cece
+d88b 0600      ld      b,$00            ;B=number of dimensions
+d88d cdcece    call    $cece            ;Read value
 d890 e5        push    hl
-d891 3e02      ld      a,$02
+d891 3e02      ld      a,$02            ;push value onto the execution stack
 d893 cd72f6    call    $f672
 d896 73        ld      (hl),e
 d897 23        inc     hl
 d898 72        ld      (hl),d
 d899 e1        pop     hl
-d89a 04        inc     b
-d89b cd41de    call    $de41
-d89e 38ed      jr      c,$d88d          ; (-$13)
-d8a0 7e        ld      a,(hl)
+
+d89a 04        inc     b                ;inc dimension counter
+d89b cd41de    call    $de41            ;any more?
+d89e 38ed      jr      c,$d88d          ; (-$13) if so, loop
+d8a0 7e        ld      a,(hl)           ;finish list with brackets of either type
 d8a1 fe29      cp      $29              ;')'
 d8a3 2805      jr      z,$d8aa          ; (+$05)
 d8a5 fe5d      cp      $5d              ;']'
-d8a7 c249cb    jp      nz,$cb49			; Error: Syntax Error
+d8a7 c249cb    jp      nz,$cb49			; otherwise, Error: Syntax Error
+
 d8aa cd2cde    call    $de2c			; get next token skipping space
 d8ad f1        pop     af
 d8ae 329fb0    ld      ($b09f),a
 d8b1 d1        pop     de
 d8b2 c9        ret     
 
-;;=prob create and alloc space for array
+;;=create and alloc space for array
+;B=number of dimensions
+;Sizes of each dimension are pushed on the execution stack
 d8b3 e5        push    hl
 d8b4 320dae    ld      ($ae0d),a
 d8b7 c5        push    bc
@@ -4833,9 +4945,9 @@ d8bc cda8d7    call    $d7a8
 d8bf f5        push    af
 d8c0 2a6cae    ld      hl,($ae6c)
 d8c3 eb        ex      de,hl
-d8c4 cdb8f6    call    $f6b8
+d8c4 cdb8f6    call    $f6b8            ;Move data up out of the way
 d8c7 f1        pop     af
-d8c8 cdb8d7    call    $d7b8
+d8c8 cdb8d7    call    $d7b8            ;Copy/store array name and type
 d8cb 60        ld      h,b
 d8cc 69        ld      l,c
 d8cd c1        pop     bc
@@ -4845,40 +4957,46 @@ d8d0 23        inc     hl
 d8d1 3a9fb0    ld      a,($b09f)
 d8d4 5f        ld      e,a
 d8d5 1600      ld      d,$00
-d8d7 70        ld      (hl),b
+
+d8d7 70        ld      (hl),b           ;number of dimensions (and loop counter)
 d8d8 e5        push    hl
 d8d9 23        inc     hl
-d8da d5        push    de
+
+d8da d5        push    de               ;Loop for each dimension
 d8db 3a0dae    ld      a,($ae0d)
 d8de b7        or      a
 d8df 110a00    ld      de,$000a
 d8e2 eb        ex      de,hl
-d8e3 c427d9    call    nz,$d927
+d8e3 c427d9    call    nz,$d927         ;pop size of this dimension
 d8e6 eb        ex      de,hl
 d8e7 13        inc     de
-d8e8 73        ld      (hl),e
+d8e8 73        ld      (hl),e           ;store dimension size
 d8e9 23        inc     hl
 d8ea 72        ld      (hl),d
 d8eb 23        inc     hl
 d8ec e3        ex      (sp),hl
-d8ed cd72dd    call    $dd72
+d8ed cd72dd    call    $dd72            ;size of this dimension?
 d8f0 da81d6    jp      c,$d681
+
 d8f3 eb        ex      de,hl
 d8f4 e1        pop     hl
-d8f5 10e3      djnz    $d8da            ; (-$1d)
-d8f7 42        ld      b,d
+d8f5 10e3      djnz    $d8da            ; (-$1d) loop for more dimensions
+
+d8f7 42        ld      b,d              ;Restore the following memory
 d8f8 4b        ld      c,e
 d8f9 54        ld      d,h
 d8fa 5d        ld      e,l
 d8fb cdbbf6    call    $f6bb
 d8fe 226cae    ld      ($ae6c),hl
-d901 c5        push    bc
+
+d901 c5        push    bc               ;Clear BC bytes of memory - cleanup? zero allocated space?
 d902 2b        dec     hl
 d903 3600      ld      (hl),$00
 d905 0b        dec     bc
 d906 78        ld      a,b
 d907 b1        or      c
 d908 20f8      jr      nz,$d902         ; (-$08)
+
 d90a c1        pop     bc
 d90b e1        pop     hl
 d90c 5e        ld      e,(hl)
@@ -4890,19 +5008,21 @@ d911 09        add     hl,bc
 d912 eb        ex      de,hl
 d913 2b        dec     hl
 d914 2b        dec     hl
-d915 73        ld      (hl),e
+d915 73        ld      (hl),e           ;store pointer to next item in list?
 d916 23        inc     hl
 d917 72        ld      (hl),d
 d918 23        inc     hl
 d919 e3        ex      (sp),hl
 d91a eb        ex      de,hl
+
 d91b 3a9fb0    ld      a,($b09f)
-d91e cd27d6    call    $d627
-d921 cdd0d7    call    $d7d0
+d91e cd27d6    call    $d627           
+d921 cdd0d7    call    $d7d0            ;and update list header?
 d924 d1        pop     de
 d925 e1        pop     hl
 d926 c9        ret     
 
+;;=pop word off execution stack
 d927 3e02      ld      a,$02
 d929 cd62f6    call    $f662
 d92c 7e        ld      a,(hl)
@@ -4912,9 +5032,16 @@ d92f 6f        ld      l,a
 d930 c9        ret     
 
 ;;=================================
-;;get offset into var table
-;;returns value in DE
-d931 cdafd9    call    $d9af
+;;parse var type and name
+;if the offset is set within the variables token data, returns it in DE and skips over the name,
+;otherwise copies the variables name onto the execution stack and sets (&ae0e) to point to the first char,
+;and returns the first letter in uppercase in C
+;Carry set if we're returning the offset.
+;Entry: HL=pointer to variable definition, token data
+;Exit:DE=value (offset)
+;C=first letter of name converted to upper case
+;Carry set if offset found
+d931 cdafd9    call    $d9af            ;Set accumulator to match variable token type
 d934 23        inc     hl
 d935 5e        ld      e,(hl)           ;read var offset into DE
 d936 23        inc     hl
@@ -4922,23 +5049,27 @@ d937 56        ld      d,(hl)
 d938 7a        ld      a,d
 d939 b3        or      e
 d93a 280a      jr      z,$d946          ; (+$0a) if offset is zero we need to find offset
+
 d93c 23        inc     hl               ;skip over var name (ends with bit 7 set)
 d93d 7e        ld      a,(hl)
 d93e 17        rla     
 d93f 30fb      jr      nc,$d93c         ; (-$05)
+
 d941 cd2cde    call    $de2c			; get next token skipping space
 d944 37        scf     
 d945 c9        ret     
 
-;;=prob parse var name and find
+;;=copy var name onto exec stack
+;;Parse variable name onto execution stack, set (AE0E) as a poiner to it
+;Exit: C=first letter of name converted to uppercase
 d946 2b        dec     hl
-d947 2b        dec     hl
+d947 2b        dec     hl               ;HL now ponts to variable type token
 d948 eb        ex      de,hl
 d949 c1        pop     bc
-d94a 2a0eae    ld      hl,($ae0e)
+d94a 2a0eae    ld      hl,($ae0e)       ;Old top of execution stack?
 d94d e5        push    hl
-d94e 215ed9    ld      hl,$d95e
-d951 e5        push    hl
+d94e 215ed9    ld      hl,$d95e         ;##LABEL##
+d951 e5        push    hl               ;!!!Push code address onto stack - not sure where this comes out!!!
 d952 c5        push    bc
 d953 eb        ex      de,hl
 d954 e5        push    hl
@@ -4956,61 +5087,73 @@ d967 220eae    ld      ($ae0e),hl
 d96a e1        pop     hl
 d96b c9        ret     
 
-;;=prob copy var name onto execution stack
-d96c e5        push    hl
-d96d 7e        ld      a,(hl)
+;;=======================================
+;;=copy var name onto execution stack
+;Entry: DE=address of a variable type token
+;Exit: C=first letter of name converted to uppercase
+d96c e5        push    hl               
+d96d 7e        ld      a,(hl)           ;Get var type
 d96e 23        inc     hl
 d96f 23        inc     hl
-d970 23        inc     hl
-d971 4e        ld      c,(hl)
-d972 cba9      res     5,c
+d970 23        inc     hl               ;HL=pointer to var name
+d971 4e        ld      c,(hl)           ;First char of name
+d972 cba9      res     5,c              ;To upper case
 d974 e3        ex      (sp),hl
-d975 fe0b      cp      $0b
-d977 3817      jr      c,$d990          ; (+$17)
-d979 79        ld      a,c
+d975 fe0b      cp      $0b              
+d977 3817      jr      c,$d990          ; (+$17) variable type is known
+
+;establish the variables type ... and poke that into the variables token data
+d979 79        ld      a,c              ;Get index into DEFtype table...
 d97a e61f      and     $1f
-d97c c6f2      add     a,$f2
+d97c c6f2      add     a,$f2            ;...which starts at ADF3
 d97e 5f        ld      e,a
 d97f cead      adc     a,$ad
 d981 93        sub     e
 d982 57        ld      d,a
-d983 1a        ld      a,(de)
+d983 1a        ld      a,(de)           ;Type from DEFtype table
 d984 329fb0    ld      ($b09f),a
-d987 360d      ld      (hl),$0d
-d989 fe05      cp      $05
+d987 360d      ld      (hl),$0d         ;Set the vars type as real/unspecified
+d989 fe05      cp      $05              ;Real?
 d98b 2803      jr      z,$d990          ; (+$03)
-d98d c609      add     a,$09
+
+d98d c609      add     a,$09            ;Set the variables type (as no suffix defined)
 d98f 77        ld      (hl),a
+
+;;=do the name copying
 d990 d1        pop     de
-d991 3e28      ld      a,$28
+d991 3e28      ld      a,$28            ;Max name length??
 d993 cd72f6    call    $f672
 d996 e5        push    hl
 d997 0629      ld      b,$29
+
 d999 05        dec     b
-d99a ca49cb    jp      z,$cb49			; Error: Syntax Error
-d99d 1a        ld      a,(de)
+d99a ca49cb    jp      z,$cb49			; Error: Syntax Error (name too long)
+
+d99d 1a        ld      a,(de)           ;Copy char
 d99e 13        inc     de
-d99f e6df      and     $df
+d99f e6df      and     $df              ;Convert to upper case
 d9a1 77        ld      (hl),a
 d9a2 23        inc     hl
-d9a3 17        rla     
-d9a4 30f3      jr      nc,$d999         ; (-$0d)
-d9a6 cd6ef6    call    $f66e
+d9a3 17        rla                      ;Bit 7 set? (Last char)
+d9a4 30f3      jr      nc,$d999         ; (-$0d) Loop for next char
+
+d9a6 cd6ef6    call    $f66e            ;Push onto execution stack
 d9a9 eb        ex      de,hl
 d9aa 2b        dec     hl
 d9ab d1        pop     de
 d9ac c32cde    jp      $de2c			; get next token skipping space
 
+;;==============================================
 ;;=set accum type from variable type atHL
-;variable data types = 2/3/4 if have suffix, $b/$c/$d if no suffix
+;variable data type tokens = 2/3/4 if have suffix, $b/$c/$d if no suffix
 d9af 7e        ld      a,(hl)
 d9b0 fe0b      cp      $0b              ;No suffix
 d9b2 3802      jr      c,$d9b6          ; (+$02)
 d9b4 c6f7      add     a,$f7            ;Subtract 9
-d9b6 fe04      cp      $04              ;REAL type
+d9b6 fe04      cp      $04              ;REAL type token
 d9b8 2809      jr      z,$d9c3          ; (+$09)
 d9ba 3004      jr      nc,$d9c0         ; (+$04)
-d9bc fe02      cp      $02              ;INT type
+d9bc fe02      cp      $02              ;INT type token
 d9be 3005      jr      nc,$d9c5         ; (+$05)
 
 ;;=raise Syntax Error
@@ -5022,31 +5165,39 @@ d9c3 3e05      ld      a,$05
 d9c5 329fb0    ld      ($b09f),a
 d9c8 c9        ret     
 
-;=============
+;;=========================================
+;;=update array list heads
+;iterate over all arrays and update the list heads (there's one for each data type 2,3,5)
+;works by:
+;reset heads to nil
+;works from start to arrays area
+;for each array, update list head for that type
+;until end of arrays area
+;so, each list head will now point to the last array for it's type
 d9c9 cd02d6    call    $d602
-d9cc 2a6cae    ld      hl,($ae6c)
+d9cc 2a6cae    ld      hl,($ae6c)       ;get bounds of arrays area
 d9cf eb        ex      de,hl
 d9d0 2a6aae    ld      hl,($ae6a)
 d9d3 cdd8ff    call    $ffd8 ; HL=DE?
-d9d6 c8        ret     z
+d9d6 c8        ret     z                ;end once we go beyond end of arrays area
 
-d9d7 d5        push    de
-d9d8 cd65d7    call    $d765
-d9db 7e        ld      a,(hl)
+d9d7 d5        push    de               ;DE = start of arrays area
+d9d8 cd65d7    call    $d765            ;skip over array name...
+d9db 7e        ld      a,(hl)           ;...to get to type
 d9dc 23        inc     hl
 d9dd e607      and     $07
 d9df 3c        inc     a
-d9e0 e5        push    hl
-d9e1 cd27d6    call    $d627
-d9e4 cdd0d7    call    $d7d0
-d9e7 e1        pop     hl
-d9e8 5e        ld      e,(hl)
+d9e0 e5        push    hl               ;HL=start of current item
+d9e1 cd27d6    call    $d627            ;get list head ptr for item type
+d9e4 cdd0d7    call    $d7d0            ;update head ptr to current item
+d9e7 e1        pop     hl               ;back to start of item
+d9e8 5e        ld      e,(hl)           ;read offset ptr to next item
 d9e9 23        inc     hl
 d9ea 56        ld      d,(hl)
 d9eb 23        inc     hl
-d9ec 19        add     hl,de
-d9ed d1        pop     de
-d9ee 18e3      jr      $d9d3            ; (-$1d)
+d9ec 19        add     hl,de            ;add offset to start of arrays area
+d9ed d1        pop     de               ;retrieve start of arrays area
+d9ee 18e3      jr      $d9d3            ; (-$1d) next
 
 ;;========================================================================
 ;; command ERASE
@@ -5054,84 +5205,90 @@ d9ee 18e3      jr      $d9d3            ; (-$1d)
 d9f0 cd4dea    call    $ea4d
 d9f3 cdfcd9    call    $d9fc
 d9f6 cd41de    call    $de41
-d9f9 38f8      jr      c,$d9f3          ; (-$08)
+d9f9 38f8      jr      c,$d9f3          ; (-$08) loop if more parameters
 d9fb c9        ret     
 
-d9fc cd31d9    call    $d931
+;;=do ERASE parameter
+d9fc cd31d9    call    $d931            ;find the array
 d9ff e5        push    hl
 da00 3a9fb0    ld      a,($b09f)
 da03 cd27d6    call    $d627
 da06 cd40d7    call    $d740
-da09 d24dcb    jp      nc,$cb4d			; Error: Improper Argument
+da09 d24dcb    jp      nc,$cb4d			; Error: Improper Argument (array not dimmed)
+
 da0c eb        ex      de,hl
-da0d 4e        ld      c,(hl)
+da0d 4e        ld      c,(hl)           ;offset to next item
 da0e 23        inc     hl
 da0f 46        ld      b,(hl)
 da10 23        inc     hl
-da11 09        add     hl,bc
+da11 09        add     hl,bc            ;calc size of item
 da12 cde4ff    call    $ffe4			; BC = HL-DE
-da15 cde5f6    call    $f6e5
+da15 cde5f6    call    $f6e5            ;move other items to fill gap
 da18 cd21f6    call    $f621
-da1b cdc9d9    call    $d9c9
+da1b cdc9d9    call    $d9c9            ;rebuild list pointers??
 da1e e1        pop     hl
 da1f c9        ret     
 
-;;=clear AE12 AE10 words
+;;============================
+;;=clear FN params data
 da20 210000    ld      hl,$0000         ;##LIT##
 da23 2212ae    ld      ($ae12),hl
 da26 2210ae    ld      ($ae10),hl
 da29 c9        ret     
 
-;;=prob push FN data on execution stack
+;;=push FN header on execution stack
+;DE=address of the DEF FN for this FN
 da2a e5        push    hl
 da2b 2a10ae    ld      hl,($ae10)
 da2e eb        ex      de,hl
 da2f 3e06      ld      a,$06
 da31 cd72f6    call    $f672
 da34 2210ae    ld      ($ae10),hl
-da37 73        ld      (hl),e
+da37 73        ld      (hl),e       ;store address of DEF FN
 da38 23        inc     hl
 da39 72        ld      (hl),d
 da3a 23        inc     hl
 da3b af        xor     a
-da3c 77        ld      (hl),a
+da3c 77        ld      (hl),a       ;store zero
 da3d 23        inc     hl
-da3e 77        ld      (hl),a
+da3e 77        ld      (hl),a       ;store zero
 da3f 23        inc     hl
 da40 ed5b12ae  ld      de,($ae12)
-da44 73        ld      (hl),e
+da44 73        ld      (hl),e       ;store end of FN params
 da45 23        inc     hl
 da46 72        ld      (hl),d
 da47 e1        pop     hl
 da48 c9        ret     
 
-;;=copy ae10 word to ae12
-da49 e5        push    hl
+;;=copy FN param start to FN param end
+da49 e5        push    hl           ;Called after pushing all params on exec stack
 da4a 2a10ae    ld      hl,($ae10)
 da4d 2212ae    ld      ($ae12),hl
 da50 e1        pop     hl
 da51 c9        ret     
 
-;;=prob remove FN data from stack
-da52 2a10ae    ld      hl,($ae10)
+;;=remove FN data from stack
+da52 2a10ae    ld      hl,($ae10)       ;free our data off the exec stack
 da55 cd6ef6    call    $f66e
-da58 5e        ld      e,(hl)
+da58 5e        ld      e,(hl)           ;read and restore previous param_start
 da59 23        inc     hl
 da5a 56        ld      d,(hl)
 da5b 23        inc     hl
 da5c ed5310ae  ld      ($ae10),de
-da60 23        inc     hl
+da60 23        inc     hl               ;step over list header
 da61 23        inc     hl
-da62 5e        ld      e,(hl)
+da62 5e        ld      e,(hl)           ;read and restore prev param_end
 da63 23        inc     hl
 da64 56        ld      d,(hl)
 da65 eb        ex      de,hl
 da66 2212ae    ld      ($ae12),hl
 da69 c9        ret     
 
-;;=prob alloc an FN parameter on execution stack
+;;=push FN parameter on execution stack
+;An FN parameter uses the same data structures a regular variable. I.e a linked list
+;this allocates space, copies the name and type, and updates the relevant list pointers
 da6a e5        push    hl
-da6b 3e02      ld      a,$02
+da6b 3e02      ld      a,$02            ;alloc space for link to next item
 da6d cd72f6    call    $f672
 da70 e3        ex      (sp),hl
 da71 cdafd9    call    $d9af
@@ -5141,112 +5298,125 @@ da78 eb        ex      de,hl
 da79 2a10ae    ld      hl,($ae10)
 da7c 23        inc     hl
 da7d 23        inc     hl
-da7e 010000    ld      bc,$0000
+da7e 010000    ld      bc,$0000         ;##LIT##
 da81 cdd0d7    call    $d7d0
-da84 3a9fb0    ld      a,($b09f)
+da84 3a9fb0    ld      a,($b09f)        ;variable type (and byte-size)
 da87 47        ld      b,a
-da88 3c        inc     a
-da89 cd72f6    call    $f672
+da88 3c        inc     a                ;add a byte for data type descriptor
+da89 cd72f6    call    $f672            ;alloc space for variable type and data
 da8c 78        ld      a,b
 da8d 3d        dec     a
-da8e 77        ld      (hl),a
+da8e 77        ld      (hl),a           ;store the data type
 da8f 23        inc     hl
 da90 eb        ex      de,hl
 da91 e1        pop     hl
 da92 c9        ret     
 
-;;takes a code address in DE
-da93 2a10ae    ld      hl,($ae10)
+;;=iterate all string variables
+;iterates through all string variables and calls the code in DE for each one.
+da93 2a10ae    ld      hl,($ae10)       ;start with any FNs, if present
+
+;;=FN stack loop
 da96 7c        ld      a,h
 da97 b5        or      l
-da98 280e      jr      z,$daa8          ; (+$0e)
-da9a 4e        ld      c,(hl)
+da98 280e      jr      z,$daa8          ; (+$0e) no/end of/ FNs, do main variables
+da9a 4e        ld      c,(hl)           ;pointer to next FN data block on stack
 da9b 23        inc     hl
 da9c 46        ld      b,(hl)
 da9d 23        inc     hl
 da9e c5        push    bc
-da9f 010000    ld      bc,$0000
+da9f 010000    ld      bc,$0000         ;FN pointers are relative to start of memory ##LIT##
 daa2 cde9da    call    $dae9
 daa5 e1        pop     hl
 daa6 18ee      jr      $da96            ; (-$12)
 
-daa8 01411a    ld      bc,$1a41
+;;=iterate all main variables
+daa8 01411a    ld      bc,$1a41         ;B=number of linked lists. C=index of first one ('A')
+;;=var linked list headers loop
 daab c5        push    bc
-daac 79        ld      a,c
-daad cd19d6    call    $d619
+daac 79        ld      a,c              ;list index
+daad cd19d6    call    $d619            ;get list header (and base for offsets)
 dab0 cde9da    call    $dae9
 dab3 c1        pop     bc
-dab4 0c        inc     c
-dab5 10f4      djnz    $daab            ; (-$0c)
-dab7 3e03      ld      a,$03
-dab9 cd27d6    call    $d627
+dab4 0c        inc     c                ;next index
+dab5 10f4      djnz    $daab            ; (-$0c) loop
+
+                                        ;now do array linked lists
+dab7 3e03      ld      a,$03            ;string type
+dab9 cd27d6    call    $d627            ;get list header for string arrays (and base for offsets)
 dabc e5        push    hl
-dabd e1        pop     hl
-dabe 4e        ld      c,(hl)
+
+;;=array linked list loop
+dabd e1        pop     hl               ;walk each item in the linked list
+dabe 4e        ld      c,(hl)           ;get offset for first/next item
 dabf 23        inc     hl
 dac0 46        ld      b,(hl)
 dac1 78        ld      a,b
 dac2 b1        or      c
-dac3 c8        ret     z
+dac3 c8        ret     z                ;end of list
 
 dac4 2a6aae    ld      hl,($ae6a)
 dac7 2b        dec     hl
-dac8 09        add     hl,bc
+dac8 09        add     hl,bc            ;absolute address of item
 dac9 e5        push    hl
 daca d5        push    de
-dacb cd65d7    call    $d765
+dacb cd65d7    call    $d765            ;step over array name and type
 dace d1        pop     de
 dacf 23        inc     hl
-dad0 4e        ld      c,(hl)
+dad0 4e        ld      c,(hl)           
 dad1 23        inc     hl
-dad2 46        ld      b,(hl)
+dad2 46        ld      b,(hl)           ;BC=size of array data?
 dad3 23        inc     hl
-dad4 e5        push    hl
-dad5 09        add     hl,bc
-dad6 e3        ex      (sp),hl
-dad7 4e        ld      c,(hl)
+dad4 e5        push    hl               ;current
+dad5 09        add     hl,bc            ;array end
+dad6 e3        ex      (sp),hl          ;stack=array end/HL=current
+dad7 4e        ld      c,(hl)           ;C=number of dimensions
 dad8 23        inc     hl
-dad9 0600      ld      b,$00
-dadb 09        add     hl,bc
-dadc 09        add     hl,bc
-dadd c1        pop     bc
+dad9 0600      ld      b,$00            ;BC=number of dimensions
+dadb 09        add     hl,bc            ;step over dimensions data
+dadc 09        add     hl,bc            ;HL=first element of array
+dadd c1        pop     bc               ;BC=end of elements data
+
+;;=array elements loop
 dade cddeff    call    $ffde ; HL=BC?
-dae1 28da      jr      z,$dabd          ; (-$26)
+dae1 28da      jr      z,$dabd          ; (-$26) next item in list
 dae3 cd02db    call    $db02
 dae6 23        inc     hl
 dae7 18f5      jr      $dade            ; (-$0b)
 
-dae9 7e        ld      a,(hl)
+;;=iterate all strings in a linked list
+dae9 7e        ld      a,(hl)           ;offset of next item
 daea 23        inc     hl
 daeb 66        ld      h,(hl)
 daec 6f        ld      l,a
 daed b4        or      h
-daee c8        ret     z
+daee c8        ret     z                ;end of list
 
-daef 09        add     hl,bc
+daef 09        add     hl,bc            ;add base to offset
 daf0 e5        push    hl
 daf1 d5        push    de
-daf2 cd65d7    call    $d765
+daf2 cd65d7    call    $d765            ;step over variable name
 daf5 d1        pop     de
-daf6 7e        ld      a,(hl)
+daf6 7e        ld      a,(hl)           ;type??
 daf7 23        inc     hl
 daf8 e607      and     $07
-dafa fe02      cp      $02
-dafc cc02db    call    z,$db02
+dafa fe02      cp      $02              ;type must be 2??? that's int, not strings!!
+dafc cc02db    call    z,$db02          ;do callback
 daff e1        pop     hl
-db00 18e7      jr      $dae9            ; (-$19)
+db00 18e7      jr      $dae9            ; (-$19) loop
 
+;;=read string data and call callback
 db02 c5        push    bc
 db03 d5        push    de
-db04 7e        ld      a,(hl)
+db04 7e        ld      a,(hl)           ;length
 db05 23        inc     hl
-db06 4e        ld      c,(hl)
+db06 4e        ld      c,(hl)           ;address
 db07 23        inc     hl
 db08 46        ld      b,(hl)
 db09 e5        push    hl
 db0a eb        ex      de,hl
 db0b b7        or      a
-db0c c4fbff    call    nz,$fffb			; JP (HL)
+db0c c4fbff    call    nz,$fffb			; JP (HL) - dispatch callback
 db0f e1        pop     hl
 db10 d1        pop     de
 db11 c1        pop     bc
@@ -5255,19 +5425,18 @@ db12 c9        ret
 
 
 
-
 ;;***DataInput.asm
 ;;<< (TEXT) DATA INPUT
 ;;< (LINE) INPUT, RESTORE, READ (not DATA)
 ;;========================================================================
-;; command LINE
+;; command LINE INPUT
 
 db13 cd25de    call    $de25
-db16 defb $a3    ;inline token to test "ERL"
+db16 defb $a3    ;inline token to test "INPUT"
 db17 cdd4c1    call    $c1d4
 db1a cd8bdb    call    $db8b
 db1d cdbfd6    call    $d6bf
-db20 cd5eff    call    $ff5e
+db20 cd5eff    call    $ff5e        ;can only read strings
 db23 e5        push    hl
 db24 d5        push    de
 db25 cd31db    call    $db31
@@ -5277,12 +5446,14 @@ db2c cda8d6    call    $d6a8
 db2f e1        pop     hl
 db30 c9        ret     
 
+;;=input to buffer
 db31 cdc4c1    call    $c1c4
-db34 d257dc    jp      nc,$dc57
-db37 cdecca    call    $caec
+db34 d257dc    jp      nc,$dc57     ;file stream? read from file
+;;=input screen to buffer
+db37 cdecca    call    $caec        ;read line to BASIC input buffer
 db3a 3a14ae    ld      a,($ae14)
-db3d fe3b      cp      $3b
-db3f c498c3    call    nz,$c398      ;; new text line
+db3d fe3b      cp      $3b          ;';'
+db3f c498c3    call    nz,$c398      ;new line unless followed by semicolon?
 db42 c9        ret     
 
 ;;========================================================================
@@ -5302,52 +5473,57 @@ db57 38f1      jr      c,$db4a          ; (-$0f)
 db59 d1        pop     de
 db5a c9        ret     
 
+;;=input get input
 db5b cdc4c1    call    $c1c4
-db5e 302b      jr      nc,$db8b         ; (+$2b)
+db5e 302b      jr      nc,$db8b         ; (+$2b) if file
+
 db60 e5        push    hl
-db61 cd8bdb    call    $db8b
+db61 cd8bdb    call    $db8b            ;show prompt
 db64 e5        push    hl
-db65 cd37db    call    $db37
+db65 cd37db    call    $db37            ;input to buffer
 db68 eb        ex      de,hl
 db69 e1        pop     hl
-db6a cdcddb    call    $dbcd
+db6a cdcddb    call    $dbcd            ;parse input buffer
 db6d c1        pop     bc
-db6e d8        ret     c
+db6e d8        ret     c                ;return if valid input
 
 db6f c5        push    bc
 db70 2179db    ld      hl,$db79			;; "?Redo from start" message
 db73 cd8bc3    call    $c38b			;; display 0 terminated string
 db76 e1        pop     hl
-db77 18e7      jr      $db60            ; (-$19)
+db77 18e7      jr      $db60            ; (-$19) retry
 
 ;;=redo from start message
 db79 defb "?Redo from start",10,0
 
+;;=input display prompt, if given
 db8b 7e        ld      a,(hl)
-db8c fe3b      cp      $3b
+db8c fe3b      cp      $3b              ;';'
 db8e 3214ae    ld      ($ae14),a
 db91 cc2cde    call    z,$de2c			; get next token skipping space
-db94 fe22      cp      $22              ;'"'
+db94 fe22      cp      $22              ;'"' - prompt string
 db96 200b      jr      nz,$dba3         ; (+$0b)
 db98 cdb1db    call    $dbb1
 db9b cd41de    call    $de41
-db9e d8        ret     c
+db9e d8        ret     c                ;if comma then no '? ' after
 
 db9f cd25de    call    $de25
 dba2 defb $3b     ;inline token to test ";"
 dba3 cdc4c1    call    $c1c4
-dba6 d0        ret     nc
+dba6 d0        ret     nc               ;exit if not reading from screen
 
-dba7 3e3f      ld      a,$3f
+dba7 3e3f      ld      a,$3f            ;'?'
 dba9 cda0c3    call    $c3a0           ;; display text char
-dbac 3e20      ld      a,$20
+dbac 3e20      ld      a,$20            ;space char
 dbae c3a0c3    jp      $c3a0           ;; display text char
 
+;;=input display prompt
 dbb1 cd79f8    call    $f879
 dbb4 cdc4c1    call    $c1c4
 dbb7 d2f5fb    jp      nc,$fbf5
 dbba c3d0f8    jp      $f8d0
 
+;;=input parse item or error
 dbbd d5        push    de
 dbbe cdf7db    call    $dbf7
 dbc1 3006      jr      nc,$dbc9         ; (+$06)
@@ -5356,9 +5532,12 @@ dbc4 cd9fd6    call    $d69f
 dbc7 e1        pop     hl
 dbc8 c9        ret     
 
+;;=raise Type Mismatch error
 dbc9 cd45cb    call    $cb45
 dbcc defb $0d                         ;Inline error code: Type mismatch
 
+;;=input parse buffer
+;returns Carry true if the input was valid/matched variable list etc.
 dbcd d5        push    de
 dbce e5        push    hl
 dbcf d5        push    de
@@ -5366,29 +5545,30 @@ dbd0 cd0fd7    call    $d70f
 dbd3 e3        ex      (sp),hl
 dbd4 af        xor     a
 dbd5 cdf7db    call    $dbf7
-dbd8 3019      jr      nc,$dbf3         ; (+$19)
-dbda fe03      cp      $03
+dbd8 3019      jr      nc,$dbf3         ; (+$19) end of buffer? failed
+dbda fe03      cp      $03              ;string
 dbdc ccf5fb    call    z,$fbf5
 dbdf e3        ex      (sp),hl
 dbe0 cd41de    call    $de41
 dbe3 e3        ex      (sp),hl
-dbe4 7e        ld      a,(hl)
-dbe5 3008      jr      nc,$dbef         ; (+$08)
-dbe7 ee2c      xor     $2c
-dbe9 2008      jr      nz,$dbf3         ; (+$08)
+dbe4 7e        ld      a,(hl)           ;next token
+dbe5 3008      jr      nc,$dbef         ; (+$08) end of variable list?
+dbe7 ee2c      xor     $2c              ;','
+dbe9 2008      jr      nz,$dbf3         ; (+$08) no more entries in variable list?
 dbeb 23        inc     hl
 dbec e3        ex      (sp),hl
 dbed 18e1      jr      $dbd0            ; (-$1f)
 
-dbef b7        or      a
+dbef b7        or      a                ;A=next token. If zero we have end of line = success
 dbf0 2001      jr      nz,$dbf3         ; (+$01)
-dbf2 37        scf     
+dbf2 37        scf                      ;success!!
 dbf3 e1        pop     hl
 dbf4 e1        pop     hl
 dbf5 d1        pop     de
 dbf6 c9        ret     
 
-dbf7 5f        ld      e,a
+;;=input parse item
+dbf7 5f        ld      e,a              ;what variable type to we have?
 dbf8 cd66ff    call    $ff66
 dbfb f5        push    af
 dbfc 2006      jr      nz,$dc04         ; (+$06)
@@ -5396,33 +5576,46 @@ dbfe cd15dc    call    $dc15
 dc01 37        scf     
 dc02 1809      jr      $dc0d            ; (+$09)
 
+;;=input parse number
 dc04 cdc4c1    call    $c1c4
 dc07 d42cdc    call    nc,$dc2c
 dc0a cd6fed    call    $ed6f
 dc0d f5        push    af
+
+;;=input parse item done
 dc0e dc4dde    call    c,$de4d ; skip space, lf or tab
 dc11 f1        pop     af
 dc12 d1        pop     de
 dc13 7a        ld      a,d
 dc14 c9        ret     
 
+;;=input parse string
+;inputs quoted string (keyboard) or ASCIIZ string (not keyboard)
 dc15 cdc4c1    call    $c1c4
 dc18 3806      jr      c,$dc20          ; (+$06)
 dc1a cd38dc    call    $dc38
 dc1d c38af8    jp      $f88a
 
+;;=input parse quoted string
 dc20 cd4dde    call    $de4d ; skip space, lf or tab
 dc23 fe22      cp      $22              ;'"'
 dc25 ca79f8    jp      z,$f879
 dc28 7b        ld      a,e
 dc29 c394f8    jp      $f894
 
+;;=====================================
+;INPUT from a file
+;;=input from file ignore leading whitespace
 dc2c cd8edc    call    $dc8e
 dc2f 11b5dc    ld      de,$dcb5         ;##LABEL##
 dc32 382b      jr      c,$dc5f          ; (+$2b)
+
+;;=raise EOF met error
 dc34 cd45cb    call    $cb45
 dc37 defb $18                         ;Inline error code: EOF met
 
+;;=input item from file
+;reads item terminated by comma or LF, or quoted string
 dc38 cd8edc  call $dc8e
 dc3b 30f7    jr nc,$dc34   ;Manually calculated!!! Object code should be 31f7
 dc3d fe22      cp      $22              ;'"'
@@ -5430,6 +5623,7 @@ dc3f 2805      jr      z,$dc46          ; (+$05)
 dc41 11b9dc    ld      de,$dcb9         ;##LABEL##
 dc44 1819      jr      $dc5f            ; (+$19)
 
+;;=input quoted string from file
 dc46 cd99dc    call    $dc99
 dc49 1154dc    ld      de,$dc54         ;##LABEL##
 dc4c 3811      jr      c,$dc5f          ; (+$11)
@@ -5437,31 +5631,36 @@ dc4e 218aac    ld      hl,$ac8a
 dc51 3600      ld      (hl),$00
 dc53 c9        ret     
 
+;;=is A double quotes
 dc54 fe22      cp      $22              ;"'
 dc56 c9        ret     
 
+;;=input line from file
 dc57 cd99dc    call    $dc99
 dc5a 30d8      jr      nc,$dc34         ; (-$28)
-dc5c 11bcdc    ld      de,$dcbc         ;##LABEL##
+dc5c 11bcdc    ld      de,$dcbc         ;end of input test routine ##LABEL##
 
+;;=input from file
 ;;this code takes an address to call in DE
+;this routine is called with a character in A and returns Z flag set if it's a terminating character
 dc5f 218aac    ld      hl,$ac8a
 dc62 e5        push    hl
-dc63 06ff      ld      b,$ff
-dc65 cdfeff    call    $fffe			; JP (DE)
+dc63 06ff      ld      b,$ff            ;max line length
+dc65 cdfeff    call    $fffe			; JP (DE) - test for termination char
 dc68 280c      jr      z,$dc76          ; (+$0c)
 dc6a 77        ld      (hl),a
 dc6b 23        inc     hl
 dc6c 05        dec     b
 dc6d 2805      jr      z,$dc74          ; (+$05)
-dc6f cd99dc    call    $dc99
-dc72 38f1      jr      c,$dc65          ; (-$0f)
+dc6f cd99dc    call    $dc99            ;read next char
+dc72 38f1      jr      c,$dc65          ; (-$0f)    loop for more chars
+
 dc74 f6ff      or      $ff
 dc76 3600      ld      (hl),$00
 dc78 e1        pop     hl
 dc79 c0        ret     nz
 
-dc7a fe0d      cp      $0d
+dc7a fe0d      cp      $0d              ;CR
 dc7c c8        ret     z
 
 dc7d fe22      cp      $22             ;'"'
@@ -5475,6 +5674,7 @@ dc87 cdb9dc    call    $dcb9
 dc8a c486bc    call    nz,$bc86			; firmware function: CAS RETURN
 dc8d c9        ret     
 
+;;=input char from file, ignore whitespace
 dc8e cd99dc    call    $dc99
 dc91 d0        ret     nc
 
@@ -5483,38 +5683,42 @@ dc95 28f7      jr      z,$dc8e          ; (-$09)
 dc97 37        scf     
 dc98 c9        ret     
 
+;;=input char from file
+;turns CR+LF and LF+CR into single char (returns the first of the pair)
 dc99 cd5cc4    call    $c45c ; read byte from cassette or disc
 dc9c d0        ret     nc
 
 dc9d f5        push    af
 dc9e c5        push    bc
-dc9f 010d0a    ld      bc,$0a0d
-dca2 b9        cp      c
+dc9f 010d0a    ld      bc,$0a0d         ;LF CR
+dca2 b9        cp      c                ;CR? test for CR LF
 dca3 2804      jr      z,$dca9          ; (+$04)
-dca5 b8        cp      b
+dca5 b8        cp      b                ;not LF? - return as is
 dca6 200a      jr      nz,$dcb2         ; (+$0a)
-dca8 41        ld      b,c
+dca8 41        ld      b,c              
 dca9 cd5cc4    call    $c45c ; read byte from cassette or disc
 dcac 3004      jr      nc,$dcb2         ; (+$04)
-dcae b8        cp      b
+dcae b8        cp      b                ;CR followed by LF or LF followed by CR? if not, put the second char back
 dcaf c486bc    call    nz,$bc86			;; firmware function: cas return
 dcb2 c1        pop     bc
-dcb3 f1        pop     af
+dcb3 f1        pop     af               ;get back the original char we read
 dcb4 c9        ret     
 
 ;;========================================================================
-;; read comma seperated data??
+;; is A space tab cr comma lf
 dcb5 cdbfdc    call    $dcbf
 dcb8 c8        ret     z
 
+;;=is A comma lf
 dcb9 fe2c      cp      $2c		;; ,
 dcbb c8        ret     z
 
+;;=is A lf
 dcbc fe0d      cp      $0d		;; lf
 dcbe c9        ret     
 
 ;;========================================================================
-
+;;is A space tab cr
 dcbf fe20      cp      $20		;; space
 dcc1 c8        ret     z
 
@@ -5535,56 +5739,60 @@ dcd2 1831      jr      $dd05            ; (+$31)
 
 ;;=reset READ pointer
 dcd4 e5        push    hl
-dcd5 2a64ae    ld      hl,($ae64)
+dcd5 2a64ae    ld      hl,($ae64)       ;first line
 dcd8 182b      jr      $dd05            ; (+$2b)
 
 ;;========================================================================
 ;; command READ
 dcda e5        push    hl
 dcdb 2a17ae    ld      hl,($ae17)
+;;=READ item loop
 dcde cd0add    call    $dd0a
 dce1 e3        ex      (sp),hl
 dce2 cdbfd6    call    $d6bf
 dce5 e3        ex      (sp),hl
 dce6 23        inc     hl
 dce7 3e01      ld      a,$01
-dce9 cdbddb    call    $dbbd
-dcec 7e        ld      a,(hl)
+dce9 cdbddb    call    $dbbd            ;read data
+dcec 7e        ld      a,(hl)           ;next token
 dced fe02      cp      $02
-dcef 380d      jr      c,$dcfe          ; (+$0d)
+dcef 380d      jr      c,$dcfe          ; (+$0d) end of line/statement
 dcf1 fe2c      cp      $2c              ;','
-dcf3 2809      jr      z,$dcfe          ; (+$09)
-dcf5 2a15ae    ld      hl,($ae15)
+dcf3 2809      jr      z,$dcfe          ; (+$09) comma
+dcf5 2a15ae    ld      hl,($ae15)       ;anything else is error
 dcf8 cdadde    call    $dead
 dcfb c349cb    jp      $cb49			; Error: Syntax Error
 
 dcfe e3        ex      (sp),hl
-dcff cd41de    call    $de41
+dcff cd41de    call    $de41            ;another value to read?
 dd02 e3        ex      (sp),hl
-dd03 38d9      jr      c,$dcde          ; (-$27)
+dd03 38d9      jr      c,$dcde          ; (-$27) if so, loop
+;;=set READ pointer
 dd05 2217ae    ld      ($ae17),hl
 dd08 e1        pop     hl
 dd09 c9        ret     
 
+;;=update READ pointer
+;move to comma before next data item, if not currently at one
 dd0a 7e        ld      a,(hl)
 dd0b fe2c      cp      $2c              ;','
 dd0d c8        ret     z
 
 dd0e cda3e9    call    $e9a3			;; DATA
 dd11 b7        or      a
-dd12 200e      jr      nz,$dd22         ; (+$0e)
+dd12 200e      jr      nz,$dd22         ; (+$0e) not end of line
 dd14 23        inc     hl
-dd15 7e        ld      a,(hl)
+dd15 7e        ld      a,(hl)           ;test for last line
 dd16 23        inc     hl
 dd17 b6        or      (hl)
 dd18 23        inc     hl
 dd19 3e04      ld      a,$04            ;DATA exhausted error
 dd1b ca55cb    jp      z,$cb55
-dd1e 2215ae    ld      ($ae15),hl
+dd1e 2215ae    ld      ($ae15),hl       ;update line address
 dd21 23        inc     hl
 dd22 cd2cde    call    $de2c			; get next token skipping space
-dd25 fe8c      cp      $8c
-dd27 20e5      jr      nz,$dd0e         ; (-$1b)
+dd25 fe8c      cp      $8c              ;DATA token
+dd27 20e5      jr      nz,$dd0e         ; (-$1b) loop if not DATA token
 dd29 c9        ret     
 
 
@@ -5854,7 +6062,7 @@ de1d 3e29      ld      a,$29			; ')'
 de1f 1808      jr      $de29            
 
 ;;+----------------------------------------------------------
-;; next token if $ef token for equals sign
+;; next token if equals sign
 de21 3eef      ld      a,$ef            ;token for '='
 de23 1804      jr      $de29            
 
@@ -5894,6 +6102,7 @@ de3a d8        ret     c
 de3b 186a      jr      $dea7            ; (+$6a)
 
 ;;=is next $02
+;Carry set if EOLN or end of statement
 de3d 7e        ld      a,(hl)
 de3e fe02      cp      $02
 de40 c9        ret     
@@ -5923,14 +6132,14 @@ de5c c9        ret
 
 
 
-
 ;;=======================================================================
 ;; execute tokenised line
 de5d 2a1bae    ld      hl,($ae1b)
 
 ;;=execute line atHL
+;HL points to first token, NOT line number
 de60 221bae    ld      ($ae1b),hl     ;HL=current execution address
-de63 cd21b9    call    $b921
+de63 cd21b9    call    $b921            ;handle pending events
 de66 dcb2c8    call    c,$c8b2
 de69 cd2cde    call    $de2c			; get next token skipping space
 de6c c48fde    call    nz,$de8f         ;end of buffer?
@@ -5962,9 +6171,13 @@ de8c c349cc    jp      $cc49
 
 ;;============================================
 ;;execute command token
+;A=token
+;Tokens >= &80 are tokenised words
+;the only token < &80 we should have here are for bar commands or variable names (implicit LET)
 de8f 87        add     a,a              
-de90 d289d6    jp      nc,$d689
-de93 fec3      cp      $c3
+de90 d289d6    jp      nc,$d689         ;token < &80: either a bar command or a variable (implicit LET)
+de93 fec3      cp $dfa4 - $dee0 - 1   ;version with formula
+;OLD de93 fec3      cp      $c3              ;the last valid token is &e1 which doubles to &c2, so >= &c3 is error
 de95 3010      jr      nc,$dea7         ; (+$10)
 de97 eb        ex      de,hl
 de98 c6e0      add     a,$dee0 and $ff  ;$e0 lookup token in table
@@ -5984,7 +6197,7 @@ dea7 c349cb    jp      $cb49			; Error: Syntax Error
 
 ;;========================================================================
 ;; zero current line address
-deaa 210000    ld      hl,$0000
+deaa 210000    ld      hl,$0000         ;##LIT##
 
 ;;=set current line address
 dead 221dae    ld      ($ae1d),hl
@@ -6001,7 +6214,7 @@ deb4 c9        ret
 ;; returns C if we HL returns a current line number
 deb5 2a1dae    ld      hl,($ae1d)  ;address of current line
 
-;;+get line number at HL
+;;+get line number atHL
 deb8 7c        ld      a,h
 deb9 b5        or      l
 deba c8        ret     z			;; no current line 
@@ -6026,7 +6239,7 @@ dec9 c9        ret
 
 ;;=============
 ;;do trace
-deca 3e5b      ld      a,"["
+deca 3e5b      ld      a,&5b            ;'['
 decc cda0c3    call    $c3a0           ;; display text char
 decf e5        push    hl
 ded0 2a1dae    ld      hl,($ae1d)      ;Current line address
@@ -6036,11 +6249,14 @@ ded5 66        ld      h,(hl)
 ded6 6f        ld      l,a
 ded7 cd44ef    call    $ef44          ;Display current line number
 deda e1        pop     hl
-dedb 3e5d      ld      a,"]"
+dedb 3e5d      ld      a,&5d            ;']'
 dedd c3a0c3    jp      $c3a0           ;; display text char
 
 ;;====================================================
 ;; command to code address LUT
+
+;you can add extra items to the end of this list, HOWEVER, there is only one unused item before
+;current last item in the table is &e1. You can add an item &e2. Items &e3 onwards are used for other keywords
 dee0
 defw $ca22		;; AFTER  ##LABEL##
 defw $c0ea		;; AUTO  ##LABEL##
@@ -6153,7 +6369,7 @@ dfa4 d5        push    de
 dfa5 ed5b62ae  ld de,($ae62)      ;input buffer address
 dfa9 d5        push    de
 dfaa cd35e0    call    $e035
-dfad 012c01    ld      bc,$012c
+dfad 012c01    ld      bc,$012c     ;max tokenised line length/buffer length
 
 dfb0 cdc8df    call    $dfc8
 dfb3 7e        ld      a,(hl)
@@ -6176,9 +6392,10 @@ dfc5 e1        pop     hl
 dfc6 d1        pop     de
 dfc7 c9        ret     
 
-dfc8 7e        ld      a,(hl)
+;;=tokenise item
+dfc8 7e        ld      a,(hl)           ;get char
 dfc9 b7        or      a
-dfca c8        ret     z
+dfca c8        ret     z                ;end of buffer
 
 dfcb cd92ff    call    $ff92			; is a alphabetical letter?
 dfce 381c      jr      c,$dfec          ; (+$1c)
@@ -6191,8 +6408,9 @@ dfdc b7        or      a
 dfdd f8        ret     m
 
 dfde fe21      cp      "!"              ;'!'
-dfe0 d25ce1    jp      nc,$e15c
-dfe3 3a00ac    ld      a,($ac00)
+dfe0 d25ce1    jp      nc,$e15c         ;anything else which is not whitespace
+
+dfe3 3a00ac    ld      a,($ac00)        ;do we store whitespace?
 dfe6 b7        or      a
 dfe7 c0        ret     nz
 
@@ -6200,31 +6418,32 @@ dfe8 3e20      ld      a," "            ;' '
 dfea 181c      jr      $e008            ; (+$1c)
 
 ;;+----------------
-;;tokenise a keyword
+;;tokenise letters
+;keywords and variables??
 dfec cd3ae0    call    $e03a
-dfef d8        ret     c
-
+dfef d8        ret     c                ;carry set if it's already been written
+                                        ;othwise it's a token >= &80
 dff0 fec5      cp      $c5              ;REM
 dff2 cac3e1    jp      z,$e1c3
 dff5 e5        push    hl
-dff6 2112e0    ld      hl,$e012
+dff6 2112e0    ld      hl,$e012         ;DATA and DEFxxxx
 dff9 cdcaff    call    $ffca			;; check if byte exists in table 
 dffc e1        pop     hl
-dffd 3818      jr      c,$e017          ; (+$18)
+dffd 3818      jr      c,$e017          ; (+$18) copy sanitised ASCII until end of statement
 dfff f5        push    af
 e000 fe97      cp      $97              ;ELSE
 e002 3e01      ld      a,$01
-e004 cc08e0    call    z,$e008
+e004 cc08e0    call    z,$e008          ;insert a New Statement token before an ELSE
 e007 f1        pop     af
 
 ;;+-----------------------------
-;; write token data to memory
-e008 12        ld      (de),a
+;; write tokenised byte to memory
+e008 12        ld      (de),a           ;write token
 e009 13        inc     de
 e00a 0b        dec     bc
 e00b 79        ld      a,c
 e00c b0        or      b
-e00d c0        ret     nz
+e00d c0        ret     nz               ;buffer full?
 
 e00e cd45cb    call    $cb45
 e011 defb $17                         ;Inline error code: Line too long
@@ -6242,6 +6461,9 @@ defb $00
 ;;+------------------------------------------
 ;; token is in tokenisation table A
 ;; copy literal data until end of statement or end of line
+;ignores chars >= &80
+;chars < &20 are converted to spaces
+;quoted strings are copied unmodified
 ;; Code is jumped to - loop until return
 
 e017 cd08e0    call    $e008
@@ -6254,24 +6476,26 @@ e01d fe3a      cp      ":"              ;':' - end of statement
 e01f 2814      jr      z,$e035          ; (+$14)
 e021 23        inc     hl
 e022 b7        or      a
-e023 fa1ae0    jp      m,$e01a
+e023 fa1ae0    jp      m,$e01a          ;ignore chars >= &80
 
 e026 fe20      cp      " "				; ' '
 e028 3002      jr      nc,$e02c         ; (+$02)
 e02a 3e20      ld      a,$20            ; convert control codes to spaces
 e02c fe22      cp      $22				; '"'
-e02e 20e7      jr      nz,$e017         ; (-$19)
+e02e 20e7      jr      nz,$e017         ; (-$19) write byte and next
 e030 cd95e1    call    $e195
-e033 18e5      jr      $e01a            ; (-$1b)
+e033 18e5      jr      $e01a            ; (-$1b) next
 
 ;;+----------------------
-;;zero ae20 called at start of statement
+;;clear tokenisation state flag
 e035 af        xor     a
 e036 3220ae    ld      ($ae20),a
 e039 c9        ret     
 
 ;;===================================================
-;; get token for keyword
+;; tokenise identifiers
+;tokens >= &80 are returned with carry set, for caller to process
+;other items are written by as, and carry returns clear
 
 e03a c5        push    bc
 e03b d5        push    de
@@ -6282,72 +6506,81 @@ e03e 23        inc     hl
 e03f cdabff    call    $ffab			;; convert character to upper case
 e042 cda8e3    call    $e3a8			;; get list of keywords beginning with this letter
 e045 cdebe3    call    $e3eb
-e048 3026      jr      nc,$e070         ;;
+e048 3026      jr      nc,$e070         ;;not found? - it's a variable!
 
 e04a 79        ld      a,c
-e04b e67f      and     $7f
+e04b e67f      and     $7f              
 e04d cd9cff    call    $ff9c
 e050 3009      jr      nc,$e05b         ; (+$09)
-e052 1a        ld      a,(de)
-e053 fee4      cp      $e4
+e052 1a        ld      a,(de)           ;get prev token
+e053 fee4      cp      $e4              ;FN token
 e055 7e        ld      a,(hl)
 e056 c49cff    call    nz,$ff9c
-e059 3815      jr      c,$e070          ; (+$15)
+e059 3815      jr      c,$e070          ; (+$15) tokenise variable name after FN
+
 e05b f1        pop     af
-e05c 1a        ld      a,(de)
-e05d b7        or      a
-e05e faafe0    jp      m,$e0af
-e061 d1        pop     de
+e05c 1a        ld      a,(de)           ;get prev token
+e05d b7        or      a                ;tokens >= &80 = statements and miscellaneous
+e05e faafe0    jp      m,$e0af          ;do tests and return the token for caller to process
+e061 d1        pop     de               ;tokens <&80 = functions
 e062 c1        pop     bc
 e063 f5        push    af
-e064 3eff      ld      a,$ff
+e064 3eff      ld      a,$ff            ;functions have a &ff prefix
 e066 cd08e0    call    $e008
 e069 f1        pop     af
-e06a cd08e0    call    $e008
+e06a cd08e0    call    $e008            ;write function token
 e06d af        xor     a
 e06e 183a      jr      $e0aa            ; (+$3a)
 
+;;=tokenise variable
 e070 e1        pop     hl
 e071 d1        pop     de
 e072 c1        pop     bc
 e073 e5        push    hl
 e074 2b        dec     hl
-e075 23        inc     hl
+
+e075 23        inc     hl               ;skip over the variable name to get to the type char
 e076 7e        ld      a,(hl)
-e077 cd9cff    call    $ff9c
+e077 cd9cff    call    $ff9c            ;I was today years old when I learnt variable names can contain periods :)
 e07a 38f9      jr      c,$e075          ; (-$07)
-e07c cdd1e0    call    $e0d1
+
+e07c cdd1e0    call    $e0d1            ;interpret the type suffix
 e07f 3804      jr      c,$e085          ; (+$04)
-e081 3e0d      ld      a,$0d
+e081 3e0d      ld      a,$0d            ;no type suffix - default to a real
 e083 1806      jr      $e08b            ; (+$06)
 
-e085 23        inc     hl
-e086 fe05      cp      $05
+e085 23        inc     hl               
+e086 fe05      cp      $05              ;massage var type from 2/3/5 (internal data type) to 2/3/4 (token data type)
 e088 2001      jr      nz,$e08b         ; (+$01)
 e08a 3d        dec     a
-e08b cd08e0    call    $e008
-e08e af        xor     a
+;;=got var type
+e08b cd08e0    call    $e008            ;write type type token
+e08e af        xor     a                ;write null link pointer (to variable data storage)
 e08f cd08e0    call    $e008
 e092 af        xor     a
 e093 cd08e0    call    $e008
 e096 e3        ex      (sp),hl
-e097 7e        ld      a,(hl)
+
+;;=tokenise variable name loop
+e097 7e        ld      a,(hl)           ;copy the variable name
 e098 cd9cff    call    $ff9c
-e09b 3007      jr      nc,$e0a4         ; (+$07)
+e09b 3007      jr      nc,$e0a4         ; (+$07) done
 e09d 7e        ld      a,(hl)
 e09e cd08e0    call    $e008
 e0a1 23        inc     hl
 e0a2 18f3      jr      $e097            ; (-$0d)
 
-e0a4 cdb5e1    call    $e1b5
+e0a4 cdb5e1    call    $e1b5            ;set bit 7 of last char of name
 e0a7 e1        pop     hl
 e0a8 3eff      ld      a,$ff
+;;=set tokenisation status flag
 e0aa 3220ae    ld      ($ae20),a
 e0ad 37        scf     
 e0ae c9        ret     
 
 ;;==================================
-;; handle keywords invalid in immediate mode
+;; test for specially encoded keywords
+;sets tokenisation state flag (ae20) to &ff if token is one of these
 e0af e5        push    hl
 e0b0 4f        ld      c,a
 e0b1 21c3e0    ld      hl,$e0c3
@@ -6363,8 +6596,8 @@ e0c1 b7        or      a
 e0c2 c9        ret     
 
 ;;================================================
-;; immediate mode only token table
-;; keywords which are only valid in immediate mode(??)
+;; specially encoded keywords
+;; keywords which need special encoding(??)
 e0c3 
 defb $c7 ;RESTORE
 defb $81 ;AUTO
@@ -6382,22 +6615,23 @@ defb $9f ;GOSUB
 defb $00
 
 ;;===========================================
-;; prob variable type suffix
+;; convert variable type suffix
 
-e0d1 fe21      cp      "!"              ;'!'
+e0d1 fe21      cp      "!"              ;'!' real
 e0d3 2807      jr      z,$e0dc          ; (+$07)
-e0d5 fe26      cp      "&"              ;'&'
+e0d5 fe26      cp      "&"              ;'&' we want < '&'
 e0d7 d0        ret     nc
 
-e0d8 fe24      cp      "$"              ;'$'
-e0da 3f        ccf     
-e0db d0        ret     nc
+e0d8 fe24      cp      "$"              ;'$' string 
+e0da 3f        ccf                      
+e0db d0        ret     nc               ;we want >= '$'
 
-e0dc de1f      sbc     a,$1f
+e0dc de1f      sbc     a,$1f            ;Use maths to massage them into 2,3,5 (int, string, real)
 e0de ee07      xor     $07
 e0e0 37        scf     
 e0e1 c9        ret     
 
+;**tk
 ;;==============================================
 ;;tokenise a number
 
@@ -6548,6 +6782,8 @@ e1ae 23        inc     hl
 e1af cd9cff    call    $ff9c
 e1b2 38f6      jr      c,$e1aa          ; (-$0a)
 e1b4 2b        dec     hl
+
+;;=set bit7 of prev byte
 e1b5 1b        dec     de
 e1b6 1a        ld      a,(de)
 e1b7 f680      or      $80
@@ -7859,22 +8095,23 @@ e975 cd2cde    call    $de2c			; get next token skipping space
 e978 04        inc     b
 e979 c9        ret     
 
+;;=skip over batched braces
 e97a 7e        ld      a,(hl)
-e97b fe5b      cp      $5b
+e97b fe5b      cp      $5b              ; '['
 e97d 2803      jr      z,$e982          ; (+$03)
-e97f fe28      cp      $28
+e97f fe28      cp      $28              ; '('
 e981 c0        ret     nz
 
 e982 0600      ld      b,$00
 e984 04        inc     b
 e985 cdfde9    call    $e9fd
-e988 fe5b      cp      $5b
+e988 fe5b      cp      $5b              ;'['
 e98a 28f8      jr      z,$e984          ; (-$08)
-e98c fe28      cp      $28
+e98c fe28      cp      $28              ;'('
 e98e 28f4      jr      z,$e984          ; (-$0c)
-e990 fe5d      cp      $5d
+e990 fe5d      cp      $5d              ;']'
 e992 280b      jr      z,$e99f          ; (+$0b)
-e994 fe29      cp      $29
+e994 fe29      cp      $29              ;')'
 e996 2807      jr      z,$e99f          ; (+$07)
 e998 fe02      cp      $02
 e99a 30e9      jr      nc,$e985         ; (-$17)
@@ -7889,6 +8126,7 @@ e9a2 c9        ret
 
 
 ;;=============================================================================
+;;skip to end of statement
 ;; command DATA
 e9a3 0601      ld      b,$01
 e9a5 1808      jr      $e9af            ; (+$08)
@@ -7902,21 +8140,20 @@ e9aa 23        inc     hl
 e9ab 18fa      jr      $e9a7            ; (-$06)
 
 ;;========================================================================
-;; command ELSE
+;; skip to end of line
+;;command ELSE
 ;We arrive at an ELSE because we've just executed the preceding THEN code.
-;We need to skip past the ELSE code and continue with the code after it
-;whilst ignoring any nested IFs in the ELSE code. This is done by storing the IF
-;nesting level in the B register.
 
-e9ad 0600      ld      b,$00            ;IF nesting level
+e9ad 0600      ld      b,$00           
+;;=skip to EOLN or token B
 e9af 2b        dec     hl
 e9b0 cdfde9    call    $e9fd
 e9b3 b7        or      a
-e9b4 c8        ret     z                ;return at end of statement
+e9b4 c8        ret     z                ;return at end of line
 
-e9b5 b8        cp      b                ;check nesting level
-e9b6 20f8      jr      nz,$e9b0         ; (-$08) non-zero: keep going
-e9b8 c9        ret                      ;otherwise (zero) exit
+e9b5 b8        cp      b                ;check for koen
+e9b6 20f8      jr      nz,$e9b0         ; (-$08) keep going if no match
+e9b8 c9        ret                    
 
 ;;=iterator - call BC for each line
 ;Iterates over every line/statement (not totally sure)
@@ -8065,11 +8302,10 @@ ea4a f1        pop     af
 ea4b 2b        dec     hl
 ea4c c9        ret     
 
-;;=prob reset links to variables data
-;poss clear goto and gosub target addresses?
+;;=reset variable types and pointers
 ;Could also be removing links to allocated strings, arrays etc.
-;Iterates over every statement and converts some tokens to %0d and 
-;zeroes out the two bytes after
+;Iterates over program and resets all variable type tokens to &0d (real)
+;and two bytes after word pointer after to &0000 (ptr to variable data)
 ea4d c5        push    bc
 ea4e d5        push    de
 ea4f e5        push    hl
@@ -8080,17 +8316,17 @@ ea57 d1        pop     de
 ea58 c1        pop     bc
 ea59 c9        ret     
 
-;;=callback for prob reset links to variables data
-;callback for poss clear goto and gosub target addresses
+;;=callback for reset variable types and pointers
 ea5a e5        push    hl
 ea5b cdfde9    call    $e9fd
 ea5e d1        pop     de
-ea5f fe02      cp      $02
+ea5f fe02      cp      $02              ;Tokens $02 ..$0d are for variables
 ea61 d8        ret     c                ;Exit at end of line or end (&00) of statement (&01)
 
 ea62 fe0e      cp      $0e
 ea64 30f4      jr      nc,$ea5a         ; (-$0c) Loop for values > &0e
-ea66 eb        ex      de,hl
+
+ea66 eb        ex      de,hl            ;So, token is a variable
 ea67 cd2cde    call    $de2c			; get next token skipping space
 ea6a fe0d      cp      $0d
 ea6c 3802      jr      c,$ea70          ; (+$02) Skip changing token for $0d and higher
@@ -9205,7 +9441,7 @@ f0db c1        pop     bc
 f0dc d1        pop     de
 f0dd c9        ret     
 
-f0de 2150ae    ld      hl,$ae50
+f0de 2150ae    ld      hl,$ae50         ;##LABEL##
 f0e1 2b        dec     hl
 f0e2 7e        ld      a,(hl)
 f0e3 fe30      cp      $30
@@ -9216,7 +9452,7 @@ f0e9 20f6      jr      nz,$f0e1         ; (-$0a)
 f0eb 2b        dec     hl
 f0ec d5        push    de
 f0ed c5        push    bc
-f0ee 114fae    ld      de,$ae4f
+f0ee 114fae    ld      de,$ae4f         ;##LABEL##
 f0f1 0600      ld      b,$00
 f0f3 cdf5ff    call    $fff5 ; copy bytes LDDR (BC = count)
 f0f6 eb        ex      de,hl
@@ -10696,15 +10932,18 @@ f8ce e1        pop     hl
 f8cf c9        ret                      ; return to string getter
 
 ;;=============================================
+;; output accumulator string
 f8d0 cdf5fb    call    $fbf5
 f8d3 c8        ret     z
 
+;;=output string atDE length B
 f8d4 1a        ld      a,(de)
 f8d5 13        inc     de
 f8d6 cdb8c3    call    $c3b8
 f8d9 10f9      djnz    $f8d4            ; (-$07)
 f8db c9        ret     
 
+;;=unknown output accumulator string
 f8dc cdf5fb    call    $fbf5
 f8df c8        ret     z
 
@@ -12014,7 +12253,7 @@ ff81 d1        pop     de
 ff82 c9        ret     
 
 ;;========================================
-;;copy accumulator to atHL
+;;copy numeric accumulator to atHL
 ff83 eb        ex      de,hl
 ff84 21a0b0    ld      hl,$b0a0
 

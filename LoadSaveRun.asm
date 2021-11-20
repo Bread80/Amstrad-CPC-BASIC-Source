@@ -113,7 +113,7 @@ _command_chain_17:                ;{{Addr=$eb24 Code Calls/jump count: 1 Data us
         call    syntax_error_if_not_02;{{eb25:cd37de}} 
         call    _function_instr_70;{{eb28:cd4dfb}} 
         call    _function_fre_6   ;{{eb2b:cd64fc}} 
-        call    _zero_6_bytes_at_aded_7;{{eb2e:cd0ed6}} 
+        call    clear_DEFFN_list_and_reset_variable_types_and_pointers;{{eb2e:cd0ed6}} 
         pop     af                ;{{eb31:f1}} 
         call    c,do_DELETE_find_last_line;{{eb32:dc1ae8}} 
         call    _command_chain_34 ;{{eb35:cd47eb}} 
@@ -451,7 +451,7 @@ save_BASIC_normal:                ;{{Addr=$ed0e Code Calls/jump count: 1 Data us
         push hl                   ;{{ed11:e5}} 
         push    bc                ;{{ed12:c5}} 
         call    convert_all_line_addresses_to_line_numbers;{{ed13:cd70e7}}  line address to line number
-        call    prob_reset_links_to_variables_data;{{ed16:cd4dea}} 
+        call    reset_variable_types_and_pointers;{{ed16:cd4dea}} 
 ;; save basic?
         ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{ed19:2a64ae}} 
         inc     hl                ;{{ed1c:23}} 

@@ -1,13 +1,12 @@
 ;;<< PROGRAM ENTRY ROUTINES
-;;========================================================================
 ;;< REPL loop, EDIT, AUTO, NEW, CLEAR (INPUT)
-
+;;========================================================================
 ;; command EDIT
-REPL_loop_EDIT_AUTO_NEW_CLEAR_INPUT:;{{Addr=$c046 Code Calls/jump count: 0 Data use count: 1}}
+command_EDIT:                     ;{{Addr=$c046 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_line_number_or_error;{{c046:cd48cf}} 
         ret     nz                ;{{c049:c0}} 
 
-_repl_loop_edit_auto_new_clear_input_2:;{{Addr=$c04a Code Calls/jump count: 1 Data use count: 0}}
+_command_edit_2:                  ;{{Addr=$c04a Code Calls/jump count: 1 Data use count: 0}}
         ld      sp,$c000          ;{{c04a:3100c0}} ##LIT##
         call    find_address_of_line_or_error;{{c04d:cd5ce8}} 
         call    detokenise_line_atHL_to_buffer;{{c050:cd54e2}} convert line to string (detokenise)
@@ -39,7 +38,7 @@ REPL_Read_Eval_Print_Loop:        ;{{Addr=$c058 Code Calls/jump count: 10 Data u
 
         call    get_resume_line_number;{{c07b:cdaacb}} 
         ex      de,hl             ;{{c07e:eb}} 
-        jr      c,_repl_loop_edit_auto_new_clear_input_2;{{c07f:38c9}}  (-$37)
+        jr      c,_command_edit_2 ;{{c07f:38c9}}  (-$37)
 
 ;;=display ready message
 display_ready_message:            ;{{Addr=$c081 Code Calls/jump count: 1 Data use count: 0}}
@@ -122,6 +121,7 @@ set_auto_mode_B:                  ;{{Addr=$c0e6 Code Calls/jump count: 1 Data us
         ld      (AUTO_active_flag_),a;{{c0e6:3201ac}} current auto mode
         ret                       ;{{c0e9:c9}} 
   
+ 
 ;;==================================================================
 ;; command AUTO
 command_AUTO:                     ;{{Addr=$c0ea Code Calls/jump count: 0 Data use count: 1}}
@@ -207,7 +207,7 @@ reset_basic:                      ;{{Addr=$c145 Code Calls/jump count: 3 Data us
         ld      (hl),a            ;{{c153:77}} 
         ldir                      ;{{c154:edb0}} 
         ld      (program_protection_flag_),a;{{c156:322cae}} 
-        call    prob_delete_program;{{c159:cdead5}} 
+        call    delete_program    ;{{c159:cdead5}} 
         call    _reset_basic_19   ;{{c15c:cd6fc1}} 
 _reset_basic_13:                  ;{{Addr=$c15f Code Calls/jump count: 1 Data use count: 0}}
         call    close_input_and_output_streams;{{c15f:cd00d3}}  close input and output streams
@@ -218,7 +218,7 @@ _reset_basic_14:                  ;{{Addr=$c162 Code Calls/jump count: 1 Data us
 
 _reset_basic_16:                  ;{{Addr=$c166 Code Calls/jump count: 1 Data use count: 0}}
         call    get_string_stack_first_free_ptr;{{c166:cdccfb}}  string catenation
-        call    clear_AE12_AE10_words;{{c169:cd20da}} 
+        call    clear_FN_params_data;{{c169:cd20da}} 
         jp      select_txt_stream_zero;{{c16c:c3a1c1}} 
 
 ;;-------------------------------------------------------------------
@@ -231,9 +231,9 @@ _reset_basic_22:                  ;{{Addr=$c178 Code Calls/jump count: 3 Data us
         push    bc                ;{{c178:c5}} 
         push    hl                ;{{c179:e5}} 
         call    empty_strings_area;{{c17a:cd8cf6}} 
-        call    prob_delete_program;{{c17d:cdead5}} 
-        call    _zero_6_bytes_at_aded_31;{{c180:cd38d6}} 
-        call    prob_reset_links_to_variables_data;{{c183:cd4dea}} 
+        call    delete_program    ;{{c17d:cdead5}} 
+        call    defreal_a_to_z    ;{{c180:cd38d6}} 
+        call    reset_variable_types_and_pointers;{{c183:cd4dea}} 
         pop     hl                ;{{c186:e1}} 
         pop     bc                ;{{c187:c1}} 
         ret                       ;{{c188:c9}} 
@@ -249,7 +249,7 @@ _reset_basic_33:                  ;{{Addr=$c18f Code Calls/jump count: 7 Data us
         call    clear_last_RUN_error_line_address;{{c192:cd7ecc}} 
         call    initialise_event_system;{{c195:cda3c9}} 
         call    prob_clear_execution_stack;{{c198:cd4ff6}} 
-        call    _zero_6_bytes_at_aded_7;{{c19b:cd0ed6}} 
+        call    clear_DEFFN_list_and_reset_variable_types_and_pointers;{{c19b:cd0ed6}} 
         jp      reset_READ_pointer;{{c19e:c3d4dc}} 
 
 

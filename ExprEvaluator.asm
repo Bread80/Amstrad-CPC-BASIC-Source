@@ -421,7 +421,7 @@ prefix_plus:                      ;{{Addr=$d036 Code Calls/jump count: 0 Data us
         jp      z,eval_functions_with_ff_prefix;{{d047:cadad0}} 
 
         push    hl                ;{{d04a:e5}} 
-        ld      hl,prefix_token_table_d059;{{d04b:2159d0}} 
+        ld      hl,prefix_token_table;{{d04b:2159d0}} 
         call    get_address_from_table;{{d04e:cdb4ff}} 
         ex      (sp),hl           ;{{d051:e3}} 
         jp      get_next_token_skipping_space;{{d052:c32cde}}  get next token skipping space
@@ -434,8 +434,8 @@ raise_missing_operand:            ;{{Addr=$d055 Code Calls/jump count: 1 Data us
         defb $16                  ; Error: Operand Missing
 
 ;;===========================================================================
-;; prefix token table d059
-prefix_token_table_d059:          ;{{Addr=$d059 Data Calls/jump count: 0 Data use count: 1}}
+;; prefix token table
+prefix_token_table:               ;{{Addr=$d059 Data Calls/jump count: 0 Data use count: 1}}
                                   
 
 ;(call this entry if token not found)
@@ -480,7 +480,7 @@ prefix_token_table_d059:          ;{{Addr=$d059 Data Calls/jump count: 0 Data us
 ;Unknown stuff probably includes DEF FNs and DIMs
 
 eval_variable_references:         ;{{Addr=$d074 Code Calls/jump count: 1 Data use count: 0}}
-        call    prob_parse_and_find_var;{{d074:cdc9d6}} 
+        call    parse_and_find_var;{{d074:cdc9d6}} 
         jr      nc,undeclared_variable;{{d077:300b}}  (+$0b) Variable not declared/no value set yet
         cp      $03               ;{{d079:fe03}} String
         jr      z,eval_string_variable_reference;{{d07b:280f}}  (+$0f)

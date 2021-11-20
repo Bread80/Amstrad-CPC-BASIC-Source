@@ -18,7 +18,7 @@ poss_clear_program_area:          ;{{Addr=$e761 Code Calls/jump count: 1 Data us
 ;;=convert all line addresses to line numbers
 ;Scoots over every line to convert the line numbers to line addresses
 convert_all_line_addresses_to_line_numbers:;{{Addr=$e770 Code Calls/jump count: 4 Data use count: 0}}
-        ld      a,(poss_line_address_vs_line_number_flag_);{{e770:3a21ae}} 
+        ld      a,(line_address_vs_line_number_flag);{{e770:3a21ae}} 
         or      a                 ;{{e773:b7}} 
         ret     z                 ;{{e774:c8}} Abort if we already have line numbers
 
@@ -32,7 +32,7 @@ convert_all_line_addresses_to_line_numbers:;{{Addr=$e770 Code Calls/jump count: 
         pop     bc                ;{{e780:c1}} 
 _convert_all_line_addresses_to_line_numbers_11:;{{Addr=$e781 Code Calls/jump count: 1 Data use count: 0}}
         xor     a                 ;{{e781:af}} 
-        ld      (poss_line_address_vs_line_number_flag_),a;{{e782:3221ae}} Set flag
+        ld      (line_address_vs_line_number_flag),a;{{e782:3221ae}} Set flag
         ret                       ;{{e785:c9}} 
 
 ;;=================================================
@@ -180,7 +180,7 @@ eval_and_convert_line_number_to_line_address:;{{Addr=$e827 Code Calls/jump count
         pop     hl                ;{{e83d:e1}} If target line after current then scan to next line and scan from there?
         push    hl                ;{{e83e:e5}} 
         inc     hl                ;{{e83f:23}} 
-        call    command_ELSE      ;{{e840:cdade9}} ; ELSE - scans to next statement ignoring nested IFs??
+        call    skip_to_end_of_line;{{e840:cdade9}} ; ELSE - scans to next statement ignoring nested IFs??
         inc     hl                ;{{e843:23}} 
         call    find_address_of_line_from_current;{{e844:cd68e8}} 
 
@@ -194,7 +194,7 @@ _eval_and_convert_line_number_to_line_address_18:;{{Addr=$e847 Code Calls/jump c
 
                                   ;write line address and suitable token
         ld      a,$1d             ;{{e84f:3e1d}}  16-bit line address pointer
-        ld      (poss_line_address_vs_line_number_flag_),a;{{e851:3221ae}} 
+        ld      (line_address_vs_line_number_flag),a;{{e851:3221ae}} 
         ld      (hl),a            ;{{e854:77}} 
         inc     hl                ;{{e855:23}} 
         ld      (hl),e            ;{{e856:73}} 
@@ -412,7 +412,7 @@ convert_line_numbers_to_line_addresses_callback:;{{Addr=$e920 Code Calls/jump co
         ld      a,$1d             ;{{e93b:3e1d}}  16 bit line address pointer
         ld      (hl),a            ;{{e93d:77}} 
 
-        ld      (poss_line_address_vs_line_number_flag_),a;{{e93e:3221ae}} 
+        ld      (line_address_vs_line_number_flag),a;{{e93e:3221ae}} 
 
 _convert_line_numbers_to_line_addresses_callback_22:;{{Addr=$e941 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{e941:e1}} 
@@ -466,33 +466,34 @@ _skip_to_else_statement_4:        ;{{Addr=$e962 Code Calls/jump count: 1 Data us
         inc     b                 ;{{e978:04}} 
         ret                       ;{{e979:c9}} 
 
-_skip_to_else_statement_17:       ;{{Addr=$e97a Code Calls/jump count: 1 Data use count: 0}}
+;;=skip over batched braces
+skip_over_batched_braces:         ;{{Addr=$e97a Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(hl)            ;{{e97a:7e}} 
-        cp      $5b               ;{{e97b:fe5b}} 
-        jr      z,_skip_to_else_statement_22;{{e97d:2803}}  (+$03)
-        cp      $28               ;{{e97f:fe28}} 
+        cp      $5b               ;{{e97b:fe5b}}  '['
+        jr      z,_skip_over_batched_braces_5;{{e97d:2803}}  (+$03)
+        cp      $28               ;{{e97f:fe28}}  '('
         ret     nz                ;{{e981:c0}} 
 
-_skip_to_else_statement_22:       ;{{Addr=$e982 Code Calls/jump count: 1 Data use count: 0}}
+_skip_over_batched_braces_5:      ;{{Addr=$e982 Code Calls/jump count: 1 Data use count: 0}}
         ld      b,$00             ;{{e982:0600}} 
-_skip_to_else_statement_23:       ;{{Addr=$e984 Code Calls/jump count: 2 Data use count: 0}}
+_skip_over_batched_braces_6:      ;{{Addr=$e984 Code Calls/jump count: 2 Data use count: 0}}
         inc     b                 ;{{e984:04}} 
-_skip_to_else_statement_24:       ;{{Addr=$e985 Code Calls/jump count: 2 Data use count: 0}}
+_skip_over_batched_braces_7:      ;{{Addr=$e985 Code Calls/jump count: 2 Data use count: 0}}
         call    skip_next_tokenised_item;{{e985:cdfde9}} 
-        cp      $5b               ;{{e988:fe5b}} 
-        jr      z,_skip_to_else_statement_23;{{e98a:28f8}}  (-$08)
-        cp      $28               ;{{e98c:fe28}} 
-        jr      z,_skip_to_else_statement_23;{{e98e:28f4}}  (-$0c)
-        cp      $5d               ;{{e990:fe5d}} 
-        jr      z,_skip_to_else_statement_36;{{e992:280b}}  (+$0b)
-        cp      $29               ;{{e994:fe29}} 
-        jr      z,_skip_to_else_statement_36;{{e996:2807}}  (+$07)
+        cp      $5b               ;{{e988:fe5b}} '['
+        jr      z,_skip_over_batched_braces_6;{{e98a:28f8}}  (-$08)
+        cp      $28               ;{{e98c:fe28}} '('
+        jr      z,_skip_over_batched_braces_6;{{e98e:28f4}}  (-$0c)
+        cp      $5d               ;{{e990:fe5d}} ']'
+        jr      z,_skip_over_batched_braces_19;{{e992:280b}}  (+$0b)
+        cp      $29               ;{{e994:fe29}} ')'
+        jr      z,_skip_over_batched_braces_19;{{e996:2807}}  (+$07)
         cp      $02               ;{{e998:fe02}} 
-        jr      nc,_skip_to_else_statement_24;{{e99a:30e9}}  (-$17)
+        jr      nc,_skip_over_batched_braces_7;{{e99a:30e9}}  (-$17)
         jp      Error_Syntax_Error;{{e99c:c349cb}}  Error: Syntax Error
 
-_skip_to_else_statement_36:       ;{{Addr=$e99f Code Calls/jump count: 2 Data use count: 0}}
-        djnz    _skip_to_else_statement_24;{{e99f:10e4}}  (-$1c)
+_skip_over_batched_braces_19:     ;{{Addr=$e99f Code Calls/jump count: 2 Data use count: 0}}
+        djnz    _skip_over_batched_braces_7;{{e99f:10e4}}  (-$1c)
         inc     hl                ;{{e9a1:23}} 
         ret                       ;{{e9a2:c9}} 
 
@@ -501,10 +502,11 @@ _skip_to_else_statement_36:       ;{{Addr=$e99f Code Calls/jump count: 2 Data us
 
 
 ;;=============================================================================
+;;skip to end of statement
 ;; command DATA
-command_DATA:                     ;{{Addr=$e9a3 Code Calls/jump count: 4 Data use count: 1}}
+skip_to_end_of_statement:         ;{{Addr=$e9a3 Code Calls/jump count: 4 Data use count: 1}}
         ld      b,$01             ;{{e9a3:0601}} 
-        jr      _command_else_1   ;{{e9a5:1808}}  (+$08)
+        jr      skip_to_EOLN_or_token_B;{{e9a5:1808}}  (+$08)
 
 ;;========================================================================
 ;; command ' or REM
@@ -516,24 +518,23 @@ command__or_REM:                  ;{{Addr=$e9a7 Code Calls/jump count: 2 Data us
         jr      command__or_REM   ;{{e9ab:18fa}}  (-$06)
 
 ;;========================================================================
-;; command ELSE
+;; skip to end of line
+;;command ELSE
 ;We arrive at an ELSE because we've just executed the preceding THEN code.
-;We need to skip past the ELSE code and continue with the code after it
-;whilst ignoring any nested IFs in the ELSE code. This is done by storing the IF
-;nesting level in the B register.
 
-command_ELSE:                     ;{{Addr=$e9ad Code Calls/jump count: 1 Data use count: 1}}
-        ld      b,$00             ;{{e9ad:0600}} IF nesting level
-_command_else_1:                  ;{{Addr=$e9af Code Calls/jump count: 1 Data use count: 0}}
+skip_to_end_of_line:              ;{{Addr=$e9ad Code Calls/jump count: 1 Data use count: 1}}
+        ld      b,$00             ;{{e9ad:0600}} 
+;;=skip to EOLN or token B
+skip_to_EOLN_or_token_B:          ;{{Addr=$e9af Code Calls/jump count: 1 Data use count: 0}}
         dec     hl                ;{{e9af:2b}} 
-_command_else_2:                  ;{{Addr=$e9b0 Code Calls/jump count: 1 Data use count: 0}}
+_skip_to_eoln_or_token_b_1:       ;{{Addr=$e9b0 Code Calls/jump count: 1 Data use count: 0}}
         call    skip_next_tokenised_item;{{e9b0:cdfde9}} 
         or      a                 ;{{e9b3:b7}} 
-        ret     z                 ;{{e9b4:c8}} return at end of statement
+        ret     z                 ;{{e9b4:c8}} return at end of line
 
-        cp      b                 ;{{e9b5:b8}} check nesting level
-        jr      nz,_command_else_2;{{e9b6:20f8}}  (-$08) non-zero: keep going
-        ret                       ;{{e9b8:c9}} otherwise (zero) exit
+        cp      b                 ;{{e9b5:b8}} check for koen
+        jr      nz,_skip_to_eoln_or_token_b_1;{{e9b6:20f8}}  (-$08) keep going if no match
+        ret                       ;{{e9b8:c9}} 
 
 ;;=iterator - call BC for each line
 ;Iterates over every line/statement (not totally sure)
@@ -697,46 +698,45 @@ skip_over_comment:                ;{{Addr=$ea45 Code Calls/jump count: 2 Data us
         dec     hl                ;{{ea4b:2b}} 
         ret                       ;{{ea4c:c9}} 
 
-;;=prob reset links to variables data
-;poss clear goto and gosub target addresses?
+;;=reset variable types and pointers
 ;Could also be removing links to allocated strings, arrays etc.
-;Iterates over every statement and converts some tokens to %0d and 
-;zeroes out the two bytes after
-prob_reset_links_to_variables_data:;{{Addr=$ea4d Code Calls/jump count: 4 Data use count: 0}}
+;Iterates over program and resets all variable type tokens to &0d (real)
+;and two bytes after word pointer after to &0000 (ptr to variable data)
+reset_variable_types_and_pointers:;{{Addr=$ea4d Code Calls/jump count: 4 Data use count: 0}}
         push    bc                ;{{ea4d:c5}} 
         push    de                ;{{ea4e:d5}} 
         push    hl                ;{{ea4f:e5}} 
-        ld      bc,callback_for_prob_reset_links_to_variables_data;{{ea50:015aea}} ##LABEL##
+        ld      bc,callback_for_reset_variable_types_and_pointers;{{ea50:015aea}} ##LABEL##
         call    iterator__call_BC_for_each_line;{{ea53:cdb9e9}} 
         pop     hl                ;{{ea56:e1}} 
         pop     de                ;{{ea57:d1}} 
         pop     bc                ;{{ea58:c1}} 
         ret                       ;{{ea59:c9}} 
 
-;;=callback for prob reset links to variables data
-;callback for poss clear goto and gosub target addresses
-callback_for_prob_reset_links_to_variables_data:;{{Addr=$ea5a Code Calls/jump count: 2 Data use count: 1}}
+;;=callback for reset variable types and pointers
+callback_for_reset_variable_types_and_pointers:;{{Addr=$ea5a Code Calls/jump count: 2 Data use count: 1}}
         push    hl                ;{{ea5a:e5}} 
         call    skip_next_tokenised_item;{{ea5b:cdfde9}} 
         pop     de                ;{{ea5e:d1}} 
-        cp      $02               ;{{ea5f:fe02}} 
+        cp      $02               ;{{ea5f:fe02}} Tokens $02 ..$0d are for variables
         ret     c                 ;{{ea61:d8}} Exit at end of line or end (&00) of statement (&01)
 
         cp      $0e               ;{{ea62:fe0e}} 
-        jr      nc,callback_for_prob_reset_links_to_variables_data;{{ea64:30f4}}  (-$0c) Loop for values > &0e
-        ex      de,hl             ;{{ea66:eb}} 
+        jr      nc,callback_for_reset_variable_types_and_pointers;{{ea64:30f4}}  (-$0c) Loop for values > &0e
+
+        ex      de,hl             ;{{ea66:eb}} So, token is a variable
         call    get_next_token_skipping_space;{{ea67:cd2cde}}  get next token skipping space
         cp      $0d               ;{{ea6a:fe0d}} 
-        jr      c,_callback_for_prob_reset_links_to_variables_data_12;{{ea6c:3802}}  (+$02) Skip changing token for $0d and higher
+        jr      c,_callback_for_reset_variable_types_and_pointers_12;{{ea6c:3802}}  (+$02) Skip changing token for $0d and higher
         ld      (hl),$0d          ;{{ea6e:360d}} So we change tokens $02..$0c to $0d??
-_callback_for_prob_reset_links_to_variables_data_12:;{{Addr=$ea70 Code Calls/jump count: 1 Data use count: 0}}
+_callback_for_reset_variable_types_and_pointers_12:;{{Addr=$ea70 Code Calls/jump count: 1 Data use count: 0}}
         inc     hl                ;{{ea70:23}} 
         xor     a                 ;{{ea71:af}} Then zero the two bytes after
         ld      (hl),a            ;{{ea72:77}} 
         inc     hl                ;{{ea73:23}} 
         ld      (hl),a            ;{{ea74:77}} 
         ex      de,hl             ;{{ea75:eb}} 
-        jr      callback_for_prob_reset_links_to_variables_data;{{ea76:18e2}}  (-$1e) loop for more
+        jr      callback_for_reset_variable_types_and_pointers;{{ea76:18e2}}  (-$1e) loop for more
 
 
 

@@ -1,0 +1,77 @@
+Reverse engineering notes about the Amstrad CPC BASIC
+===
+
+Tokenisation format
+--
+Variables
+---
+See https://www.cpcwiki.eu/index.php/Technical_information_about_Locomotive_BASIC
+Notes here are for differences or additional information
+
+Variables tokenisation:
+Byte: Variable type token (see below)
+Word: Offset into variables area (linked list) where data is stored (or &0000 if not allocated yet). 
+ASCII7: Variable name string
+
+At program start/reset(?) all the variable type tokens are reset to &0d and pointers are reset to &0000
+
+Tokens &02 to &0d:
+;&02: integer variable definition with % suffix
+;&03: string variable definition with $ suffix
+;&04: real variable definition with % suffix
+;&05: ??
+;&06: ??
+;&07: ??
+;&08: ??
+;&09: ??
+;&0a: ??
+;&0b: integer variable definition (no suffix)
+;&0c: string variable definition (no suffix)
+;&0d: real variable definition (no suffix) **and default for unknown variables/value at reset
+;Unknown stuff probably includes DEF FNs and DIMs
+These are for variable type and declaration method.
+
+
+Other tokens:
+---
+$8c DATA  Data is copied until end of line or statement but: chars below &20 (space) are converted to spaces, quoted strings are copied unchanged (as raw ASCII), chars >= &80 are removed
+$8e DEFINT as DATA
+$8f DEFREAL as DATA
+$90 DEFSTR as DATA
+
+&97 ELSE this is written after a new statement token (&01)
+
+&c5 REM Followed by raw ASCII stream until end of line
+
+Variables and DEF FNs
+------
+Stored as a linked list (separate lists for each, possibly separate lists for each variable type??)
+
+Word: offset (from bottom of variables area) to next item in list (or zero if end of list)
+ASCII7: variable/FN name
+Byte: Type
+For FNs: Word: pointer to DEF FN definition
+For ints: Word: value
+For strings: Word: pointer to string data (which is byte length, followed by chars)
+For reals: 5-bytes: value
+
+Arrays
+------
+Stored as a linked list, with separate lists for each type (int, string, real)
+
+Word: offset (from bottom of arrays area) to the next item in the list (or zero if end of list)
+ASCII7: array name
+Byte: array data type (2,3,5)
+Byte: number of dimensions
+
+DEF FN and FN
+-------
+Tokenisation: ?? 
+
+
+When an FN is invoked data is stored on the execution stack as follows (if FN has no params then no data is allocated/stored):
+Word: copy of previous FN_param_start (ae10)
+Word: head of parameter linked list. I.e. the address of last param pushed onto execution stack
+Word: copy of previous FN_param_end (ae12)
+Parameters: parameters are stored as a linked list, as per the main variables area but with a single list for all variables. The list head is stored in the DEF FN data block described above.
+

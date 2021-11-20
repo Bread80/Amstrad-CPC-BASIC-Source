@@ -573,7 +573,7 @@ _symbol_after_18:                 ;{{Addr=$f808 Code Calls/jump count: 5 Data us
         ld      (RAM_b07a),hl     ;{{f821:227ab0}} 
         push    hl                ;{{f824:e5}} 
         ld      de,_symbol_after_72;{{f825:1165f8}}   ##LABEL##
-        call    _prob_alloc_an_fn_parameter_on_execution_stack_24;{{f828:cd93da}} 
+        call    iterate_all_string_variables;{{f828:cd93da}} 
         pop     bc                ;{{f82b:c1}} 
         ld      a,b               ;{{f82c:78}} 
         rlca                      ;{{f82d:07}} 
