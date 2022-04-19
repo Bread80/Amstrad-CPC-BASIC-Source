@@ -2212,6 +2212,7 @@ cae9 c32cde    jp      $de2c			; get next token skipping space
 ;;===================================
 
 ;; prob read buffer and or break
+;Called by (LINE) INPUT and RANDOMISE to get text input.
 caec cdf9ca    call    $caf9			; edit
 caef d8        ret     c
 
@@ -6133,10 +6134,10 @@ de5c c9        ret
 
 
 ;;=======================================================================
-;; execute tokenised line
+;; execute current statement
 de5d 2a1bae    ld      hl,($ae1b)
 
-;;=execute line atHL
+;;=execute statement atHL
 ;HL points to first token, NOT line number
 de60 221bae    ld      ($ae1b),hl     ;HL=current execution address
 de63 cd21b9    call    $b921            ;handle pending events
@@ -6573,7 +6574,7 @@ e0a2 18f3      jr      $e097            ; (-$0d)
 e0a4 cdb5e1    call    $e1b5            ;set bit 7 of last char of name
 e0a7 e1        pop     hl
 e0a8 3eff      ld      a,$ff
-;;=set tokenisation status flag
+;;=set tokenisation state flag
 e0aa 3220ae    ld      ($ae20),a
 e0ad 37        scf     
 e0ae c9        ret     
@@ -6724,11 +6725,11 @@ e160 fe7c      cp      "|"				; '|'
 e162 283f      jr      z,$e1a3          ; (+$3f)
 e164 c5        push    bc
 e165 d5        push    de
-e166 ee3f      xor     $3f
-e168 06bf      ld      b,$bf
+e166 ee3f      xor     $3f              ; "?" char
+e168 06bf      ld      b,$bf            ; PRINT token
 e16a 2810      jr      z,$e17c          ; (+$10)
 e16c 2b        dec     hl
-e16d 1136e7    ld      de,$e736
+e16d 1136e7    ld      de,$e736         ; Symbols (i.e maths operators, comparisons)
 e170 cdebe3    call    $e3eb
 e173 1a        ld      a,(de)
 e174 3802      jr      c,$e178          ; (+$02)
@@ -6983,11 +6984,11 @@ e2ad cd2fe3    call    $e32f
 e2b0 1e01      ld      e,$01
 e2b2 c9        ret     
 
-;;=detokenise bit7 terminated string
+;;=detokenise variable reference
 e2b3 cde6e2    call    $e2e6
 e2b6 7e        ld      a,(hl)
 e2b7 f5        push    af
-e2b8 23        inc     hl
+e2b8 23        inc     hl               ;step over variable type and data pointer
 e2b9 23        inc     hl
 e2ba 23        inc     hl
 e2bb cddbe2    call    $e2db
@@ -8350,12 +8351,13 @@ ea76 18e2      jr      $ea5a            ; (-$1e) loop for more
 
 ea78 cd3dde    call    $de3d
 ea7b ed5b64ae  ld      de,($ae64)
-ea7f 381d      jr      c,$ea9e          ; (+$1d)
+ea7f 381d      jr      c,$ea9e          ; (+$1d) No parameters
 ea81 fe1e      cp      $1e            ; 16-bit line number
 ea83 2815      jr      z,$ea9a          ; (+$15)
-ea85 fe1d      cp      $1d
+ea85 fe1d      cp      $1d             ;Line pointer
 ea87 2811      jr      z,$ea9a          ; (+$11)
-ea89 cdd1ea    call    $ead1
+
+ea89 cdd1ea    call    $ead1            ;Must be filename parameter?
 ea8c 21f1ea    ld      hl,$eaf1         ;##LABEL##
 ea8f d213bd    jp      nc,$bd13			; firmware function: mc boot program
 
@@ -8364,14 +8366,17 @@ ea95 2a64ae    ld      hl,($ae64)
 ea98 1812      jr      $eaac            ; (+$12)
 
 
+;;=RUN from line ptr
 ea9a cd27e8    call    $e827
 ea9d c0        ret     nz
+;;=RUN from line number
 ea9e d5        push    de
 ea9f cd00d3    call    $d300			; close input and output streams
 eaa2 cd78c1    call    $c178
 eaa5 cd8fc1    call    $c18f
 eaa8 cd62c1    call    $c162
 eaab e1        pop     hl
+;;=RUN from HL
 eaac e3        ex      (sp),hl
 eaad cd43bd    call    $bd43
 eab0 e1        pop     hl
@@ -10857,7 +10862,7 @@ f878 defb $07                         ;Inline error code: Memory full
 ;; get quoted string
 ;; returns with HL at end of string and B=length
 f879 23        inc     hl
-f87a cda7f8    call    $f8a7
+f87a cda7f8    call    $f8a7            ; Uses the following code as a callback (doesn't return to it)
 
 f87d 7e        ld      a,(hl)			; read character
 f87e fe22      cp      $22				; double quote
@@ -10870,7 +10875,7 @@ f888 18f3      jr      $f87d            ;
 
 ;;+---------------------------------------------------------------------------
 ;;get ASCIIZ string
-f88a cda7f8    call    $f8a7
+f88a cda7f8    call    $f8a7            ; Uses the following code as a callback (doesn't return to it)
 
 f88d 7e        ld      a,(hl)
 f88e b7        or      a
@@ -10883,7 +10888,7 @@ f892 18f9      jr      $f88d            ; (-$07)
 ;;+-------------------------------------------------------------
 ;;get string until $00, comma or value in A
 ;; returns with HL at end of string and B=length
-f894 cda7f8    call    $f8a7
+f894 cda7f8    call    $f8a7            ; Uses the following code as a callback (doesn't return to it)
 
 f897 4f        ld      c,a
 f898 7e        ld      a,(hl)
@@ -10901,7 +10906,7 @@ f8a5 18f1      jr      $f898            ; (-$0f)
 ;;get string using following code segment as subroutine
 ;;HL points to data (string)
 f8a7 229db0    ld      ($b09d),hl
-f8aa d1        pop     de
+f8aa d1        pop     de               ; Get address of callback code
 f8ab 0600      ld      b,$00            ; B = string length
 f8ad cdfeff    call    $fffe			; JP (DE) call get string subroutine
 f8b0 78        ld      a,b              ; Only the ASCIIZ variant returns here

@@ -29,7 +29,7 @@ Start of BASIC Operating System reserved area
 &AC22	&AC3C	2	routine address (in BASIC ROM)
 &AC24	&AC3E	1	ROM select number (&FD ie ROM 0 enabled, Lower ROM disabled)
 &AC25	&AC3F	1	(first byte of user field)
-&AC26	&AC40	2	address of the end of program line byte or `:' after `ON SQ(x) GOSUB line number' statement
+&AC26	&AC40	2	address of the end of program line byte or ':' after 'ON SQ(x) GOSUB line number' statement
 &AC28	&AC42	2	address of the end of program line byte of the line before the GOSUB routine
 &AC2A	&AC44	&0C	Event Block for ON SQ(2), arranged as &AC1E onwards - second ON SQ priority
 &AC36	&AC50	&0C	Event Block for ON SQ(4), arranged as &AC1E onwards - lowest ON SQ priority
@@ -54,7 +54,7 @@ Start of BASIC Operating System reserved area
 
 ====ERRORS
 &AD8C	&ADA6	2	address of line number LB in line containing error
-&AD8E	&ADA8	2	address of byte before statement containing error - ie of `:' or of HB of Line No
+&AD8E	&ADA8	2	address of byte before statement containing error - ie of ':' or of HB of Line No
 &AD90	&ADAA	1	ERR - Error No
 &AD91   		1	DERR - Disc Error No
 &AD92	&ADAB	2	last RUN error address. as &AD8E if error is in a program (ie not if in Direct Command Mode)
@@ -64,7 +64,7 @@ Start of BASIC Operating System reserved area
 
 ===SOUND
 &AD99	&ADB2	&09	Current SOUND parameter block (see Firmware Jump &BCAA)
-&AD99	&ADB2	1	channel andrendezvous status
+&AD99	&ADB2	1	channel and rendezvous status
 &AD9A	&ADB3	1	amplitude envelope (ENV) number
 &AD9B	&ADB4	1	tone envelope (ENT) number
 &AD9C	&ADB5	2	tone period
@@ -87,7 +87,7 @@ Start of BASIC Operating System reserved area
 
 ===VARIABLES
 &ADB7	&ADD0	&34 linked list headers for variables. A word entry for each letter letter
-&ADEB	&AE04	2	DEFFN linked list head
+&ADEB	&AE04	2	DEF FN linked list head
 &ADED	&AE06	2   real array linked list head
 &ADEF   &AE08   2   int array linked list head
 &ADF1   &AE0A   2   string array linked list head
@@ -142,7 +142,7 @@ Start of BASIC Operating System reserved area
 ====CALLs and RSXs
 &AE55	&AE72	2	Machine code address to CALL (used by CALL and RSX dispatcher)
 &AE57	&AE74	1	ROM select number for the above CALL/RSX ($ff if not in ROM/for CALL)
-&AE58	&AE75	2	BASIC Parser position, moved on to `: `, or the end of program line byte after a CALL or an RSX
+&AE58	&AE75	2	BASIC Parser position, moved on to ':', or the end of program line byte after a CALL or an RSX
 &AE5A	&AE77	2	saved address for SP during a CALL or an RSX
 
 ====
@@ -166,7 +166,7 @@ Start of BASIC Operating System reserved area
 &AE70	&AE8C	&1FF	execution stack. GOSUB, FOR and WHILE stack. Entries are added above any existing ones in use (mixed as encountered) at address given by &B06F and must be used up in the opposite order. Completed entries are not deleted, just overwitten by the next new entry:
 GOSUB entry:
 1	(byte of &00) (Possibly the GOSUB type - normal, event or break)
-2	address of end of program line byte or `:' after GOSUB statement (the point to RETURN to)
+2	address of end of program line byte or ':' after GOSUB statement (the point to RETURN to)
 2	address of line number HB of line containing GOSUB
 1	byte of &06, ie the length of the GOSUB entry
 FOR entry:

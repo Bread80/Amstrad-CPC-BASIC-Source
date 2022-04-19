@@ -191,10 +191,10 @@ prob_RETURN_from_break_handler:   ;{{Addr=$c961 Code Calls/jump count: 1 Data us
         add     hl,bc             ;{{c968:09}} 
         call    KL_DONE_SYNC      ;{{c969:cd01bd}}  firmware function: KL DONE SYNC
         call    arm_break_handler ;{{c96c:cd7fc4}} 
-        ld      hl,(RAM_ac18)     ;{{c96f:2a18ac}} 
+        ld      hl,(prob_cache_of_current_execution_addr_dur);{{c96f:2a18ac}} 
 _prob_return_from_break_handler_7:;{{Addr=$c972 Code Calls/jump count: 1 Data use count: 0}}
         pop     af                ;{{c972:f1}} 
-        jp      execute_line_atHL ;{{c973:c360de}} 
+        jp      execute_statement_atHL;{{c973:c360de}} 
 
 ;;========================================================================
 ;; command ON BREAK, ON BREAK CONT, ON BREAK STOP

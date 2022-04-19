@@ -137,9 +137,9 @@ detokenise_single_item:           ;{{Addr=$e266 Code Calls/jump count: 1 Data us
         cp      $02               ;{{e269:fe02}} 
         jr      c,detokenise_next_statement_tokens;{{e26b:381c}}  (+$1c)
         cp      $05               ;{{e26d:fe05}} 
-        jr      c,detokenise_bit7_terminated_string;{{e26f:3842}}  (+$42)
+        jr      c,detokenise_variable_reference;{{e26f:3842}}  (+$42)
         cp      $0e               ;{{e271:fe0e}} 
-        jr      c,detokenise_bit7_terminated_string;{{e273:383e}}  (+$3e)
+        jr      c,detokenise_variable_reference;{{e273:383e}}  (+$3e)
         cp      $20               ;{{e275:fe20}}  ' '
         jr      c,detokenise_number;{{e277:3831}}  (+$31)
         cp      $7c               ;{{e279:fe7c}}  '|'
@@ -191,12 +191,12 @@ detokenise_number:                ;{{Addr=$e2aa Code Calls/jump count: 1 Data us
         ld      e,$01             ;{{e2b0:1e01}} 
         ret                       ;{{e2b2:c9}} 
 
-;;=detokenise bit7 terminated string
-detokenise_bit7_terminated_string:;{{Addr=$e2b3 Code Calls/jump count: 2 Data use count: 0}}
+;;=detokenise variable reference
+detokenise_variable_reference:    ;{{Addr=$e2b3 Code Calls/jump count: 2 Data use count: 0}}
         call    detokenise_append_space_if_needed;{{e2b3:cde6e2}} 
         ld      a,(hl)            ;{{e2b6:7e}} 
         push    af                ;{{e2b7:f5}} 
-        inc     hl                ;{{e2b8:23}} 
+        inc     hl                ;{{e2b8:23}} step over variable type and data pointer
         inc     hl                ;{{e2b9:23}} 
         inc     hl                ;{{e2ba:23}} 
         call    detokenise_copy_bit7_terminated_string;{{e2bb:cddbe2}} 

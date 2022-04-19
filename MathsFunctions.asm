@@ -39,7 +39,7 @@ infix_power_:                     ;{{Addr=$d536 Code Calls/jump count: 0 Data us
         push    bc                ;{{d537:c5}} 
         call    function_CREAL    ;{{d538:cd14ff}} 
         ex      de,hl             ;{{d53b:eb}} 
-        ld      hl,RAM_adb2       ;{{d53c:21b2ad}} 
+        ld      hl,power_operator_parameter;{{d53c:21b2ad}} 
         call    REAL_copy_atDE_to_atHL;{{d53f:cd61bd}} 
         pop     bc                ;{{d542:c1}} 
         ex      (sp),hl           ;{{d543:e3}} 

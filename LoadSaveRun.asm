@@ -91,7 +91,7 @@ RUN_a_program_after_loading:      ;{{Addr=$eaf1 Code Calls/jump count: 0 Data us
 ;; command CHAIN
 command_CHAIN:                    ;{{Addr=$eafd Code Calls/jump count: 0 Data use count: 1}}
         xor     $ab               ;{{eafd:eeab}} 
-        ld      (RAM_ae28),a      ;{{eaff:3228ae}} 
+        ld      (unknown_CHAIN_flag_),a;{{eaff:3228ae}} 
         call    z,get_next_token_skipping_space;{{eb02:cc2cde}}  get next token skipping space
         call    read_filename_and_open_for_input;{{eb05:cd54ec}} 
         ld      de,RESET_ENTRY    ;{{eb08:110000}} 
@@ -129,7 +129,7 @@ _command_chain_17:                ;{{Addr=$eb24 Code Calls/jump count: 1 Data us
         ret                       ;{{eb46:c9}} 
 
 _command_chain_34:                ;{{Addr=$eb47 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(RAM_ae28)      ;{{eb47:3a28ae}} 
+        ld      a,(unknown_CHAIN_flag_);{{eb47:3a28ae}} 
         or      a                 ;{{eb4a:b7}} 
         jp      z,validate_and_MERGE;{{eb4b:ca62ec}} 
         call    _reset_basic_31   ;{{eb4e:cd89c1}} 

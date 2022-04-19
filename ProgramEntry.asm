@@ -96,7 +96,7 @@ tokenise_and_execute:             ;{{Addr=$c0cd Code Calls/jump count: 1 Data us
         call    tokenise_a_BASIC_line;{{c0cd:cda4df}} 
         call    ON_BREAK_STOP     ;{{c0d0:cdd3c4}}  ON BREAK STOP
         dec     hl                ;{{c0d3:2b}} 
-        jp      execute_line_atHL ;{{c0d4:c360de}} 
+        jp      execute_statement_atHL;{{c0d4:c360de}} 
 
 ;;========================================================================
 ;; ready message

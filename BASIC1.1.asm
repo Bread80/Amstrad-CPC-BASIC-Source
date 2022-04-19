@@ -177,7 +177,7 @@ tokenise_and_execute:             ;{{Addr=$c0cd Code Calls/jump count: 1 Data us
         call    tokenise_a_BASIC_line;{{c0cd:cda4df}} 
         call    ON_BREAK_STOP     ;{{c0d0:cdd3c4}}  ON BREAK STOP
         dec     hl                ;{{c0d3:2b}} 
-        jp      execute_line_atHL ;{{c0d4:c360de}} 
+        jp      execute_statement_atHL;{{c0d4:c360de}} 
 
 ;;========================================================================
 ;; ready message
@@ -2101,10 +2101,10 @@ prob_RETURN_from_break_handler:   ;{{Addr=$c961 Code Calls/jump count: 1 Data us
         add     hl,bc             ;{{c968:09}} 
         call    KL_DONE_SYNC      ;{{c969:cd01bd}}  firmware function: KL DONE SYNC
         call    arm_break_handler ;{{c96c:cd7fc4}} 
-        ld      hl,(RAM_ac18)     ;{{c96f:2a18ac}} 
+        ld      hl,(prob_cache_of_current_execution_addr_dur);{{c96f:2a18ac}} 
 _prob_return_from_break_handler_7:;{{Addr=$c972 Code Calls/jump count: 1 Data use count: 0}}
         pop     af                ;{{c972:f1}} 
-        jp      execute_line_atHL ;{{c973:c360de}} 
+        jp      execute_statement_atHL;{{c973:c360de}} 
 
 ;;========================================================================
 ;; command ON BREAK, ON BREAK CONT, ON BREAK STOP
@@ -2431,13 +2431,14 @@ _find_matching_wend_6:            ;{{Addr=$cad2 Code Calls/jump count: 2 Data us
 ;;===================================
 
 ;; prob read buffer and or break
+;Called by (LINE) INPUT and RANDOMISE to get text input.
 prob_read_buffer_and_or_break:    ;{{Addr=$caec Code Calls/jump count: 2 Data use count: 0}}
         call    input_text_to_BASIC_input_area;{{caec:cdf9ca}}  edit
         ret     c                 ;{{caef:d8}} 
 
         call    select_txt_stream_zero;{{caf0:cda1c1}} 
         ld      sp,$c000          ;{{caf3:3100c0}} ##LIT##
-        jp      execute_tokenised_line;{{caf6:c35dde}} 
+        jp      execute_current_statement;{{caf6:c35dde}} 
 
 ;;------------------------------------------------------------------------------------------
 ;;=input text to BASIC input area
@@ -2796,7 +2797,7 @@ command_CONT:                     ;{{Addr=$cc93 Code Calls/jump count: 0 Data us
         call    set_current_line_address;{{cca2:cdadde}} 
         call    SOUND_CONTINUE    ;{{cca5:cdb9bc}}  firmware function: sound continue
         pop     hl                ;{{cca8:e1}} 
-        jp      execute_line_atHL ;{{cca9:c360de}} 
+        jp      execute_statement_atHL;{{cca9:c360de}} 
 
 ;;=clear error handlers
 clear_error_handlers:             ;{{Addr=$ccac Code Calls/jump count: 1 Data use count: 0}}
@@ -2853,7 +2854,7 @@ command_RESUME:                   ;{{Addr=$ccd5 Code Calls/jump count: 0 Data us
 resume_and_execute:               ;{{Addr=$cce8 Code Calls/jump count: 1 Data use count: 0}}
         call    restore_RESUME_data_or_error;{{cce8:cdfacc}} 
         pop     af                ;{{cceb:f1}} 
-        jp      execute_line_atHL ;{{ccec:c360de}} 
+        jp      execute_statement_atHL;{{ccec:c360de}} 
 
 ;;=resume, skip statement and execute
 resume_skip_statement_and_execute:;{{Addr=$ccef Code Calls/jump count: 1 Data use count: 0}}
@@ -4189,7 +4190,7 @@ command_SOUND:                    ;{{Addr=$d313 Code Calls/jump count: 0 Data us
         ret     c                 ;{{d35a:d8}} 
 
         pop     af                ;{{d35b:f1}} 
-        jp      execute_tokenised_line;{{d35c:c35dde}} 
+        jp      execute_current_statement;{{d35c:c35dde}} 
 
 ;;=eval and validate sound parameter
 eval_and_validate_sound_parameter:;{{Addr=$d35f Code Calls/jump count: 4 Data use count: 0}}
@@ -4596,7 +4597,7 @@ infix_power_:                     ;{{Addr=$d536 Code Calls/jump count: 0 Data us
         push    bc                ;{{d537:c5}} 
         call    function_CREAL    ;{{d538:cd14ff}} 
         ex      de,hl             ;{{d53b:eb}} 
-        ld      hl,RAM_adb2       ;{{d53c:21b2ad}} 
+        ld      hl,power_operator_parameter;{{d53c:21b2ad}} 
         call    REAL_copy_atDE_to_atHL;{{d53f:cd61bd}} 
         pop     bc                ;{{d542:c1}} 
         ex      (sp),hl           ;{{d543:e3}} 
@@ -6742,15 +6743,14 @@ skip_space_tab_or_line_feed:      ;{{Addr=$de4d Code Calls/jump count: 20 Data u
 
 
 
-;**tk
 ;;=======================================================================
-;; execute tokenised line
-execute_tokenised_line:           ;{{Addr=$de5d Code Calls/jump count: 2 Data use count: 0}}
+;; execute current statement
+execute_current_statement:        ;{{Addr=$de5d Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,(address_of_byte_before_current_statement);{{de5d:2a1bae}} 
 
-;;=execute line atHL
+;;=execute statement atHL
 ;HL points to first token, NOT line number
-execute_line_atHL:                ;{{Addr=$de60 Code Calls/jump count: 7 Data use count: 0}}
+execute_statement_atHL:           ;{{Addr=$de60 Code Calls/jump count: 7 Data use count: 0}}
         ld      (address_of_byte_before_current_statement),hl;{{de60:221bae}} HL=current execution address
         call    KL_POLL_SYNCHRONOUS;{{de63:cd21b9}} handle pending events
         call    c,prob_process_pending_events;{{de66:dcb2c8}} 
@@ -6758,7 +6758,7 @@ execute_line_atHL:                ;{{Addr=$de60 Code Calls/jump count: 7 Data us
         call    nz,execute_command_token;{{de6c:c48fde}} end of buffer?
         ld      a,(hl)            ;{{de6f:7e}} 
         cp      $01               ;{{de70:fe01}} next statement on same line
-        jr      z,execute_line_atHL;{{de72:28ec}}  (-$14) Loop until end of line
+        jr      z,execute_statement_atHL;{{de72:28ec}}  (-$14) Loop until end of line
 
         jr      nc,raise_syntax_error_E;{{de74:3031}}  (+$31)
         inc     hl                ;{{de76:23}} 
@@ -6775,9 +6775,9 @@ execute_end_of_line:              ;{{Addr=$de77 Code Calls/jump count: 4 Data us
         inc     hl                ;{{de80:23}} 
         ld      a,(trace_flag)    ;{{de81:3a1fae}} trace on??
         or      a                 ;{{de84:b7}} 
-        jr      z,execute_line_atHL;{{de85:28d9}}  (-$27) if not loop - execute next line
+        jr      z,execute_statement_atHL;{{de85:28d9}}  (-$27) if not loop - execute next line
         call    do_trace          ;{{de87:cdcade}}  trace
-        jr      execute_line_atHL ;{{de8a:18d4}}  (-$2c) loop - execute next line
+        jr      execute_statement_atHL;{{de8a:18d4}}  (-$2c) loop - execute next line
 
 ;;====================================
 ;;end execution
@@ -7281,6 +7281,7 @@ _convert_variable_type_suffix_7:  ;{{Addr=$e0dc Code Calls/jump count: 1 Data us
         scf                       ;{{e0e0:37}} 
         ret                       ;{{e0e1:c9}} 
 
+;**tk
 ;;==============================================
 ;;tokenise a number
 
@@ -7615,9 +7616,9 @@ detokenise_single_item:           ;{{Addr=$e266 Code Calls/jump count: 1 Data us
         cp      $02               ;{{e269:fe02}} 
         jr      c,detokenise_next_statement_tokens;{{e26b:381c}}  (+$1c)
         cp      $05               ;{{e26d:fe05}} 
-        jr      c,detokenise_bit7_terminated_string;{{e26f:3842}}  (+$42)
+        jr      c,detokenise_variable_reference;{{e26f:3842}}  (+$42)
         cp      $0e               ;{{e271:fe0e}} 
-        jr      c,detokenise_bit7_terminated_string;{{e273:383e}}  (+$3e)
+        jr      c,detokenise_variable_reference;{{e273:383e}}  (+$3e)
         cp      $20               ;{{e275:fe20}}  ' '
         jr      c,detokenise_number;{{e277:3831}}  (+$31)
         cp      $7c               ;{{e279:fe7c}}  '|'
@@ -7669,12 +7670,12 @@ detokenise_number:                ;{{Addr=$e2aa Code Calls/jump count: 1 Data us
         ld      e,$01             ;{{e2b0:1e01}} 
         ret                       ;{{e2b2:c9}} 
 
-;;=detokenise bit7 terminated string
-detokenise_bit7_terminated_string:;{{Addr=$e2b3 Code Calls/jump count: 2 Data use count: 0}}
+;;=detokenise variable reference
+detokenise_variable_reference:    ;{{Addr=$e2b3 Code Calls/jump count: 2 Data use count: 0}}
         call    detokenise_append_space_if_needed;{{e2b3:cde6e2}} 
         ld      a,(hl)            ;{{e2b6:7e}} 
         push    af                ;{{e2b7:f5}} 
-        inc     hl                ;{{e2b8:23}} 
+        inc     hl                ;{{e2b8:23}} step over variable type and data pointer
         inc     hl                ;{{e2b9:23}} 
         inc     hl                ;{{e2ba:23}} 
         call    detokenise_copy_bit7_terminated_string;{{e2bb:cddbe2}} 
@@ -8554,20 +8555,20 @@ do_DELETE_find_first_line:        ;{{Addr=$e800 Code Calls/jump count: 2 Data us
         pop     de                ;{{e808:d1}} 
         push    hl                ;{{e809:e5}} 
         call    find_address_of_line;{{e80a:cd64e8}} 
-        ld      (RAM_ae22),hl     ;{{e80d:2222ae}} 
+        ld      (unknown_DELETE_temp_1),hl;{{e80d:2222ae}} 
         ex      de,hl             ;{{e810:eb}} 
         pop     hl                ;{{e811:e1}} 
         or      a                 ;{{e812:b7}} 
         sbc     hl,de             ;{{e813:ed52}} 
-        ld      (RAM_ae24),hl     ;{{e815:2224ae}} 
+        ld      (unknown_DELETE_temp_2),hl;{{e815:2224ae}} 
         pop     hl                ;{{e818:e1}} 
         ret                       ;{{e819:c9}} 
 
 ;;+do DELETE find last line
 do_DELETE_find_last_line:         ;{{Addr=$e81a Code Calls/jump count: 2 Data use count: 0}}
         call    convert_all_line_addresses_to_line_numbers;{{e81a:cd70e7}}  line address to line number
-        ld      bc,(RAM_ae24)     ;{{e81d:ed4b24ae}} 
-        ld      hl,(RAM_ae22)     ;{{e821:2a22ae}} 
+        ld      bc,(unknown_DELETE_temp_2);{{e81d:ed4b24ae}} 
+        ld      hl,(unknown_DELETE_temp_1);{{e821:2a22ae}} 
         jp      _convert_line_addresses_to_line_numbers_65;{{e824:c3e4e7}} 
 
 ;;=eval and convert line number to line address
@@ -9248,7 +9249,7 @@ RUN_a_program_after_loading:      ;{{Addr=$eaf1 Code Calls/jump count: 0 Data us
 ;; command CHAIN
 command_CHAIN:                    ;{{Addr=$eafd Code Calls/jump count: 0 Data use count: 1}}
         xor     $ab               ;{{eafd:eeab}} 
-        ld      (RAM_ae28),a      ;{{eaff:3228ae}} 
+        ld      (unknown_CHAIN_flag_),a;{{eaff:3228ae}} 
         call    z,get_next_token_skipping_space;{{eb02:cc2cde}}  get next token skipping space
         call    read_filename_and_open_for_input;{{eb05:cd54ec}} 
         ld      de,RESET_ENTRY    ;{{eb08:110000}} 
@@ -9286,7 +9287,7 @@ _command_chain_17:                ;{{Addr=$eb24 Code Calls/jump count: 1 Data us
         ret                       ;{{eb46:c9}} 
 
 _command_chain_34:                ;{{Addr=$eb47 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(RAM_ae28)      ;{{eb47:3a28ae}} 
+        ld      a,(unknown_CHAIN_flag_);{{eb47:3a28ae}} 
         or      a                 ;{{eb4a:b7}} 
         jp      z,validate_and_MERGE;{{eb4b:ca62ec}} 
         call    _reset_basic_31   ;{{eb4e:cd89c1}} 
@@ -10249,7 +10250,7 @@ _convert_number_to_string_by_format_121:;{{Addr=$f032 Code Calls/jump count: 2 D
         sub     e                 ;{{f041:93}} 
         ld      h,$2d             ;{{f042:262d}}  '-'
 _convert_number_to_string_by_format_131:;{{Addr=$f044 Code Calls/jump count: 1 Data use count: 0}}
-        ld      ($ae4c),hl        ;{{f044:224cae}} 
+        ld      (RAM_ae4c),hl     ;{{f044:224cae}} 
         ld      l,$2f             ;{{f047:2e2f}} 
 _convert_number_to_string_by_format_133:;{{Addr=$f049 Code Calls/jump count: 1 Data use count: 0}}
         inc     l                 ;{{f049:2c}} 
@@ -10391,7 +10392,7 @@ _convert_number_to_string_by_format_237:;{{Addr=$f0d5 Code Calls/jump count: 1 D
         ret                       ;{{f0dd:c9}} 
 
 _convert_number_to_string_by_format_244:;{{Addr=$f0de Code Calls/jump count: 2 Data use count: 0}}
-        ld      hl,$ae50          ;{{f0de:2150ae}} 
+        ld      hl,RAM_ae50       ;{{f0de:2150ae}} ##LABEL##
 _convert_number_to_string_by_format_245:;{{Addr=$f0e1 Code Calls/jump count: 1 Data use count: 0}}
         dec     hl                ;{{f0e1:2b}} 
         ld      a,(hl)            ;{{f0e2:7e}} 
@@ -10404,7 +10405,7 @@ _convert_number_to_string_by_format_245:;{{Addr=$f0e1 Code Calls/jump count: 1 D
 _convert_number_to_string_by_format_253:;{{Addr=$f0ec Code Calls/jump count: 2 Data use count: 0}}
         push    de                ;{{f0ec:d5}} 
         push    bc                ;{{f0ed:c5}} 
-        ld      de,$ae4f          ;{{f0ee:114fae}} 
+        ld      de,$ae4f          ;{{f0ee:114fae}} ##LABEL##
         ld      b,$00             ;{{f0f1:0600}} 
         call    copy_bytes_LDDR_BCcount_HLsource_DEdest;{{f0f3:cdf5ff}}  copy bytes LDDR (BC = count)
         ex      de,hl             ;{{f0f6:eb}} 
@@ -10428,7 +10429,7 @@ _convert_number_to_string_by_format_263:;{{Addr=$f0fb Code Calls/jump count: 2 D
         jp      p,_convert_number_to_string_by_format_276;{{f109:f20df1}} 
         inc     b                 ;{{f10c:04}} 
 _convert_number_to_string_by_format_276:;{{Addr=$f10d Code Calls/jump count: 2 Data use count: 0}}
-        ld      a,($ae53)         ;{{f10d:3a53ae}} 
+        ld      a,(RAM_ae53)      ;{{f10d:3a53ae}} 
         sub     b                 ;{{f110:90}} 
         pop     bc                ;{{f111:c1}} 
         ret                       ;{{f112:c9}} 
@@ -10510,7 +10511,7 @@ _convert_number_to_string_by_format_321:;{{Addr=$f14f Code Calls/jump count: 1 D
 _convert_number_to_string_by_format_333:;{{Addr=$f163 Code Calls/jump count: 2 Data use count: 0}}
         bit     4,d               ;{{f163:cb62}} 
         jr      z,_convert_number_to_string_by_format_317;{{f165:28e4}}  (-$1c)
-        ld      ($ae50),a         ;{{f167:3250ae}} 
+        ld      (RAM_ae50),a      ;{{f167:3250ae}} 
         xor     a                 ;{{f16a:af}} 
         ld      (RAM_ae51),a      ;{{f16b:3251ae}} 
         ret                       ;{{f16e:c9}} 
@@ -10520,7 +10521,7 @@ _convert_number_to_string_by_format_339:;{{Addr=$f16f Code Calls/jump count: 1 D
         or      a                 ;{{f170:b7}} 
         ret     p                 ;{{f171:f0}} 
 
-        ld      a,($ae53)         ;{{f172:3a53ae}} 
+        ld      a,(RAM_ae53)      ;{{f172:3a53ae}} 
         sub     b                 ;{{f175:90}} 
         ret     z                 ;{{f176:c8}} 
 
@@ -10593,7 +10594,7 @@ _convert_number_to_string_by_format_390:;{{Addr=$f1b5 Code Calls/jump count: 1 D
         jr      nz,_convert_number_to_string_by_format_373;{{f1be:20e1}}  (-$1f)
 _convert_number_to_string_by_format_397:;{{Addr=$f1c0 Code Calls/jump count: 1 Data use count: 0}}
         ex      de,hl             ;{{f1c0:eb}} 
-        ld      hl,$ae50          ;{{f1c1:2150ae}} 
+        ld      hl,RAM_ae50       ;{{f1c1:2150ae}} 
         ld      (hl),$00          ;{{f1c4:3600}} 
         ld      a,b               ;{{f1c6:78}} 
         add     a,a               ;{{f1c7:87}} 
@@ -10757,11 +10758,11 @@ command_CALL:                     ;{{Addr=$f25c Code Calls/jump count: 0 Data us
         ld      c,$ff             ;{{f25f:0eff}} 
 ;; store address of function
 _command_call_2:                  ;{{Addr=$f261 Code Calls/jump count: 1 Data use count: 0}}
-        ld      (address_of_last_used_ROM_or_RSX_JUMP_ins),de;{{f261:ed5355ae}} 
+        ld      (Machine_code_address_to_CALL_),de;{{f261:ed5355ae}} 
 ;; store rom select
         ld      a,c               ;{{f265:79}} 
-        ld      (ROM_select_number_if_address_above_is_in),a;{{f266:3257ae}} 
-        ld      (the_resetting_address_for_machine_Stack_),sp;{{f269:ed735aae}} 
+        ld      (ROM_select_number_for_the_above_CALLRSX),a;{{f266:3257ae}} 
+        ld      (saved_address_for_SP_during_a_CALL_or_an),sp;{{f269:ed735aae}} 
         ld      b,$20             ;{{f26d:0620}}  max 32 parameters
 _command_call_7:                  ;{{Addr=$f26f Code Calls/jump count: 1 Data use count: 0}}
         call    next_token_if_prev_is_comma;{{f26f:cd41de}} 
@@ -10785,8 +10786,8 @@ _command_call_14:                 ;{{Addr=$f27c Code Calls/jump count: 1 Data us
 ;; A = number of parameters
 ;; execute function
         rst     $18               ;{{f28b:df}} 
-        defw address_of_last_used_ROM_or_RSX_JUMP_ins                
-        ld      sp,(the_resetting_address_for_machine_Stack_);{{f28e:ed7b5aae}} 
+        defw Machine_code_address_to_CALL_                
+        ld      sp,(saved_address_for_SP_during_a_CALL_or_an);{{f28e:ed7b5aae}} 
         call    get_string_stack_first_free_ptr;{{f292:cdccfb}} 
         ld      hl,(BASIC_Parser_position_moved_on_to__);{{f295:2a58ae}} 
         ret                       ;{{f298:c9}} 
@@ -10986,7 +10987,7 @@ PRINT_USING:                      ;{{Addr=$f37e Code Calls/jump count: 1 Data us
         ex      (sp),hl           ;{{f38c:e3}} 
         call    eval_expression   ;{{f38d:cd62cf}} 
         xor     a                 ;{{f390:af}} 
-        ld      (RAM_ae5d),a      ;{{f391:325dae}} 
+        ld      ($ae5d),a         ;{{f391:325dae}} 
 _print_using_10:                  ;{{Addr=$f394 Code Calls/jump count: 1 Data use count: 0}}
         pop     de                ;{{f394:d1}} 
         push    de                ;{{f395:d5}} 
@@ -11015,7 +11016,7 @@ _print_using_22:                  ;{{Addr=$f3a4 Code Calls/jump count: 1 Data us
 _print_using_32:                  ;{{Addr=$f3ba Code Calls/jump count: 2 Data use count: 0}}
         push    af                ;{{f3ba:f5}} 
         ld      a,$ff             ;{{f3bb:3eff}} 
-        ld      (RAM_ae5d),a      ;{{f3bd:325dae}} 
+        ld      ($ae5d),a         ;{{f3bd:325dae}} 
         call    _print_using_42   ;{{f3c0:cdcdf3}} 
         pop     af                ;{{f3c3:f1}} 
         call    c,output_new_line ;{{f3c4:dc98c3}} ; new text line
@@ -11096,7 +11097,7 @@ _print_using_93:                  ;{{Addr=$f41c Code Calls/jump count: 2 Data us
         dec     b                 ;{{f41d:05}} 
         push    bc                ;{{f41e:c5}} 
         push    de                ;{{f41f:d5}} 
-        ld      a,(RAM_ae5d)      ;{{f420:3a5dae}} 
+        ld      a,($ae5d)         ;{{f420:3a5dae}} 
         or      a                 ;{{f423:b7}} 
         jr      nz,_print_using_103;{{f424:2007}}  (+$07)
         call    unknown_output_accumulator_string;{{f426:cddcf8}} 
@@ -11112,7 +11113,7 @@ _print_using_107:                 ;{{Addr=$f431 Code Calls/jump count: 1 Data us
         call    _print_using_121  ;{{f431:cd48f4}} 
         ret     nc                ;{{f434:d0}} 
 
-        ld      a,(RAM_ae5d)      ;{{f435:3a5dae}} 
+        ld      a,($ae5d)         ;{{f435:3a5dae}} 
         or      a                 ;{{f438:b7}} 
         jr      nz,_print_using_119;{{f439:200b}}  (+$0b)
         push    bc                ;{{f43b:c5}} 
@@ -11374,7 +11375,7 @@ command_MEMORY:                   ;{{Addr=$f56b Code Calls/jump count: 0 Data us
         call    c,_command_memory_14;{{f57b:dc8af5}} 
         ex      de,hl             ;{{f57e:eb}} 
         call    _symbol_after_18  ;{{f57f:cd08f8}} 
-        ld      hl,(RAM_b076)     ;{{f582:2a76b0}} 
+        ld      hl,(poss_file_buffer_address);{{f582:2a76b0}} 
         ld      (address_of_the_highest_byte_of_free_RAM_),hl;{{f585:2278b0}} 
         pop     hl                ;{{f588:e1}} 
         ret                       ;{{f589:c9}} 
@@ -11384,12 +11385,12 @@ _command_memory_14:               ;{{Addr=$f58a Code Calls/jump count: 1 Data us
         ld      bc,(HIMEM_)       ;{{f58d:ed4b5eae}}  HIMEM
         call    c,compare_HL_minus_BC_to_DE_minus_BC;{{f591:dce0f5}} 
         jr      c,raise_memory_full_error;{{f594:3812}}  (+$12)
-        ld      hl,(RAM_b076)     ;{{f596:2a76b0}} 
+        ld      hl,(poss_file_buffer_address);{{f596:2a76b0}} 
         dec     hl                ;{{f599:2b}} 
         call    compare_HL_minus_BC_to_DE_minus_BC;{{f59a:cde0f5}} 
         ret     nc                ;{{f59d:d0}} 
 
-        ld      a,(RAM_b075)      ;{{f59e:3a75b0}} 
+        ld      a,(poss_file_buffer_flag);{{f59e:3a75b0}} 
         or      a                 ;{{f5a1:b7}} 
         ret     z                 ;{{f5a2:c8}} 
 
@@ -11414,7 +11415,7 @@ _raise_memory_full_error_1:       ;{{Addr=$f5ab Code Calls/jump count: 1 Data us
         ex      de,hl             ;{{f5bd:eb}} 
         call    c,compare_HL_minus_BC_to_DE_minus_BC;{{f5be:dce0f5}} 
         jr      nc,raise_memory_full_error;{{f5c1:30e5}}  (-$1b)
-        ld      bc,(RAM_b076)     ;{{f5c3:ed4b76b0}} 
+        ld      bc,(poss_file_buffer_address);{{f5c3:ed4b76b0}} 
         ld      hl,$0fff          ;{{f5c7:21ff0f}} 
         add     hl,bc             ;{{f5ca:09}} 
         call    compare_HL_minus_BC_to_DE_minus_BC;{{f5cb:cde0f5}} 
@@ -11724,7 +11725,7 @@ prob_alloc_2k_file_buffer_C:      ;{{Addr=$f72a Code Calls/jump count: 2 Data us
 _prob_alloc_2k_file_buffer_c_1:   ;{{Addr=$f72d Code Calls/jump count: 2 Data use count: 0}}
         push    bc                ;{{f72d:c5}} 
         push    hl                ;{{f72e:e5}} 
-        ld      a,(RAM_b075)      ;{{f72f:3a75b0}} 
+        ld      a,(poss_file_buffer_flag);{{f72f:3a75b0}} 
         or      a                 ;{{f732:b7}} 
         jr      nz,_prob_alloc_2k_file_buffer_c_17;{{f733:2018}}  (+$18)
         push    de                ;{{f735:d5}} 
@@ -11735,12 +11736,12 @@ _prob_alloc_2k_file_buffer_c_1:   ;{{Addr=$f72d Code Calls/jump count: 2 Data us
         add     hl,de             ;{{f740:19}} 
         jp      nc,raise_memory_full_error_C;{{f741:d275f8}} 
         call    _symbol_after_18  ;{{f744:cd08f8}} 
-        ld      (RAM_b076),hl     ;{{f747:2276b0}} 
+        ld      (poss_file_buffer_address),hl;{{f747:2276b0}} 
         pop     de                ;{{f74a:d1}} 
         ld      a,$04             ;{{f74b:3e04}} 
 _prob_alloc_2k_file_buffer_c_17:  ;{{Addr=$f74d Code Calls/jump count: 1 Data use count: 0}}
         or      e                 ;{{f74d:b3}} 
-        ld      hl,(RAM_b076)     ;{{f74e:2a76b0}} 
+        ld      hl,(poss_file_buffer_address);{{f74e:2a76b0}} 
         ld      e,$00             ;{{f751:1e00}} 
         add     hl,de             ;{{f753:19}} 
         ex      de,hl             ;{{f754:eb}} 
@@ -11764,12 +11765,12 @@ prob_release_2k_file_buffer_C:    ;{{Addr=$f761 Code Calls/jump count: 2 Data us
         ld      a,$ff             ;{{f761:3eff}} 
 _prob_release_2k_file_buffer_c_1: ;{{Addr=$f763 Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{f763:e5}} 
-        ld      hl,RAM_b075       ;{{f764:2175b0}} 
+        ld      hl,poss_file_buffer_flag;{{f764:2175b0}} 
         and     (hl)              ;{{f767:a6}} 
         ld      (hl),a            ;{{f768:77}} 
         cp      $04               ;{{f769:fe04}} 
         jr      nz,_prob_release_2k_file_buffer_c_11;{{f76b:2009}}  (+$09)
-        ld      hl,(RAM_b076)     ;{{f76d:2a76b0}} 
+        ld      hl,(poss_file_buffer_address);{{f76d:2a76b0}} 
         ex      de,hl             ;{{f770:eb}} 
         call    compare_DE_to_HIMEM_plus_1;{{f771:cdecf5}}  compare DE with HIMEM
         jr      z,_prob_release_2k_file_buffer_c_13;{{f774:2802}}  (+$02)
@@ -11787,7 +11788,7 @@ clear_RAMb075:                    ;{{Addr=$f77f Code Calls/jump count: 3 Data us
         xor     a                 ;{{f77f:af}} 
 ;;=set RAM_b075
 set_RAMb075:                      ;{{Addr=$f780 Code Calls/jump count: 1 Data use count: 0}}
-        ld      (RAM_b075),a      ;{{f780:3275b0}} 
+        ld      (poss_file_buffer_flag),a;{{f780:3275b0}} 
         ret                       ;{{f783:c9}} 
 
 ;;========================================================================

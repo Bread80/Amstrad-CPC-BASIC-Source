@@ -95,11 +95,11 @@ command_CALL:                     ;{{Addr=$f25c Code Calls/jump count: 0 Data us
         ld      c,$ff             ;{{f25f:0eff}} 
 ;; store address of function
 _command_call_2:                  ;{{Addr=$f261 Code Calls/jump count: 1 Data use count: 0}}
-        ld      (address_of_last_used_ROM_or_RSX_JUMP_ins),de;{{f261:ed5355ae}} 
+        ld      (Machine_code_address_to_CALL_),de;{{f261:ed5355ae}} 
 ;; store rom select
         ld      a,c               ;{{f265:79}} 
-        ld      (ROM_select_number_if_address_above_is_in),a;{{f266:3257ae}} 
-        ld      (the_resetting_address_for_machine_Stack_),sp;{{f269:ed735aae}} 
+        ld      (ROM_select_number_for_the_above_CALLRSX),a;{{f266:3257ae}} 
+        ld      (saved_address_for_SP_during_a_CALL_or_an),sp;{{f269:ed735aae}} 
         ld      b,$20             ;{{f26d:0620}}  max 32 parameters
 _command_call_7:                  ;{{Addr=$f26f Code Calls/jump count: 1 Data use count: 0}}
         call    next_token_if_prev_is_comma;{{f26f:cd41de}} 
@@ -123,8 +123,8 @@ _command_call_14:                 ;{{Addr=$f27c Code Calls/jump count: 1 Data us
 ;; A = number of parameters
 ;; execute function
         rst     $18               ;{{f28b:df}} 
-        defw address_of_last_used_ROM_or_RSX_JUMP_ins                
-        ld      sp,(the_resetting_address_for_machine_Stack_);{{f28e:ed7b5aae}} 
+        defw Machine_code_address_to_CALL_                
+        ld      sp,(saved_address_for_SP_during_a_CALL_or_an);{{f28e:ed7b5aae}} 
         call    get_string_stack_first_free_ptr;{{f292:cdccfb}} 
         ld      hl,(BASIC_Parser_position_moved_on_to__);{{f295:2a58ae}} 
         ret                       ;{{f298:c9}} 

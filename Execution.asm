@@ -100,15 +100,14 @@ skip_space_tab_or_line_feed:      ;{{Addr=$de4d Code Calls/jump count: 20 Data u
 
 
 
-;**tk
 ;;=======================================================================
-;; execute tokenised line
-execute_tokenised_line:           ;{{Addr=$de5d Code Calls/jump count: 2 Data use count: 0}}
+;; execute current statement
+execute_current_statement:        ;{{Addr=$de5d Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,(address_of_byte_before_current_statement);{{de5d:2a1bae}} 
 
-;;=execute line atHL
+;;=execute statement atHL
 ;HL points to first token, NOT line number
-execute_line_atHL:                ;{{Addr=$de60 Code Calls/jump count: 7 Data use count: 0}}
+execute_statement_atHL:           ;{{Addr=$de60 Code Calls/jump count: 7 Data use count: 0}}
         ld      (address_of_byte_before_current_statement),hl;{{de60:221bae}} HL=current execution address
         call    KL_POLL_SYNCHRONOUS;{{de63:cd21b9}} handle pending events
         call    c,prob_process_pending_events;{{de66:dcb2c8}} 
@@ -116,7 +115,7 @@ execute_line_atHL:                ;{{Addr=$de60 Code Calls/jump count: 7 Data us
         call    nz,execute_command_token;{{de6c:c48fde}} end of buffer?
         ld      a,(hl)            ;{{de6f:7e}} 
         cp      $01               ;{{de70:fe01}} next statement on same line
-        jr      z,execute_line_atHL;{{de72:28ec}}  (-$14) Loop until end of line
+        jr      z,execute_statement_atHL;{{de72:28ec}}  (-$14) Loop until end of line
 
         jr      nc,raise_syntax_error_E;{{de74:3031}}  (+$31)
         inc     hl                ;{{de76:23}} 
@@ -133,9 +132,9 @@ execute_end_of_line:              ;{{Addr=$de77 Code Calls/jump count: 4 Data us
         inc     hl                ;{{de80:23}} 
         ld      a,(trace_flag)    ;{{de81:3a1fae}} trace on??
         or      a                 ;{{de84:b7}} 
-        jr      z,execute_line_atHL;{{de85:28d9}}  (-$27) if not loop - execute next line
+        jr      z,execute_statement_atHL;{{de85:28d9}}  (-$27) if not loop - execute next line
         call    do_trace          ;{{de87:cdcade}}  trace
-        jr      execute_line_atHL ;{{de8a:18d4}}  (-$2c) loop - execute next line
+        jr      execute_statement_atHL;{{de8a:18d4}}  (-$2c) loop - execute next line
 
 ;;====================================
 ;;end execution

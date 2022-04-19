@@ -288,7 +288,7 @@ command_CONT:                     ;{{Addr=$cc93 Code Calls/jump count: 0 Data us
         call    set_current_line_address;{{cca2:cdadde}} 
         call    SOUND_CONTINUE    ;{{cca5:cdb9bc}}  firmware function: sound continue
         pop     hl                ;{{cca8:e1}} 
-        jp      execute_line_atHL ;{{cca9:c360de}} 
+        jp      execute_statement_atHL;{{cca9:c360de}} 
 
 ;;=clear error handlers
 clear_error_handlers:             ;{{Addr=$ccac Code Calls/jump count: 1 Data use count: 0}}
@@ -345,7 +345,7 @@ command_RESUME:                   ;{{Addr=$ccd5 Code Calls/jump count: 0 Data us
 resume_and_execute:               ;{{Addr=$cce8 Code Calls/jump count: 1 Data use count: 0}}
         call    restore_RESUME_data_or_error;{{cce8:cdfacc}} 
         pop     af                ;{{cceb:f1}} 
-        jp      execute_line_atHL ;{{ccec:c360de}} 
+        jp      execute_statement_atHL;{{ccec:c360de}} 
 
 ;;=resume, skip statement and execute
 resume_skip_statement_and_execute:;{{Addr=$ccef Code Calls/jump count: 1 Data use count: 0}}

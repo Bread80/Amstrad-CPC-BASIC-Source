@@ -141,20 +141,20 @@ do_DELETE_find_first_line:        ;{{Addr=$e800 Code Calls/jump count: 2 Data us
         pop     de                ;{{e808:d1}} 
         push    hl                ;{{e809:e5}} 
         call    find_address_of_line;{{e80a:cd64e8}} 
-        ld      (RAM_ae22),hl     ;{{e80d:2222ae}} 
+        ld      (unknown_DELETE_temp_1),hl;{{e80d:2222ae}} 
         ex      de,hl             ;{{e810:eb}} 
         pop     hl                ;{{e811:e1}} 
         or      a                 ;{{e812:b7}} 
         sbc     hl,de             ;{{e813:ed52}} 
-        ld      (RAM_ae24),hl     ;{{e815:2224ae}} 
+        ld      (unknown_DELETE_temp_2),hl;{{e815:2224ae}} 
         pop     hl                ;{{e818:e1}} 
         ret                       ;{{e819:c9}} 
 
 ;;+do DELETE find last line
 do_DELETE_find_last_line:         ;{{Addr=$e81a Code Calls/jump count: 2 Data use count: 0}}
         call    convert_all_line_addresses_to_line_numbers;{{e81a:cd70e7}}  line address to line number
-        ld      bc,(RAM_ae24)     ;{{e81d:ed4b24ae}} 
-        ld      hl,(RAM_ae22)     ;{{e821:2a22ae}} 
+        ld      bc,(unknown_DELETE_temp_2);{{e81d:ed4b24ae}} 
+        ld      hl,(unknown_DELETE_temp_1);{{e821:2a22ae}} 
         jp      _convert_line_addresses_to_line_numbers_65;{{e824:c3e4e7}} 
 
 ;;=eval and convert line number to line address

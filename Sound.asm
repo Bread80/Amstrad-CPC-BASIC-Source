@@ -30,7 +30,7 @@ command_SOUND:                    ;{{Addr=$d313 Code Calls/jump count: 0 Data us
         ret     c                 ;{{d35a:d8}} 
 
         pop     af                ;{{d35b:f1}} 
-        jp      execute_tokenised_line;{{d35c:c35dde}} 
+        jp      execute_current_statement;{{d35c:c35dde}} 
 
 ;;=eval and validate sound parameter
 eval_and_validate_sound_parameter:;{{Addr=$d35f Code Calls/jump count: 4 Data use count: 0}}

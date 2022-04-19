@@ -3,13 +3,14 @@
 ;;===================================
 
 ;; prob read buffer and or break
+;Called by (LINE) INPUT and RANDOMISE to get text input.
 prob_read_buffer_and_or_break:    ;{{Addr=$caec Code Calls/jump count: 2 Data use count: 0}}
         call    input_text_to_BASIC_input_area;{{caec:cdf9ca}}  edit
         ret     c                 ;{{caef:d8}} 
 
         call    select_txt_stream_zero;{{caf0:cda1c1}} 
         ld      sp,$c000          ;{{caf3:3100c0}} ##LIT##
-        jp      execute_tokenised_line;{{caf6:c35dde}} 
+        jp      execute_current_statement;{{caf6:c35dde}} 
 
 ;;------------------------------------------------------------------------------------------
 ;;=input text to BASIC input area

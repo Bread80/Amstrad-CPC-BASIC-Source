@@ -186,7 +186,7 @@ PRINT_USING:                      ;{{Addr=$f37e Code Calls/jump count: 1 Data us
         ex      (sp),hl           ;{{f38c:e3}} 
         call    eval_expression   ;{{f38d:cd62cf}} 
         xor     a                 ;{{f390:af}} 
-        ld      (RAM_ae5d),a      ;{{f391:325dae}} 
+        ld      ($ae5d),a         ;{{f391:325dae}} 
 _print_using_10:                  ;{{Addr=$f394 Code Calls/jump count: 1 Data use count: 0}}
         pop     de                ;{{f394:d1}} 
         push    de                ;{{f395:d5}} 
@@ -215,7 +215,7 @@ _print_using_22:                  ;{{Addr=$f3a4 Code Calls/jump count: 1 Data us
 _print_using_32:                  ;{{Addr=$f3ba Code Calls/jump count: 2 Data use count: 0}}
         push    af                ;{{f3ba:f5}} 
         ld      a,$ff             ;{{f3bb:3eff}} 
-        ld      (RAM_ae5d),a      ;{{f3bd:325dae}} 
+        ld      ($ae5d),a         ;{{f3bd:325dae}} 
         call    _print_using_42   ;{{f3c0:cdcdf3}} 
         pop     af                ;{{f3c3:f1}} 
         call    c,output_new_line ;{{f3c4:dc98c3}} ; new text line
@@ -296,7 +296,7 @@ _print_using_93:                  ;{{Addr=$f41c Code Calls/jump count: 2 Data us
         dec     b                 ;{{f41d:05}} 
         push    bc                ;{{f41e:c5}} 
         push    de                ;{{f41f:d5}} 
-        ld      a,(RAM_ae5d)      ;{{f420:3a5dae}} 
+        ld      a,($ae5d)         ;{{f420:3a5dae}} 
         or      a                 ;{{f423:b7}} 
         jr      nz,_print_using_103;{{f424:2007}}  (+$07)
         call    unknown_output_accumulator_string;{{f426:cddcf8}} 
@@ -312,7 +312,7 @@ _print_using_107:                 ;{{Addr=$f431 Code Calls/jump count: 1 Data us
         call    _print_using_121  ;{{f431:cd48f4}} 
         ret     nc                ;{{f434:d0}} 
 
-        ld      a,(RAM_ae5d)      ;{{f435:3a5dae}} 
+        ld      a,($ae5d)         ;{{f435:3a5dae}} 
         or      a                 ;{{f438:b7}} 
         jr      nz,_print_using_119;{{f439:200b}}  (+$0b)
         push    bc                ;{{f43b:c5}} 

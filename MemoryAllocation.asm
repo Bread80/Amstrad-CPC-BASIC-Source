@@ -49,7 +49,7 @@ command_MEMORY:                   ;{{Addr=$f56b Code Calls/jump count: 0 Data us
         call    c,_command_memory_14;{{f57b:dc8af5}} 
         ex      de,hl             ;{{f57e:eb}} 
         call    _symbol_after_18  ;{{f57f:cd08f8}} 
-        ld      hl,(RAM_b076)     ;{{f582:2a76b0}} 
+        ld      hl,(poss_file_buffer_address);{{f582:2a76b0}} 
         ld      (address_of_the_highest_byte_of_free_RAM_),hl;{{f585:2278b0}} 
         pop     hl                ;{{f588:e1}} 
         ret                       ;{{f589:c9}} 
@@ -59,12 +59,12 @@ _command_memory_14:               ;{{Addr=$f58a Code Calls/jump count: 1 Data us
         ld      bc,(HIMEM_)       ;{{f58d:ed4b5eae}}  HIMEM
         call    c,compare_HL_minus_BC_to_DE_minus_BC;{{f591:dce0f5}} 
         jr      c,raise_memory_full_error;{{f594:3812}}  (+$12)
-        ld      hl,(RAM_b076)     ;{{f596:2a76b0}} 
+        ld      hl,(poss_file_buffer_address);{{f596:2a76b0}} 
         dec     hl                ;{{f599:2b}} 
         call    compare_HL_minus_BC_to_DE_minus_BC;{{f59a:cde0f5}} 
         ret     nc                ;{{f59d:d0}} 
 
-        ld      a,(RAM_b075)      ;{{f59e:3a75b0}} 
+        ld      a,(poss_file_buffer_flag);{{f59e:3a75b0}} 
         or      a                 ;{{f5a1:b7}} 
         ret     z                 ;{{f5a2:c8}} 
 
@@ -89,7 +89,7 @@ _raise_memory_full_error_1:       ;{{Addr=$f5ab Code Calls/jump count: 1 Data us
         ex      de,hl             ;{{f5bd:eb}} 
         call    c,compare_HL_minus_BC_to_DE_minus_BC;{{f5be:dce0f5}} 
         jr      nc,raise_memory_full_error;{{f5c1:30e5}}  (-$1b)
-        ld      bc,(RAM_b076)     ;{{f5c3:ed4b76b0}} 
+        ld      bc,(poss_file_buffer_address);{{f5c3:ed4b76b0}} 
         ld      hl,$0fff          ;{{f5c7:21ff0f}} 
         add     hl,bc             ;{{f5ca:09}} 
         call    compare_HL_minus_BC_to_DE_minus_BC;{{f5cb:cde0f5}} 
@@ -399,7 +399,7 @@ prob_alloc_2k_file_buffer_C:      ;{{Addr=$f72a Code Calls/jump count: 2 Data us
 _prob_alloc_2k_file_buffer_c_1:   ;{{Addr=$f72d Code Calls/jump count: 2 Data use count: 0}}
         push    bc                ;{{f72d:c5}} 
         push    hl                ;{{f72e:e5}} 
-        ld      a,(RAM_b075)      ;{{f72f:3a75b0}} 
+        ld      a,(poss_file_buffer_flag);{{f72f:3a75b0}} 
         or      a                 ;{{f732:b7}} 
         jr      nz,_prob_alloc_2k_file_buffer_c_17;{{f733:2018}}  (+$18)
         push    de                ;{{f735:d5}} 
@@ -410,12 +410,12 @@ _prob_alloc_2k_file_buffer_c_1:   ;{{Addr=$f72d Code Calls/jump count: 2 Data us
         add     hl,de             ;{{f740:19}} 
         jp      nc,raise_memory_full_error_C;{{f741:d275f8}} 
         call    _symbol_after_18  ;{{f744:cd08f8}} 
-        ld      (RAM_b076),hl     ;{{f747:2276b0}} 
+        ld      (poss_file_buffer_address),hl;{{f747:2276b0}} 
         pop     de                ;{{f74a:d1}} 
         ld      a,$04             ;{{f74b:3e04}} 
 _prob_alloc_2k_file_buffer_c_17:  ;{{Addr=$f74d Code Calls/jump count: 1 Data use count: 0}}
         or      e                 ;{{f74d:b3}} 
-        ld      hl,(RAM_b076)     ;{{f74e:2a76b0}} 
+        ld      hl,(poss_file_buffer_address);{{f74e:2a76b0}} 
         ld      e,$00             ;{{f751:1e00}} 
         add     hl,de             ;{{f753:19}} 
         ex      de,hl             ;{{f754:eb}} 
@@ -439,12 +439,12 @@ prob_release_2k_file_buffer_C:    ;{{Addr=$f761 Code Calls/jump count: 2 Data us
         ld      a,$ff             ;{{f761:3eff}} 
 _prob_release_2k_file_buffer_c_1: ;{{Addr=$f763 Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{f763:e5}} 
-        ld      hl,RAM_b075       ;{{f764:2175b0}} 
+        ld      hl,poss_file_buffer_flag;{{f764:2175b0}} 
         and     (hl)              ;{{f767:a6}} 
         ld      (hl),a            ;{{f768:77}} 
         cp      $04               ;{{f769:fe04}} 
         jr      nz,_prob_release_2k_file_buffer_c_11;{{f76b:2009}}  (+$09)
-        ld      hl,(RAM_b076)     ;{{f76d:2a76b0}} 
+        ld      hl,(poss_file_buffer_address);{{f76d:2a76b0}} 
         ex      de,hl             ;{{f770:eb}} 
         call    compare_DE_to_HIMEM_plus_1;{{f771:cdecf5}}  compare DE with HIMEM
         jr      z,_prob_release_2k_file_buffer_c_13;{{f774:2802}}  (+$02)
@@ -462,7 +462,7 @@ clear_RAMb075:                    ;{{Addr=$f77f Code Calls/jump count: 3 Data us
         xor     a                 ;{{f77f:af}} 
 ;;=set RAM_b075
 set_RAMb075:                      ;{{Addr=$f780 Code Calls/jump count: 1 Data use count: 0}}
-        ld      (RAM_b075),a      ;{{f780:3275b0}} 
+        ld      (poss_file_buffer_flag),a;{{f780:3275b0}} 
         ret                       ;{{f783:c9}} 
 
 ;;========================================================================

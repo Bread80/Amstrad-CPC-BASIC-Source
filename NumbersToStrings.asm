@@ -303,7 +303,7 @@ _convert_number_to_string_by_format_121:;{{Addr=$f032 Code Calls/jump count: 2 D
         sub     e                 ;{{f041:93}} 
         ld      h,$2d             ;{{f042:262d}}  '-'
 _convert_number_to_string_by_format_131:;{{Addr=$f044 Code Calls/jump count: 1 Data use count: 0}}
-        ld      ($ae4c),hl        ;{{f044:224cae}} 
+        ld      (RAM_ae4c),hl     ;{{f044:224cae}} 
         ld      l,$2f             ;{{f047:2e2f}} 
 _convert_number_to_string_by_format_133:;{{Addr=$f049 Code Calls/jump count: 1 Data use count: 0}}
         inc     l                 ;{{f049:2c}} 
@@ -445,7 +445,7 @@ _convert_number_to_string_by_format_237:;{{Addr=$f0d5 Code Calls/jump count: 1 D
         ret                       ;{{f0dd:c9}} 
 
 _convert_number_to_string_by_format_244:;{{Addr=$f0de Code Calls/jump count: 2 Data use count: 0}}
-        ld      hl,$ae50          ;{{f0de:2150ae}} 
+        ld      hl,RAM_ae50       ;{{f0de:2150ae}} ##LABEL##
 _convert_number_to_string_by_format_245:;{{Addr=$f0e1 Code Calls/jump count: 1 Data use count: 0}}
         dec     hl                ;{{f0e1:2b}} 
         ld      a,(hl)            ;{{f0e2:7e}} 
@@ -458,7 +458,7 @@ _convert_number_to_string_by_format_245:;{{Addr=$f0e1 Code Calls/jump count: 1 D
 _convert_number_to_string_by_format_253:;{{Addr=$f0ec Code Calls/jump count: 2 Data use count: 0}}
         push    de                ;{{f0ec:d5}} 
         push    bc                ;{{f0ed:c5}} 
-        ld      de,$ae4f          ;{{f0ee:114fae}} 
+        ld      de,$ae4f          ;{{f0ee:114fae}} ##LABEL##
         ld      b,$00             ;{{f0f1:0600}} 
         call    copy_bytes_LDDR_BCcount_HLsource_DEdest;{{f0f3:cdf5ff}}  copy bytes LDDR (BC = count)
         ex      de,hl             ;{{f0f6:eb}} 
@@ -482,7 +482,7 @@ _convert_number_to_string_by_format_263:;{{Addr=$f0fb Code Calls/jump count: 2 D
         jp      p,_convert_number_to_string_by_format_276;{{f109:f20df1}} 
         inc     b                 ;{{f10c:04}} 
 _convert_number_to_string_by_format_276:;{{Addr=$f10d Code Calls/jump count: 2 Data use count: 0}}
-        ld      a,($ae53)         ;{{f10d:3a53ae}} 
+        ld      a,(RAM_ae53)      ;{{f10d:3a53ae}} 
         sub     b                 ;{{f110:90}} 
         pop     bc                ;{{f111:c1}} 
         ret                       ;{{f112:c9}} 
@@ -564,7 +564,7 @@ _convert_number_to_string_by_format_321:;{{Addr=$f14f Code Calls/jump count: 1 D
 _convert_number_to_string_by_format_333:;{{Addr=$f163 Code Calls/jump count: 2 Data use count: 0}}
         bit     4,d               ;{{f163:cb62}} 
         jr      z,_convert_number_to_string_by_format_317;{{f165:28e4}}  (-$1c)
-        ld      ($ae50),a         ;{{f167:3250ae}} 
+        ld      (RAM_ae50),a      ;{{f167:3250ae}} 
         xor     a                 ;{{f16a:af}} 
         ld      (RAM_ae51),a      ;{{f16b:3251ae}} 
         ret                       ;{{f16e:c9}} 
@@ -574,7 +574,7 @@ _convert_number_to_string_by_format_339:;{{Addr=$f16f Code Calls/jump count: 1 D
         or      a                 ;{{f170:b7}} 
         ret     p                 ;{{f171:f0}} 
 
-        ld      a,($ae53)         ;{{f172:3a53ae}} 
+        ld      a,(RAM_ae53)      ;{{f172:3a53ae}} 
         sub     b                 ;{{f175:90}} 
         ret     z                 ;{{f176:c8}} 
 
@@ -647,7 +647,7 @@ _convert_number_to_string_by_format_390:;{{Addr=$f1b5 Code Calls/jump count: 1 D
         jr      nz,_convert_number_to_string_by_format_373;{{f1be:20e1}}  (-$1f)
 _convert_number_to_string_by_format_397:;{{Addr=$f1c0 Code Calls/jump count: 1 Data use count: 0}}
         ex      de,hl             ;{{f1c0:eb}} 
-        ld      hl,$ae50          ;{{f1c1:2150ae}} 
+        ld      hl,RAM_ae50       ;{{f1c1:2150ae}} 
         ld      (hl),$00          ;{{f1c4:3600}} 
         ld      a,b               ;{{f1c6:78}} 
         add     a,a               ;{{f1c7:87}} 
