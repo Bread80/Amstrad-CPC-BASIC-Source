@@ -2,6 +2,9 @@
 ;;< (from numbers to numbers)
 ;;========================================================
 ;; function ABS
+;ABS(<numeric expression>)
+;Returns absolute value (i.e. negates if negative)
+
 function_ABS:                     ;{{Addr=$fdb0 Code Calls/jump count: 0 Data use count: 1}}
         call    get_raw_abs_of_accumulator_with_reg_preserve;{{fdb0:cdc4fd}} 
         ret     p                 ;{{fdb3:f0}} 
@@ -74,12 +77,18 @@ _round_accumulator_29:            ;{{Addr=$fe0a Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function FIX
+;FIX(<numeric expression>)
+;Truncate value to an integer. Returns a float with no fractional part, rounding towards zero.
 function_FIX:                     ;{{Addr=$fe0e Code Calls/jump count: 0 Data use count: 1}}
         ld      de,REAL_FIX       ;{{fe0e:1170bd}} firmware REAL fix
         jr      _function_int_1   ;{{fe11:1803}}  (+$03)
 
 ;;========================================================
 ;; function INT
+;INT(<numeric expression>)
+;Rounds the value to the nearest smaller integer (round towards minus infinity)
+;Does not convert to integer, merely removes fractional part
+
 function_INT:                     ;{{Addr=$fe13 Code Calls/jump count: 0 Data use count: 1}}
         ld      de,REAL_INT       ;{{fe13:1173bd}} firmware REAL int
 _function_int_1:                  ;{{Addr=$fe16 Code Calls/jump count: 1 Data use count: 0}}
@@ -107,7 +116,7 @@ _function_int_11:                 ;{{Addr=$fe2c Code Calls/jump count: 2 Data us
         inc     hl                ;{{fe31:23}} 
         ld      h,(hl)            ;{{fe32:66}} 
         ld      l,a               ;{{fe33:6f}} 
-        call    unknown_maths_fixup_B;{{fe34:cd37dd}} 
+        call    unknown_maths_fixup;{{fe34:cd37dd}} 
         ret     nc                ;{{fe37:d0}} 
 
         jp      store_HL_in_accumulator_as_INT;{{fe38:c335ff}} 
@@ -233,6 +242,10 @@ store_int_to_accumulator:         ;{{Addr=$fea5 Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function CINT
+;CINT(<numeric expression>)
+;Converts the value to an integer
+;Expression must be -32768..+32767
+
 function_CINT:                    ;{{Addr=$feb6 Code Calls/jump count: 10 Data use count: 1}}
         call    _function_cint_3  ;{{feb6:cdbcfe}} 
         ret     c                 ;{{feb9:d8}} 
@@ -240,38 +253,42 @@ function_CINT:                    ;{{Addr=$feb6 Code Calls/jump count: 10 Data u
         jr      raise_Overflow_error;{{feba:183f}}  (+$3f)
 
 _function_cint_3:                 ;{{Addr=$febc Code Calls/jump count: 1 Data use count: 0}}
-        call    _function_cint_12 ;{{febc:cdcefe}} 
+        call    convert_accumulator_to_int;{{febc:cdcefe}} 
         ld      (accumulator),hl  ;{{febf:22a0b0}} 
         ret                       ;{{fec2:c9}} 
 
 ;;-=============================================
-;;
-_function_cint_6:                 ;{{Addr=$fec3 Code Calls/jump count: 5 Data use count: 0}}
+;;=convert atHL with type C and accumulator to ints
+convert_atHL_with_type_C_and_accumulator_to_ints:;{{Addr=$fec3 Code Calls/jump count: 5 Data use count: 0}}
         ld      a,c               ;{{fec3:79}} 
-        call    _function_cint_16 ;{{fec4:cdd5fe}} 
+        call    convert_atHL_with_type_C_to_int;{{fec4:cdd5fe}} 
         ex      de,hl             ;{{fec7:eb}} 
-        call    c,_function_cint_12;{{fec8:dccefe}} carry here means we had a pointer to an int
+        call    c,convert_accumulator_to_int;{{fec8:dccefe}} carry here means we had a pointer to an int
         ret     c                 ;{{fecb:d8}} 
 
         jr      raise_Overflow_error;{{fecc:182d}}  (+$2d)
 
-_function_cint_12:                ;{{Addr=$fece Code Calls/jump count: 2 Data use count: 0}}
+;;===============================================
+;;=convert accumulator to int
+convert_accumulator_to_int:       ;{{Addr=$fece Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,accumulator_data_type;{{fece:219fb0}} 
         ld      a,(hl)            ;{{fed1:7e}} 
         ld      (hl),$02          ;{{fed2:3602}} 
         inc     hl                ;{{fed4:23}} 
-_function_cint_16:                ;{{Addr=$fed5 Code Calls/jump count: 1 Data use count: 0}}
+
+;;=convert atHL with type C to int
+convert_atHL_with_type_C_to_int:  ;{{Addr=$fed5 Code Calls/jump count: 1 Data use count: 0}}
         cp      $03               ;{{fed5:fe03}} 
-        jr      c,_function_cint_25;{{fed7:380d}}  (+$0d) if type is int treat it as a pointer to the actual real and redo
+        jr      c,_convert_athl_with_type_c_to_int_9;{{fed7:380d}}  (+$0d) if type is int treat it as a pointer to the actual real and redo
         jp      z,raise_type_mismatch_error_C;{{fed9:ca62ff}}  error if string
         push    bc                ;{{fedc:c5}} 
         call    REAL_TO_INTEGER   ;{{fedd:cd6abd}}  firmware REAL to INT
         ld      b,a               ;{{fee0:47}} 
-        call    c,unknown_maths_fixup_B;{{fee1:dc37dd}} 
+        call    c,unknown_maths_fixup;{{fee1:dc37dd}} 
         pop     bc                ;{{fee4:c1}} 
         ret                       ;{{fee5:c9}} 
 
-_function_cint_25:                ;{{Addr=$fee6 Code Calls/jump count: 1 Data use count: 0}}
+_convert_athl_with_type_c_to_int_9:;{{Addr=$fee6 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(hl)            ;{{fee6:7e}} 
         inc     hl                ;{{fee7:23}} 
         ld      h,(hl)            ;{{fee8:66}} 
@@ -280,6 +297,8 @@ _function_cint_25:                ;{{Addr=$fee6 Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function UNT
+;UNT(<address expression>)
+;Converts to an unsigned integer in the range -32768..32767
 
 function_UNT:                     ;{{Addr=$feeb Code Calls/jump count: 4 Data use count: 1}}
         call    return_accumulator_value_if_int_or_address_if_real;{{feeb:cd4fff}} 
@@ -288,7 +307,7 @@ function_UNT:                     ;{{Addr=$feeb Code Calls/jump count: 4 Data us
         call    REAL_TO_INTEGER   ;{{feef:cd6abd}} 
         jr      nc,raise_Overflow_error;{{fef2:3007}}  (+$07)
         ld      b,a               ;{{fef4:47}} 
-        call    m,unknown_maths_fixup_B;{{fef5:fc37dd}} 
+        call    m,unknown_maths_fixup;{{fef5:fc37dd}} 
         jp      c,store_HL_in_accumulator_as_INT;{{fef8:da35ff}} 
 
 ;;=raise Overflow error
@@ -318,6 +337,9 @@ _convert_accumulator_to_type_in_a_10:;{{Addr=$ff0d Code Calls/jump count: 1 Data
 
 ;;========================================================
 ;; function CREAL
+;CREAL(<numeric expression>)
+;Converts the value to a real
+
 function_CREAL:                   ;{{Addr=$ff14 Code Calls/jump count: 4 Data use count: 1}}
         call    return_accumulator_value_if_int_or_address_if_real;{{ff14:cd4fff}} 
         jp      c,set_accumulator_as_positive_REAL_from_HL;{{ff17:da93fe}} 
@@ -336,9 +358,13 @@ zero_accumulator:                 ;{{Addr=$ff1b Code Calls/jump count: 2 Data us
 
 ;;========================================================
 ;; function SGN
+;SGN(<numeric expression>)
+;Returns -1 if expression < 0, 0 if expression = 0, +1 if expression > 0
+
 function_SGN:                     ;{{Addr=$ff2a Code Calls/jump count: 0 Data use count: 1}}
         call    get_raw_abs_of_accumulator_with_reg_preserve;{{ff2a:cdc4fd}} 
 
+;;----------------------------------
 ;;=store sign extended byte in A in accumulator
 store_sign_extended_byte_in_A_in_accumulator:;{{Addr=$ff2d Code Calls/jump count: 2 Data use count: 0}}
         ld      l,a               ;{{ff2d:6f}} 
@@ -346,114 +372,7 @@ store_sign_extended_byte_in_A_in_accumulator:;{{Addr=$ff2d Code Calls/jump count
         sbc     a,a               ;{{ff2f:9f}} 
         jr      store_AL_in_accumulator_as_INT;{{ff30:1802}}  (+$02)
 
-;;=store A in accumulator as INT
-store_A_in_accumulator_as_INT:    ;{{Addr=$ff32 Code Calls/jump count: 10 Data use count: 0}}
-        ld      l,a               ;{{ff32:6f}} 
-        xor     a                 ;{{ff33:af}} 
-;;=store AL in accumulator as INT
-store_AL_in_accumulator_as_INT:   ;{{Addr=$ff34 Code Calls/jump count: 2 Data use count: 0}}
-        ld      h,a               ;{{ff34:67}} 
 
-;;=store HL in accumulator as INT
-store_HL_in_accumulator_as_INT:   ;{{Addr=$ff35 Code Calls/jump count: 16 Data use count: 0}}
-        ld      (accumulator),hl  ;{{ff35:22a0b0}} 
-;;=set accumulator type to int
-set_accumulator_type_to_int:      ;{{Addr=$ff38 Code Calls/jump count: 2 Data use count: 0}}
-        ld      a,$02             ;{{ff38:3e02}} int
-;;=set accumulator data type
-set_accumulator_data_type:        ;{{Addr=$ff3a Code Calls/jump count: 1 Data use count: 0}}
-        ld      (accumulator_data_type),a;{{ff3a:329fb0}} 
-        ret                       ;{{ff3d:c9}} 
-
-;;=set accumulator type to real and HL to accumulator addr
-set_accumulator_type_to_real_and_HL_to_accumulator_addr:;{{Addr=$ff3e Code Calls/jump count: 2 Data use count: 0}}
-        ld      hl,accumulator    ;{{ff3e:21a0b0}} 
-;;=set accumulator type to real
-set_accumulator_type_to_real:     ;{{Addr=$ff41 Code Calls/jump count: 3 Data use count: 0}}
-        ld      a,$05             ;{{ff41:3e05}} real
-        jr      set_accumulator_data_type;{{ff43:18f5}}  (-$0b)
-
-;;======================================
-;;get accumulator type in c and addr in HL
-get_accumulator_type_in_c_and_addr_in_HL:;{{Addr=$ff45 Code Calls/jump count: 2 Data use count: 0}}
-        ld      hl,accumulator_data_type;{{ff45:219fb0}} 
-        ld      c,(hl)            ;{{ff48:4e}} 
-        inc     hl                ;{{ff49:23}} 
-        ret                       ;{{ff4a:c9}} 
-
-;;=====================================
-;;get accumulator data type
-get_accumulator_data_type:        ;{{Addr=$ff4b Code Calls/jump count: 2 Data use count: 0}}
-        ld      a,(accumulator_data_type);{{ff4b:3a9fb0}} 
-        ret                       ;{{ff4e:c9}} 
-
-;;======================================
-;;return accumulator value if int or address if real
-return_accumulator_value_if_int_or_address_if_real:;{{Addr=$ff4f Code Calls/jump count: 7 Data use count: 0}}
-        ld      a,(accumulator_data_type);{{ff4f:3a9fb0}} 
-        cp      $03               ;{{ff52:fe03}} string
-        jr      z,raise_type_mismatch_error_C;{{ff54:280c}}  (+$0c) error if string
-        ld      hl,(accumulator)  ;{{ff56:2aa0b0}} 
-        ret     c                 ;{{ff59:d8}} 
-
-        ld      hl,accumulator    ;{{ff5a:21a0b0}} 
-        ret                       ;{{ff5d:c9}} 
-
-;;==================================
-;;error if accumulator is not a string
-error_if_accumulator_is_not_a_string:;{{Addr=$ff5e Code Calls/jump count: 6 Data use count: 0}}
-        call    is_accumulator_a_string;{{ff5e:cd66ff}} 
-        ret     z                 ;{{ff61:c8}} 
-
-;;=raise Type Mismatch error
-raise_type_mismatch_error_C:      ;{{Addr=$ff62 Code Calls/jump count: 3 Data use count: 0}}
-        call    byte_following_call_is_error_code;{{ff62:cd45cb}} 
-        defb $0d                  ;Inline error code: Type mismatch
-
-;;=======================================================
-;;is accumulator a string?
-is_accumulator_a_string:          ;{{Addr=$ff66 Code Calls/jump count: 14 Data use count: 0}}
-        ld      a,(accumulator_data_type);{{ff66:3a9fb0}}  accumulator type
-        cp      $03               ;{{ff69:fe03}} string marker
-        ret                       ;{{ff6b:c9}} 
-
-;;================
-;;copy atHL to accumulator type A
-copy_atHL_to_accumulator_type_A:  ;{{Addr=$ff6c Code Calls/jump count: 7 Data use count: 0}}
-        ld      (accumulator_data_type),a;{{ff6c:329fb0}} 
-;;=copy atHL to accumulator using accumulator type
-copy_atHL_to_accumulator_using_accumulator_type:;{{Addr=$ff6f Code Calls/jump count: 2 Data use count: 0}}
-        ld      de,accumulator    ;{{ff6f:11a0b0}} 
-        jr      copy_value_atHL_to_atDE_accumulator_type;{{ff72:1813}}  (+$13)
-
-;;================
-;;probably push accumulator on execution stack
-probably_push_accumulator_on_execution_stack:;{{Addr=$ff74 Code Calls/jump count: 4 Data use count: 0}}
-        push    de                ;{{ff74:d5}} 
-        push    hl                ;{{ff75:e5}} 
-        ld      a,(accumulator_data_type);{{ff76:3a9fb0}} 
-        ld      c,a               ;{{ff79:4f}} 
-        call    possibly_alloc_A_bytes_on_execution_stack;{{ff7a:cd72f6}} 
-        call    copy_numeric_accumulator_to_atHL;{{ff7d:cd83ff}} 
-        pop     hl                ;{{ff80:e1}} 
-        pop     de                ;{{ff81:d1}} 
-        ret                       ;{{ff82:c9}} 
-
-;;========================================
-;;copy numeric accumulator to atHL
-copy_numeric_accumulator_to_atHL: ;{{Addr=$ff83 Code Calls/jump count: 6 Data use count: 0}}
-        ex      de,hl             ;{{ff83:eb}} 
-        ld      hl,accumulator    ;{{ff84:21a0b0}} 
-
-;;=copy value atHL to atDE accumulator type
-copy_value_atHL_to_atDE_accumulator_type:;{{Addr=$ff87 Code Calls/jump count: 3 Data use count: 0}}
-        push    bc                ;{{ff87:c5}} 
-        ld      a,(accumulator_data_type);{{ff88:3a9fb0}} 
-        ld      c,a               ;{{ff8b:4f}} 
-        ld      b,$00             ;{{ff8c:0600}} 
-        ldir                      ;{{ff8e:edb0}} 
-        pop     bc                ;{{ff90:c1}} 
-        ret                       ;{{ff91:c9}} 
 
 
 

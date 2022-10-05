@@ -1,57 +1,75 @@
 ;;<< PEEK, POKE, INP, OUT, WAIT, |BAR commands, CALL
 ;;========================================================
 ;; function PEEK
+;PEEK(<address expression>)
+;Reads the given byte from RAM
 
 function_PEEK:                    ;{{Addr=$f208 Code Calls/jump count: 0 Data use count: 1}}
-        call    function_UNT      ;{{f208:cdebfe}} 
-        rst     $20               ;{{f20b:e7}} 
+        call    function_UNT      ;{{f208:cdebfe}} Eval address
+        rst     $20               ;{{f20b:e7}} RAM_LAM - read a byte from RAM with all ROMs disabled
         jp      store_A_in_accumulator_as_INT;{{f20c:c332ff}} 
 
 ;;========================================================================
 ;; command POKE
+;POKE <address expression>,<integer expression>
+;Pokes a byte into RAM at the given location
 
 command_POKE:                     ;{{Addr=$f20f Code Calls/jump count: 0 Data use count: 1}}
-        call    eval_expr_as_uint ;{{f20f:cdf5ce}} 
+        call    eval_expr_as_uint ;{{f20f:cdf5ce}} Eval address
         push    de                ;{{f212:d5}} 
-        call    eval_next_param_as_byte_or_error;{{f213:cd3ff2}} 
+        call    eval_next_param_as_byte_or_error;{{f213:cd3ff2}} Eval data
         pop     de                ;{{f216:d1}} 
-        ld      (de),a            ;{{f217:12}} 
+        ld      (de),a            ;{{f217:12}} Poke data
         ret                       ;{{f218:c9}} 
 
 ;;========================================================================
 ;; function INP
+;INP(<port number>)
+;Reads a value from the given I/O port
+
 function_INP:                     ;{{Addr=$f219 Code Calls/jump count: 0 Data use count: 1}}
-        call    function_CINT     ;{{f219:cdb6fe}} 
+        call    function_CINT     ;{{f219:cdb6fe}} Eval port
         ld      b,h               ;{{f21c:44}} 
         ld      c,l               ;{{f21d:4d}} 
-        in      a,(c)             ;{{f21e:ed78}} 
+        in      a,(c)             ;{{f21e:ed78}} Read port
         jp      store_A_in_accumulator_as_INT;{{f220:c332ff}} 
 
 ;;========================================================================
 ;; command OUT
+;OUT <port number>,<integer expression>
+;Outputs data to the given I/O port
+;Expression must be 0..255
 
 command_OUT:                      ;{{Addr=$f223 Code Calls/jump count: 0 Data use count: 1}}
-        call    eval_uint_and_byte_params_or_error;{{f223:cd3af2}} 
-        out     (c),a             ;{{f226:ed79}} 
+        call    eval_uint_and_byte_params_or_error;{{f223:cd3af2}} Eval port and data
+        out     (c),a             ;{{f226:ed79}} Write to port
         ret                       ;{{f228:c9}} 
  
 ;;========================================================================
 ;; command WAIT
+;WAIT <port number>,<mask>[,<inversion>]
+;Waits for an I/O port to have a specific value.
+;XORs the input data with <inversion> then ANDs it with <mask>. Loops until the result
+;is non-zero.
+
 command_WAIT:                     ;{{Addr=$f229 Code Calls/jump count: 0 Data use count: 1}}
-        call    eval_uint_and_byte_params_or_error;{{f229:cd3af2}} 
-        ld      d,a               ;{{f22c:57}} 
-        ld      a,$00             ;{{f22d:3e00}} 
-        call    nz,eval_next_param_as_byte_or_error;{{f22f:c43ff2}} 
-        ld      e,a               ;{{f232:5f}} 
+        call    eval_uint_and_byte_params_or_error;{{f229:cd3af2}} Eval port and mask
+        ld      d,a               ;{{f22c:57}} D=mask
+        ld      a,$00             ;{{f22d:3e00}} Default inversion
+        call    nz,eval_next_param_as_byte_or_error;{{f22f:c43ff2}} Eval inversion if preset
+        ld      e,a               ;{{f232:5f}} E=inversion
+
 _command_wait_5:                  ;{{Addr=$f233 Code Calls/jump count: 1 Data use count: 0}}
-        in      a,(c)             ;{{f233:ed78}} 
-        xor     e                 ;{{f235:ab}} 
-        and     d                 ;{{f236:a2}} 
-        jr      z,_command_wait_5 ;{{f237:28fa}}  (-$06)
+        in      a,(c)             ;{{f233:ed78}} Read port
+        xor     e                 ;{{f235:ab}} Inversion
+        and     d                 ;{{f236:a2}} Mask
+        jr      z,_command_wait_5 ;{{f237:28fa}}  (-$06) Loop while zero
+
         ret                       ;{{f239:c9}} 
 
 ;;========================================================================
 ;;=eval uint and byte params or error
+;evals a UINT parameter into BC and a byte parameter into A
 eval_uint_and_byte_params_or_error:;{{Addr=$f23a Code Calls/jump count: 2 Data use count: 0}}
         call    eval_expr_as_uint ;{{f23a:cdf5ce}} 
         ld      b,d               ;{{f23d:42}} 
@@ -63,6 +81,9 @@ eval_next_param_as_byte_or_error: ;{{Addr=$f23f Code Calls/jump count: 2 Data us
 
 ;;=========================================================
 ;; BAR command
+;|<command name>[,<list of: <parameter}>]
+;Executes the given RSX (bar) command.
+;Parameter passing is as per CALL
 
 ;; skip | symbol
 BAR_command:                      ;{{Addr=$f245 Code Calls/jump count: 1 Data use count: 0}}
@@ -90,6 +111,12 @@ _bar_command_14:                  ;{{Addr=$f258 Code Calls/jump count: 1 Data us
 
 ;;==================================================================
 ;; command CALL
+;CALL <address expression>[,<list of: <parameter>>]
+;Calls a machine code routine at the given address.
+;The routine is called with IX pointing to the list of parameters
+;and A containing the number of parameters.
+;Parameters are passed in reverse order, ie. (IX+0) is the last parameter supplied.
+
 command_CALL:                     ;{{Addr=$f25c Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_uint ;{{f25c:cdf5ce}}  get address
         ld      c,$ff             ;{{f25f:0eff}} 
@@ -110,7 +137,7 @@ _command_call_7:                  ;{{Addr=$f26f Code Calls/jump count: 1 Data us
         push    de                ;{{f279:d5}}  push parameter onto stack
         djnz    _command_call_7   ;{{f27a:10f3}}  (-$0d)
 _command_call_14:                 ;{{Addr=$f27c Code Calls/jump count: 1 Data use count: 0}}
-        call    syntax_error_if_not_02;{{f27c:cd37de}} 
+        call    error_if_not_end_of_statement_or_eoln;{{f27c:cd37de}} 
         ld      (BASIC_Parser_position_moved_on_to__),hl;{{f27f:2258ae}} 
         ld      a,$20             ;{{f282:3e20}}  max 32 parameters
 ;; B = $20-number of parameters specified
@@ -125,10 +152,9 @@ _command_call_14:                 ;{{Addr=$f27c Code Calls/jump count: 1 Data us
         rst     $18               ;{{f28b:df}} 
         defw Machine_code_address_to_CALL_                
         ld      sp,(saved_address_for_SP_during_a_CALL_or_an);{{f28e:ed7b5aae}} 
-        call    get_string_stack_first_free_ptr;{{f292:cdccfb}} 
+        call    clear_string_stack;{{f292:cdccfb}} 
         ld      hl,(BASIC_Parser_position_moved_on_to__);{{f295:2a58ae}} 
         ret                       ;{{f298:c9}} 
-
 
 
 

@@ -1,8 +1,15 @@
 ;;<< CONTROL FLOW
 ;;< FOR, IF, GOTO, GOSUB, WHILE
 ;;========================================================================
-
 ;; command FOR
+;FOR <simple variable>=<start> TO <end> [STEP <step size>]
+;Variable and values can be integer or real.
+;The matching NEXT is established when executing the FOR, and is the next matching 
+;NEXT (taking account of nesting) sequentially in the program code, ignoring order 
+;of execution.
+;Terminates when the variable is >= the end value (positive step) or 
+;<= the end value (negative step)
+;The FOR loop can be terminated by avoiding the NEXT
 
 command_FOR:                      ;{{Addr=$c5d4 Code Calls/jump count: 0 Data use count: 1}}
         call    parse_and_find_or_alloc_FOR_var;{{c5d4:cdecd6}} 
@@ -98,7 +105,7 @@ _command_for_73:                  ;{{Addr=$c65b Code Calls/jump count: 1 Data us
         inc     hl                ;{{c668:23}} 
         ex      de,hl             ;{{c669:eb}} 
         pop     hl                ;{{c66a:e1}} 
-        call    syntax_error_if_not_02;{{c66b:cd37de}} Validate step is an INT
+        call    error_if_not_end_of_statement_or_eoln;{{c66b:cd37de}} Validate step is an INT
         ex      de,hl             ;{{c66e:eb}} 
         ld      (hl),e            ;{{c66f:73}} 
         inc     hl                ;{{c670:23}} 
@@ -141,6 +148,9 @@ raise_Unexpected_NEXT:            ;{{Addr=$c69e Code Calls/jump count: 2 Data us
 
 ;;========================================================================
 ;; command NEXT
+;NEXT [<list of: <variable>>]
+;Ends a FOR loop. See FOR
+
 command_NEXT:                     ;{{Addr=$c6a2 Code Calls/jump count: 0 Data use count: 1}}
         ld      a,$ff             ;{{c6a2:3eff}} 
         ld      (FORNEXT_flag_),a ;{{c6a4:320cac}} &ff=NEXT has been used
@@ -316,6 +326,14 @@ _update_and_test_int_for_loop_counter_24:;{{Addr=$c757 Code Calls/jump count: 1 
 
 ;;========================================================================
 ;; command IF
+;IF <logical expression> THEN <option part> [ELSE <option part>]
+;IF <logical expression> GOTO <line number> [ELSE <option part>]
+;where <option part> is <statements> or <line number>
+;Conditional execution.
+;An IF statement terminates at the end of the line.
+;GOTO can also be GO TO
+;Line numbers must be constants
+;IF statements can be nested as long as they are all on the same line.
 
 command_IF:                       ;{{Addr=$c767 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expression   ;{{c767:cd62cf}} 
@@ -340,6 +358,9 @@ _command_if_5:                    ;{{Addr=$c772 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command GOTO
+;GOTO <line number>
+;GO TO <line number>
+;Jump to a line. Line number must be a constant
 
 command_GOTO:                     ;{{Addr=$c786 Code Calls/jump count: 1 Data use count: 1}}
         call    eval_and_convert_line_number_to_line_address;{{c786:cd27e8}} 
@@ -350,6 +371,9 @@ command_GOTO:                     ;{{Addr=$c786 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command GOSUB
+;GOSUB <line number>
+;GO SUB <line number>
+;Call a subroutine. Line number must be a constant.
 
 command_GOSUB:                    ;{{Addr=$c78c Code Calls/jump count: 0 Data use count: 1}}
         call    eval_and_convert_line_number_to_line_address;{{c78c:cd27e8}} 
@@ -388,6 +412,8 @@ special_GOSUB_HL:                 ;{{Addr=$c793 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command RETURN
+;RETURN
+;Returns from a subroutine
 
 command_RETURN:                   ;{{Addr=$c7b0 Code Calls/jump count: 0 Data use count: 1}}
         ret     nz                ;{{c7b0:c0}} 
@@ -437,6 +463,12 @@ _find_last_return_item_on_execution_stack_1:;{{Addr=$c7d2 Code Calls/jump count:
 
 ;;========================================================================
 ;; command WHILE
+;WHILE <logical expression>
+;Begins a WHILE ... WEND loop
+;The matching WEND is established when WHILE is encountered, and is searched for sequentially
+;in the code, ignoring order of execution, but respecting and nested WHILE loops.
+;WHILE can be terminated by avoiding the WEND
+
 command_WHILE:                    ;{{Addr=$c7e7 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{c7e7:e5}} 
         call    find_matching_WEND;{{c7e8:cdc9ca}} 
@@ -479,6 +511,9 @@ command_WHILE:                    ;{{Addr=$c7e7 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command WEND
+;WEND
+;Terminates a WHILE ... WEND loop.
+;See WHILE
 
 command_WEND:                     ;{{Addr=$c81a Code Calls/jump count: 0 Data use count: 1}}
         ret     nz                ;{{c81a:c0}} 

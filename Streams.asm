@@ -52,8 +52,8 @@ eval_and_select_txt_stream:       ;{{Addr=$c1ca Code Calls/jump count: 1 Data us
         call    eval_and_validate_stream_number_if_present;{{c1ca:cdfbc1}} 
         jr      select_txt_stream ;{{c1cd:18d7}}  (-$29)
 
-;;=exec BC on evalled stream and swap back
-exec_BC_on_evalled_stream_and_swap_back:;{{Addr=$c1cf Code Calls/jump count: 2 Data use count: 0}}
+;;=exec following on evalled stream and swap back
+exec_following_on_evalled_stream_and_swap_back:;{{Addr=$c1cf Code Calls/jump count: 2 Data use count: 0}}
         call    eval_and_validate_stream_number_if_present;{{c1cf:cdfbc1}} 
         jr      exec_TOS_on_stream_and_swap_back;{{c1d2:1818}}  (+$18)
 
@@ -99,7 +99,7 @@ eval_and_validate_stream_number_if_present:;{{Addr=$c1fb Code Calls/jump count: 
         call    eval_and_validate_stream_number;{{c201:cd0dc2}} 
         push    af                ;{{c204:f5}} 
         call    next_token_if_prev_is_comma;{{c205:cd41de}} 
-        call    nc,syntax_error_if_not_02;{{c208:d437de}} 
+        call    nc,error_if_not_end_of_statement_or_eoln;{{c208:d437de}} 
         pop     af                ;{{c20b:f1}} 
         ret                       ;{{c20c:c9}} 
 

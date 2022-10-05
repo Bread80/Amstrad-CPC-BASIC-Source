@@ -1,6 +1,10 @@
 ;;<< GRAPHICS FUNCTIONS
 ;;========================================================================
 ;; command ORIGIN
+;ORIGIN <x>,<y>[,<left>,<right>,<top>,<bottom>]
+;Sets graphics screen origin and window
+;If left, right, top, bottom are omitted then current window remains unchanged.
+;(0,0) is the bottom, left of the screen.
 
 command_ORIGIN:                   ;{{Addr=$c4de Code Calls/jump count: 0 Data use count: 1}}
         call    eval_two_int_params;{{c4de:cd8cc5}} params x,y
@@ -30,6 +34,9 @@ _command_origin_18:               ;{{Addr=$c4ff Code Calls/jump count: 1 Data us
 
 ;;=============================================================================
 ;; command CLG
+;CLG [<masked ink>]
+;Clear the graphics screen to the given ink. If no ink is given the value
+;from the last call to CLG is used, or ink 0 if no CLG command has been executed
 
 command_CLG:                      ;{{Addr=$c506 Code Calls/jump count: 0 Data use count: 1}}
         call    is_next_02        ;{{c506:cd3dde}} 
@@ -45,7 +52,7 @@ command_FILL:                     ;{{Addr=$c512 Code Calls/jump count: 0 Data us
         call    check_value_is_less_than_16;{{c512:cd71c2}}  check parameter is less than 16
         push    hl                ;{{c515:e5}} 
         push    af                ;{{c516:f5}} 
-        call    _function_fre_6   ;{{c517:cd64fc}} (free up?) and calc free memory?
+        call    strings_area_garbage_collection;{{c517:cd64fc}} (free up?) and calc free memory?
         call    get_free_space_byte_count_in_HL_addr_in_DE;{{c51a:cdfcf6}} 
         ld      bc,$001d          ;{{c51d:011d00}} 
         call    compare_HL_BC     ;{{c520:cddeff}}  HL=BC?
@@ -59,36 +66,59 @@ command_FILL:                     ;{{Addr=$c512 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command MOVE
+;MOVE <x coordinate>,<y coordinate>
+;Moves the graphic cursor
+
 command_MOVE:                     ;{{Addr=$c52f Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_MOVE_ABSOLUTE;{{c52f:01c0bb}}  firmware function: gra move absolute
         jr      plotdraw_general_function;{{c532:1817}} 
 
 ;;========================================================================
 ;; command MOVER
+;MOVER <x coordinate>,<y coordinate>
+;Moves the graphic cursor relative to it's current position
+
 command_MOVER:                    ;{{Addr=$c534 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_MOVE_RELATIVE;{{c534:01c3bb}}  firmware function: gra move relative
         jr      plotdraw_general_function;{{c537:1812}} 
 
 ;;========================================================================
 ;; command DRAW
+;DRAW <x coordinate>,<y coordinate>[,<masked ink>]
+;Draw a line on the screen from the current position to that given.
+;If no masked ink is specified that given in the last call to DRAW, DRAWR, PLOT or PLOTR 
+;will be used. If no such commands have been used, ink 1 will be used.
+
 command_DRAW:                     ;{{Addr=$c539 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_LlNE_ABSOLUTE;{{c539:01f6bb}}  firmware function: gra line absolute
         jr      plotdraw_general_function;{{c53c:180d}} 
 
 ;;========================================================================
 ;; command DRAWR
+;DRAWR <x offset>,<y offset>[,<masked ink>]
+;Draws a line from the current position to the given offset from that position
+;See DRAW
+
 command_DRAWR:                    ;{{Addr=$c53e Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_LINE_RELATIVE;{{c53e:01f9bb}}  firmware function: gra line relative
         jr      plotdraw_general_function;{{c541:1808}} 
 
 ;;========================================================================
 ;; command PLOT
+;PLOT <x coordinate>,<y coordinate>[,<masked ink>]
+;Plots a pixel at the given location
+;See DRAW
+
 command_PLOT:                     ;{{Addr=$c543 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_PLOT_ABSOLUTE;{{c543:01eabb}}  firmware function: gra plot absolute
         jr      plotdraw_general_function;{{c546:1803}} 
 
 ;;========================================================================
 ;; command PLOTR
+;PLOTR <x offset>,<y offset>[,<masked ink>]
+;Plots a pixel at the given offset from the current position
+;See DRAW
+
 command_PLOTR:                    ;{{Addr=$c548 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_PLOT_RELATIVE;{{c548:01edbb}}  firmware function: gra plot relative
 
@@ -123,12 +153,20 @@ _plotdraw_general_function_13:    ;{{Addr=$c568 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; function TEST
+;TEST(<x coordinate>,<y coordinate>)
+;Returns the ink at the given pixel location. Also moves th graphics cursor.
+;If the location is outside the current graphics window the value used in the last CLG
+;command is returned. If no CLG command hs been used returns 0
+
 function_TEST:                    ;{{Addr=$c571 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_TEST_ABSOLUTE;{{c571:01f0bb}}  firmware function: GRA TEST ABSOLUTE
         jr      _function_testr_1 ;{{c574:1803}}  
 
 ;;========================================================================
 ;; function TESTR
+;TESTR(<x offset>,<y offset>)
+;As TEST but the position is relative to the current graphics cursor position
+
 function_TESTR:                   ;{{Addr=$c576 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_TEST_RELATIVE;{{c576:01f3bb}}  firmware function: GRA TEST RELATIVE
 ;;------------------------------------------------------------------------

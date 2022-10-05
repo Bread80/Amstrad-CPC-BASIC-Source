@@ -35,11 +35,13 @@ arm_break_handler_B:              ;{{Addr=$c480 Code Calls/jump count: 1 Data us
 ;;=======================================================================================
 ;;break handling routine
 ;Called from firmware break handler
+
+;Clear any characters in the input buffer prior to the break key being pressed
 break_handling_routine:           ;{{Addr=$c492 Code Calls/jump count: 1 Data use count: 1}}
         call    KM_READ_CHAR      ;{{c492:cd09bb}}  firmware function: km read char
         jr      nc,_break_handling_routine_4;{{c495:3004}}  (+$04) No key available  
         cp      $ef               ;{{c497:feef}}  
-        jr      nz,break_handling_routine;{{c499:20f7}}  (-$09) Loop until $ef. Code for break released?
+        jr      nz,break_handling_routine;{{c499:20f7}}  (-$09) Loop until $ef. Code for break key.
 
 _break_handling_routine_4:        ;{{Addr=$c49b Code Calls/jump count: 1 Data use count: 0}}
         call    break_pause       ;{{c49b:cda1c4}}  wait for second break, or resume

@@ -2,6 +2,8 @@
 ;;< Including ^ and random numbers
 ;;========================================================================
 ;; variable PI
+;PI
+;Returns the closest available representation of PI - 3.1415926534683
 
 variable_PI:                      ;{{Addr=$d51d Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d51d:e5}} 
@@ -13,12 +15,17 @@ variable_PI:                      ;{{Addr=$d51d Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command DEG
+;DEG
+;Set degrees mode
+
 command_DEG:                      ;{{Addr=$d529 Code Calls/jump count: 0 Data use count: 1}}
         ld      a,$ff             ;{{d529:3eff}} 
         jr      _command_rad_1    ;{{d52b:1801}}  (+$01)
 
 ;;========================================================================
 ;; command RAD
+;RAD
+;Set radians mode
 
 command_RAD:                      ;{{Addr=$d52d Code Calls/jump count: 0 Data use count: 1}}
         xor     a                 ;{{d52d:af}} 
@@ -27,6 +34,8 @@ _command_rad_1:                   ;{{Addr=$d52e Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function SQR
+;SQR(<numeric expression>)
+;Returns the square root of the value
 
 function_SQR:                     ;{{Addr=$d531 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_SQR       ;{{d531:019dbd}} 
@@ -69,12 +78,19 @@ read_real_param:                  ;{{Addr=$d559 Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function EXP
+;EXP(<numeric expression>)
+;Exponential. Calculates e to the given power.
+;Values over 88 will overflow and raise an error.
+;Values much less than -88.7 will underflow and return 0
+
 function_EXP:                     ;{{Addr=$d560 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_EXP       ;{{d560:01a9bd}} 
         jr      read_real_param_and_validate;{{d563:18e7}}  (-$19)
 
 ;;========================================================
 ;; function LOG10
+;LOG10(<numeric expression>)
+;Returns the base 10 logarithm of the value, which must be greater than zero
 
 function_LOG10:                   ;{{Addr=$d565 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_LOG_10    ;{{d565:01a6bd}} 
@@ -82,12 +98,17 @@ function_LOG10:                   ;{{Addr=$d565 Code Calls/jump count: 0 Data us
 
 ;;========================================================
 ;; function LOG
+;LOG(<numeric expression>)
+;Returns the natural logarithm of the expression, which must be greater than 0.
+
 function_LOG:                     ;{{Addr=$d56a Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_LOG       ;{{d56a:01a3bd}} 
         jr      read_real_param_and_validate;{{d56d:18dd}}  (-$23)
 
 ;;========================================================
 ;; function SIN
+;SIN(<numeric expression>)
+;Returns sine of expression
 
 function_SIN:                     ;{{Addr=$d56f Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_SINE      ;{{d56f:01acbd}} 
@@ -95,20 +116,28 @@ function_SIN:                     ;{{Addr=$d56f Code Calls/jump count: 0 Data us
 
 ;;========================================================
 ;; function COS
+;COS(<numeric expression>)
+;Calculates the cosine of the given value
+
 function_COS:                     ;{{Addr=$d574 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_COSINE    ;{{d574:01afbd}} 
         jr      read_real_param_and_validate;{{d577:18d3}}  (-$2d)
 
 ;;========================================================
 ;; function TAN
+;TAN(<numeric expression>)
+;Returns the tangent of the expression.
 
 function_TAN:                     ;{{Addr=$d579 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_TANGENT   ;{{d579:01b2bd}} 
         jr      read_real_param_and_validate;{{d57c:18ce}}  (-$32)
 
 ;;========================================================
-;; funciton ATN
-funciton_ATN:                     ;{{Addr=$d57e Code Calls/jump count: 0 Data use count: 1}}
+;; function ATN
+;ATN(<numeric expression>)
+;Returns the arctangent of the supplied value
+
+function_ATN:                     ;{{Addr=$d57e Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_ARCTANGENT;{{d57e:01b5bd}} 
         jr      read_real_param_and_validate;{{d581:18c9}}  (-$37)
 
@@ -118,6 +147,10 @@ random_number_seed_message:       ;{{Addr=$d583 Data Calls/jump count: 0 Data us
         defb "Random number seed ? ",0
 ;;========================================================================
 ;; command RANDOMIZE
+;RANDOMIZE [<numeric expression>]
+;Sets the initial value for the random number generator
+;If no value is given prompts the user for one.
+
 command_RANDOMIZE:                ;{{Addr=$d599 Code Calls/jump count: 0 Data use count: 1}}
         jr      z,random_seed_prompt;{{d599:2806}}  (+$06) Do we have inline parameter, if not prompt for input
         call    eval_expression   ;{{d59b:cd62cf}}  if so read it
@@ -133,7 +166,7 @@ random_seed_loop:                 ;{{Addr=$d5a2 Code Calls/jump count: 2 Data us
         call    output_ASCIIZ_string;{{d5a5:cd8bc3}} ; display 0 terminated string
         call    prob_read_buffer_and_or_break;{{d5a8:cdecca}}  Key input text
         call    output_new_line   ;{{d5ab:cd98c3}} ; new text line
-        call    possibly_validate_input_buffer_is_a_number;{{d5ae:cd6fed}}  Validate/convert to a number
+        call    convert_string_to_number;{{d5ae:cd6fed}}  Validate/convert to a number
         jr      nc,random_seed_loop;{{d5b1:30ef}}  (-$11) Loop if invalid
         call    skip_space_tab_or_line_feed;{{d5b3:cd4dde}}  skip space, lf or tab
         or      a                 ;{{d5b6:b7}} 
@@ -148,6 +181,12 @@ dorandomize:                      ;{{Addr=$d5b9 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; variable RND
+;RND[(<numeric expression>)]
+;Returns a random number <= value < 1
+;With no argument or a value >= 0 returns a new random number
+;With a value = 0 returns a copy of the last random number
+;With a value < 0 starts a new sequence based on that value and
+;returns the first value in that sequence
 
 variable_RND:                     ;{{Addr=$d5c1 Code Calls/jump count: 0 Data use count: 1}}
         ld      a,(hl)            ;{{d5c1:7e}} Do we have a parameter?

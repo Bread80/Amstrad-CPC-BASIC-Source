@@ -18,7 +18,7 @@ In the associated files you will find:
 
 Project Status
 ---
-This project is still very much a work in progress. There are still several major areas of the code to be 'unassembled' along with much tidying up to do. There may well be major changes to make to the project as a whole as I understand it more.
+I now consider the project to be complete. There are still a few areas where commenting is limited, such as the the code around arrays, but there are sufficient 'high level' comments about what each section is doing in total that anyone skilled enough to modify the code will also be skilled enough to understand it. I'd also like to factor out a few 'magic numbers' such as token values and some numeric constants to make the code easier to parse, although such work does introduce the risks of misunderstanding a values purpose and introducing bugs.
 
 I also want to make it easy to extend the BASIC. As it stands there is not a single byte spare in the 16k ROM, so extending BASIC will mean either removing features or splitting it into multiple ROMs. The Amstrad firmware has built in support for the multiple ROM option so I'd rather go that route. However, there is no quick and easy way to split the code. There's an obvious split between command line/program editing and run-time but each mode uses features of the other. For example code entry uses the same routines to parse numbers as used by the INPUT etc routines at run time. It will probably require some form to static analysis tool to assess which sections are used by each mode (and which are used by both).
 
@@ -27,7 +27,7 @@ Finding Your Way Around
 
 This is a large project with over 12k lines of code so a few pointers will help you find your way around the code base. There are two versions of the code, BASIC1.1.asm is the entire source in a single, monolithic file. The second version is split into modules with 'Main.asm' as the core file which 'includes' the others. If you want to search for something specific the monolithic file will suit you best. If you want to explore or modify a single set of features then the modular version will prove easier to manage.
 
-When splitting the code into modules I've tried not to make modules too large, whilst also trying to keep the module count to a reasonable figure. In general the code is easy to split in this way, but there are a few sections where a small piece of code would be better placed elsewhere. And the occasional grouping of several functionalities which aren't related to anything else. An example of the latter is the PEEK, POKE, INP, OUT, WAIT, bar command, CALL routines. They're all somewhat related in function, they're all grouped in the source, but they don't fall into any easily labelled category. I've chosen to leave them in a single module and use the clumsy title 'PeekPokeIOBarCall.asm'.
+When splitting the code into modules I've tried not to make modules too large, whilst also trying to keep the module count to a reasonable figure. In general the code is easy to split in this way, but there are a few sections where a small piece of code would be better placed elsewhere. And the occasional grouping of several functionalities which aren't related to anything else. An example of the latter is the PEEK, POKE, INP, OUT, WAIT, bar command, CALL routines. They're all somewhat related in function, they're all grouped in the source, but they don't fall into any easily labeled category. I've chosen to leave them in a single module and use the clumsy title 'PeekPokeIOBarCall.asm'.
 
 Initialisation
 ---
@@ -88,7 +88,7 @@ Function calls involve looking up the code address for the function (as we did f
 
 There are also a number of 'system variables' (mostly in SysVars.asm) which are essentially functions with no parameters. These include HIMEM, TIME and XPOS.
 
-To do all this BASIC maintains an 'accumulator' (sometimes termed the 'virtual accumulator') which functions in the same way as the accumulator in a processor, storing the result of previous operations and being used as one of the operands in the next. There is also an 'execution stack' which can be used to 'push' and 'pop' values between steps. (The execution stack is also used by control flow statements which will be described shortly). I'd suggest looking at the MemoryBASIC.txt file in the includes folder for more practical details on the accumulator and execution stack.
+To do all this BASIC maintains an 'accumulator' (sometimes termed the 'virtual accumulator')(see Accumulator.asm) which functions in the same way as the accumulator in a processor, storing the result of previous operations and being used as one of the operands in the next. There is also an 'execution stack' which can be used to 'push' and 'pop' values between steps. (The execution stack is also used by control flow statements which will be described shortly). I'd suggest looking at the MemoryBASIC.txt file in the includes folder for more practical details on the accumulator and execution stack.
 
 Within ExprEvaluation.asm you'll find look up tables for both infix operators (InfixOperators.asm) and prefix operators (handled by the expression evaluator). There's also a table here for system variables. Comparisons are handle by a single entry in the infix operator table. This calls the correct routine for the type of the expression (int, real, string) to do the comparison. (And consider here that '=' is just the inversion of '<>', '<=' is inverted '>' and '>=' is inverted '<'. Separate routines would be wasteful when a single comparison can set multiple flags). (The actual comparison routines are in Strings.asm and InfixOperators.asm (which calls code the firmware's real library or IntegerMaths.asm depending on the operator types).
 
@@ -128,7 +128,7 @@ This is an area of the source which I haven't explored much yet. Most of it is i
 
 As I find out how it works I may find a convenient way to split it into smaller modules (at 55kb it's currently the largest single module). It contains DEFINT, DEFSTR, DEFREAL, DIM, LET and ERASE plus (probably) all the eye-wateringly ugly memory management code that that entails.
 
-And speaking of ugly memory management code which I haven't explored yet, we have the MemoryAllocation.asm module which revolves around the MEMORY and SYMBOL (AFTER) commands.
+And speaking of ugly memory management code, we have the MemoryAllocation.asm module. This handles various memory allocation and memory movement tasks such as the MEMORY command, allocating and de-allocating file buffers and the SYMBOL (AFTER) commands. (But the strings area (heap) is handled in the separate StringsArea.asm module).
 
 Data Input and Output
 ---
@@ -160,6 +160,14 @@ PEEK, POKE, INP, OUT, WAIT, bar commands and CALL are in the imaginatively named
 
 Sound functions are in Sound.asm
 
+The Strings Area and String Stack
+---
+The strings area should probably be called the string heap. It's an area of memory below HIMEM which grows downwards as new strings are allocated. BASIC includes a garbage collector which 'compresses' the strings area to remove any wasted space. This garbage collector can be trigger manually with the FRE function, or will run automatically if BASIC runs out of memory.
+
+There is also a 'string stack' This is a block of space within the system variables area which can store a list of string descriptors. This is used during expression parsing, with the descriptors referring to intermediate values in the expression. The strings themselves are allocated on the bottom of the strings area/heap and removed after processing (possibly with a final string value added to the bottom of the previous strings area).
+
+All of this is handled in StringsArea.asm.
+
 Maths, Strings and System Utilities
 ---
 This is the bulk of the functions available in BASIC, many of which are also used by the system when necessary:
@@ -169,7 +177,7 @@ Maths.asm contains most of the maths functions with a couple for unknown reasons
 Infix operators are in InfixOperators.asm (Prefix operators - '+','-' and 'NOT' are processed within the expression parser itself).
 SystemVars.asm contains (most of) the system variables (HIMEM, TIME etc).
 Conversion between numerical types is handled by TypeConversions.asm. Strings to number and number to strings conversions are handled by StringsToNumbers.asm and NumbersToStrings.asm respectively.
-String handling (concatenation, substrings, allocation etc) is the responsibility of Strings.asm (probably with a fair bit of help from MemoryAllocation.asm - this is more stuff I haven't dug too far into).
+String handling functions (and related) (concatenation, substrings) are is the responsibility of StringFunctions.asm.
 
 Finally (if I'm not mistaken) is Utilities.asm. A random bunch of routines tucked at the very end of the ROM and doing boring but essential things like memory copies, table lookups and jumps to registers.
 
@@ -231,7 +239,7 @@ As a summary of the work undertaken to get these source files:
 
 Licence
 ===
-The object code in this repository is the copyright of Amstrad Consumer Electroncs Plc and Locomotive Software Ltd.
+The object code in this repository is the copyright of Amstrad Consumer Electronics Plc and Locomotive Software Ltd. I understand that the code is freely available for non-commercial use provided the original copyright notices are retained.
 
 This repository is built on the work of those who did the original disassembly and reverse engineering. I don't know the names of those individuals or their licencing terms.
 

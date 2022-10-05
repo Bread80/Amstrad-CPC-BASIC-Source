@@ -3,12 +3,17 @@
 ;;=======================================================
 
 ;;initialise memory model
-;;sets addresses for where stuff is located in memory
-;;HL=?? passed from MC_START_PROGRAM
-;;DE=first byte of available memory passed from MC_START_PROGRAM
-;;BC=?? passed from MC_START_PROGRAM
+;Start of day initialisation
+
+;Values passed from MC_START_PROGRAM
+;DE = first byte of available memory
+;HL=last byte of memory not used by BASIC
+;BC=last byte of memory not used by firmware
+
+;Returns Carry true if failed - I.e. not enough memory
+
 initialise_memory_model:          ;{{Addr=$f53f Code Calls/jump count: 1 Data use count: 0}}
-        ld      bc,program_line_redundant_spaces_flag_;{{f53f:0100ac}} 
+        ld      bc,program_line_redundant_spaces_flag_;{{f53f:0100ac}} This appears to be detecting a warm boot.
         call    compare_HL_BC     ;{{f542:cddeff}}  HL=BC?
         ret     nc                ;{{f545:d0}} 
 
@@ -31,25 +36,28 @@ initialise_memory_model:          ;{{Addr=$f53f Code Calls/jump count: 1 Data us
         cp      $04               ;{{f561:fe04}} 
         ret     c                 ;{{f563:d8}} 
 
-        call    clear_RAMb075     ;{{f564:cd7ff7}} 
+        call    clear_file_buffer_flag;{{f564:cd7ff7}} 
         ld      (vars_and_data_at_end_of_memory_flag),a;{{f567:326eae}} 
         ret                       ;{{f56a:c9}} 
 
 ;;========================================================================
 ;; command MEMORY
+;MEMORY <address expression>
+;Specifies the highest byte of memory which is available to BASIC
 
 command_MEMORY:                   ;{{Addr=$f56b Code Calls/jump count: 0 Data use count: 1}}
-        call    eval_expr_as_uint ;{{f56b:cdf5ce}} 
+        call    eval_expr_as_uint ;{{f56b:cdf5ce}} eval parameter
         push    hl                ;{{f56e:e5}} 
-        ld      hl,(address_of_highest_byte_of_free_RAM_);{{f56f:2a60ae}} 
+        ld      hl,(address_of_highest_byte_of_free_RAM_);{{f56f:2a60ae}} Address too high?
         call    compare_HL_DE     ;{{f572:cdd8ff}}  HL=DE?
         jr      c,raise_memory_full_error;{{f575:3831}}  (+$31)
+
         inc     de                ;{{f577:13}} 
         call    compare_DE_to_HIMEM_plus_1;{{f578:cdecf5}}  compare DE with HIMEM
-        call    c,_command_memory_14;{{f57b:dc8af5}} 
+        call    c,_command_memory_14;{{f57b:dc8af5}} Move character matrix table?
         ex      de,hl             ;{{f57e:eb}} 
-        call    _symbol_after_18  ;{{f57f:cd08f8}} 
-        ld      hl,(poss_file_buffer_address);{{f582:2a76b0}} 
+        call    move_strings_area ;{{f57f:cd08f8}} Move strings area
+        ld      hl,(address_of_4k_file_buffer_);{{f582:2a76b0}} 
         ld      (address_of_the_highest_byte_of_free_RAM_),hl;{{f585:2278b0}} 
         pop     hl                ;{{f588:e1}} 
         ret                       ;{{f589:c9}} 
@@ -59,22 +67,24 @@ _command_memory_14:               ;{{Addr=$f58a Code Calls/jump count: 1 Data us
         ld      bc,(HIMEM_)       ;{{f58d:ed4b5eae}}  HIMEM
         call    c,compare_HL_minus_BC_to_DE_minus_BC;{{f591:dce0f5}} 
         jr      c,raise_memory_full_error;{{f594:3812}}  (+$12)
-        ld      hl,(poss_file_buffer_address);{{f596:2a76b0}} 
+        ld      hl,(address_of_4k_file_buffer_);{{f596:2a76b0}} 
         dec     hl                ;{{f599:2b}} 
         call    compare_HL_minus_BC_to_DE_minus_BC;{{f59a:cde0f5}} 
         ret     nc                ;{{f59d:d0}} 
 
-        ld      a,(poss_file_buffer_flag);{{f59e:3a75b0}} 
+        ld      a,(file_buffer_flags);{{f59e:3a75b0}} 
         or      a                 ;{{f5a1:b7}} 
         ret     z                 ;{{f5a2:c8}} 
 
         cp      $04               ;{{f5a3:fe04}} 
-        jp      z,clear_RAMb075   ;{{f5a5:ca7ff7}} 
+        jp      z,clear_file_buffer_flag;{{f5a5:ca7ff7}} 
 ;;=raise memory full error
 raise_memory_full_error:          ;{{Addr=$f5a8 Code Calls/jump count: 3 Data use count: 0}}
         jp      raise_memory_full_error_C;{{f5a8:c375f8}} 
 
-_raise_memory_full_error_1:       ;{{Addr=$f5ab Code Calls/jump count: 1 Data use count: 0}}
+;;====================================================
+;;=prepare memory for loading binary
+prepare_memory_for_loading_binary:;{{Addr=$f5ab Code Calls/jump count: 1 Data use count: 0}}
         push    de                ;{{f5ab:d5}} 
         ex      de,hl             ;{{f5ac:eb}} 
         add     hl,bc             ;{{f5ad:09}} 
@@ -89,7 +99,7 @@ _raise_memory_full_error_1:       ;{{Addr=$f5ab Code Calls/jump count: 1 Data us
         ex      de,hl             ;{{f5bd:eb}} 
         call    c,compare_HL_minus_BC_to_DE_minus_BC;{{f5be:dce0f5}} 
         jr      nc,raise_memory_full_error;{{f5c1:30e5}}  (-$1b)
-        ld      bc,(poss_file_buffer_address);{{f5c3:ed4b76b0}} 
+        ld      bc,(address_of_4k_file_buffer_);{{f5c3:ed4b76b0}} 
         ld      hl,$0fff          ;{{f5c7:21ff0f}} 
         add     hl,bc             ;{{f5ca:09}} 
         call    compare_HL_minus_BC_to_DE_minus_BC;{{f5cb:cde0f5}} 
@@ -101,7 +111,7 @@ _raise_memory_full_error_1:       ;{{Addr=$f5ab Code Calls/jump count: 1 Data us
         ld      d,b               ;{{f5d4:50}} 
         ld      e,c               ;{{f5d5:59}} 
         call    compare_DE_to_HIMEM_plus_1;{{f5d6:cdecf5}}  compare DE with HIMEM
-        jp      nz,clear_RAMb075  ;{{f5d9:c27ff7}} 
+        jp      nz,clear_file_buffer_flag;{{f5d9:c27ff7}} 
         ld      (address_of_the_highest_byte_of_free_RAM_),hl;{{f5dc:2278b0}} 
         ret                       ;{{f5df:c9}} 
 
@@ -144,6 +154,7 @@ get_size_of_strings_area_in_BC:   ;{{Addr=$f5f8 Code Calls/jump count: 3 Data us
         pop     de                ;{{f605:d1}} 
         ret                       ;{{f606:c9}} 
 
+;;==========================
 ;;=prob grow all program space pointers by BC
 prob_grow_all_program_space_pointers_by_BC:;{{Addr=$f607 Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,(address_after_end_of_program);{{f607:2a66ae}} 
@@ -179,7 +190,7 @@ prob_move_vars_and_arrays_to_end_of_memory:;{{Addr=$f629 Code Calls/jump count: 
         ld      c,l               ;{{f62d:4d}} 
         ld      hl,(address_after_end_of_program);{{f62e:2a66ae}} 
         ex      de,hl             ;{{f631:eb}} 
-        call    unknown_alloc_and_move_memory_up;{{f632:cdb8f6}} 
+        call    move_lower_memory_up;{{f632:cdb8f6}} 
         ld      a,$ff             ;{{f635:3eff}} 
         ld      (vars_and_data_at_end_of_memory_flag),a;{{f637:326eae}} 
         jr      prob_grow_program_space_ptrs_by_BC;{{f63a:18d7}}  (-$29)
@@ -241,9 +252,9 @@ possibly_alloc_A_bytes_on_execution_stack:;{{Addr=$f672 Code Calls/jump count: 1
         sub     l                 ;{{f679:95}} 
         ld      h,a               ;{{f67a:67}} 
         ld      (execution_stack_next_free_ptr),hl;{{f67b:226fb0}} 
-        ld      a,$94             ;{{f67e:3e94}} check for stack overflow???   
+        ld      a,(2 - $b06e) and $ff;{{f67e:3e94}} was $94 last byte of execution stack - check for stack overflow???   
         add     a,l               ;{{f680:85}} 
-        ld      a,$4f             ;{{f681:3e4f}} 
+        ld      a,((2 - $b06e) >> 8) and $ff;{{f681:3e4f}} was $4f
         adc     a,h               ;{{f683:8c}} 
         pop     hl                ;{{f684:e1}} 
         ret     nc                ;{{f685:d0}} 
@@ -260,10 +271,13 @@ empty_strings_area:               ;{{Addr=$f68c Code Calls/jump count: 1 Data us
 
 ;;==============================
 ;;alloc C bytes in string space
+;Alloc C + 2 bytes in the strings area (i.e. to the bottom),
+;then writes BC to the two lowest bytes (where B=0)
+;Returns the HL=first byte allocated (NOT inlcuding the two extra bytes)
 alloc_C_bytes_in_string_space:    ;{{Addr=$f693 Code Calls/jump count: 1 Data use count: 0}}
         ld      b,$00             ;{{f693:0600}} 
-;;=alloc BC bytes in string space
-alloc_BC_bytes_in_string_space:   ;{{Addr=$f695 Code Calls/jump count: 1 Data use count: 0}}
+;;=alloc loop
+alloc_loop:                       ;{{Addr=$f695 Code Calls/jump count: 1 Data use count: 0}}
         ld      hl,(address_of_start_of_free_space_);{{f695:2a6cae}} 
         ex      de,hl             ;{{f698:eb}} 
         ld      hl,(address_of_end_of_free_space_);{{f699:2a71b0}} 
@@ -272,29 +286,27 @@ alloc_BC_bytes_in_string_space:   ;{{Addr=$f695 Code Calls/jump count: 1 Data us
         dec     hl                ;{{f69f:2b}} 
         dec     hl                ;{{f6a0:2b}} 
         call    compare_HL_DE     ;{{f6a1:cdd8ff}}  HL=DE?
-        jr      nc,poss_alloc_and_write_string_pointer;{{f6a4:3009}}  (+$09)
-        call    _function_fre_6   ;{{f6a6:cd64fc}} 
-        jr      c,alloc_BC_bytes_in_string_space;{{f6a9:38ea}}  (-$16)
+        jr      nc,_alloc_loop_13 ;{{f6a4:3009}}  (+$09)
+        call    strings_area_garbage_collection;{{f6a6:cd64fc}} 
+        jr      c,alloc_loop      ;{{f6a9:38ea}}  (-$16)
         call    byte_following_call_is_error_code;{{f6ab:cd45cb}} 
         defb $0e                  ;Inline error code: String Space Full error
 
-;;===============================
-;;poss alloc and write string pointer
-poss_alloc_and_write_string_pointer:;{{Addr=$f6af Code Calls/jump count: 1 Data use count: 0}}
-        ld (address_of_end_of_free_space_),hl;{{f6af:2271b0}} 
+_alloc_loop_13:                   ;{{Addr=$f6af Code Calls/jump count: 1 Data use count: 0}}
+        ld (address_of_end_of_free_space_),hl;{{f6af:2271b0}} Update end of memory variable
         inc     hl                ;{{f6b2:23}} 
-        ld      (hl),c            ;{{f6b3:71}} 
+        ld      (hl),c            ;{{f6b3:71}} Write BC to bottom of string space
         inc     hl                ;{{f6b4:23}} 
         ld      (hl),b            ;{{f6b5:70}} 
         inc     hl                ;{{f6b6:23}} 
         ret                       ;{{f6b7:c9}} 
 
 ;;================================
-;;unknown alloc and move memory up
-;I think this moves memory between DE and HL up by BC bytes
-unknown_alloc_and_move_memory_up: ;{{Addr=$f6b8 Code Calls/jump count: 4 Data use count: 0}}
+;;move lower memory up
+;Moves memory between DE and HL up by BC bytes
+move_lower_memory_up:             ;{{Addr=$f6b8 Code Calls/jump count: 4 Data use count: 0}}
         call    get_start_of_free_space;{{f6b8:cd14f7}} 
-_unknown_alloc_and_move_memory_up_1:;{{Addr=$f6bb Code Calls/jump count: 1 Data use count: 0}}
+_move_lower_memory_up_1:          ;{{Addr=$f6bb Code Calls/jump count: 1 Data use count: 0}}
         push    bc                ;{{f6bb:c5}} 
         push    de                ;{{f6bc:d5}} 
         push    de                ;{{f6bd:d5}} 
@@ -302,19 +314,18 @@ _unknown_alloc_and_move_memory_up_1:;{{Addr=$f6bb Code Calls/jump count: 1 Data 
         add     hl,bc             ;{{f6bf:09}} 
         jr      c,raise_memory_full_error_B;{{f6c0:380e}}  (+$0e)
         ex      de,hl             ;{{f6c2:eb}} 
-_unknown_alloc_and_move_memory_up_8:;{{Addr=$f6c3 Code Calls/jump count: 1 Data use count: 0}}
-        call    get_end_of_free_space_or_start_of_variables;{{f6c3:cd07f7}} 
+_move_lower_memory_up_8:          ;{{Addr=$f6c3 Code Calls/jump count: 1 Data use count: 0}}
+        call    get_end_of_free_space;{{f6c3:cd07f7}} 
         call    compare_HL_DE     ;{{f6c6:cdd8ff}}  HL=DE?
-        jr      nc,move_lower_memory_up;{{f6c9:3008}}  (+$08)
-        call    _function_fre_6   ;{{f6cb:cd64fc}} 
-        jr      c,_unknown_alloc_and_move_memory_up_8;{{f6ce:38f3}}  (-$0d)
+        jr      nc,do_move_lower_memory_up;{{f6c9:3008}}  (+$08)
+        call    strings_area_garbage_collection;{{f6cb:cd64fc}} 
+        jr      c,_move_lower_memory_up_8;{{f6ce:38f3}}  (-$0d)
 ;;=raise Memory Full error
 raise_memory_full_error_B:        ;{{Addr=$f6d0 Code Calls/jump count: 1 Data use count: 0}}
         jp      raise_memory_full_error_C;{{f6d0:c375f8}} 
 
-;;=================================
-;;move lower memory up
-move_lower_memory_up:             ;{{Addr=$f6d3 Code Calls/jump count: 1 Data use count: 0}}
+;;=do move lower memory up
+do_move_lower_memory_up:          ;{{Addr=$f6d3 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{f6d3:e1}} 
         pop     bc                ;{{f6d4:c1}} 
         push    de                ;{{f6d5:d5}} 
@@ -360,8 +371,10 @@ get_free_space_byte_count_in_HL_addr_in_DE:;{{Addr=$f6fc Code Calls/jump count: 
         ret                       ;{{f706:c9}} 
 
 ;;==============================
-;;get end of free space or start of variables
-get_end_of_free_space_or_start_of_variables:;{{Addr=$f707 Code Calls/jump count: 3 Data use count: 0}}
+;;get end of free space
+;Gets the address of the last free byte in the central spare block,
+;taking into account whether variables etc are at the bottom of memory or the top.
+get_end_of_free_space:            ;{{Addr=$f707 Code Calls/jump count: 3 Data use count: 0}}
         ld      a,(vars_and_data_at_end_of_memory_flag);{{f707:3a6eae}} 
         or      a                 ;{{f70a:b7}} 
         ld      hl,(address_of_end_of_free_space_);{{f70b:2a71b0}} 
@@ -373,6 +386,8 @@ get_end_of_free_space_or_start_of_variables:;{{Addr=$f707 Code Calls/jump count:
 
 ;;==================================
 ;;get start of free space
+;Gets the address of the first free byte in the central spare block,
+;taking into account whether variables etc are at the bottom of memory or the top.
 get_start_of_free_space:          ;{{Addr=$f714 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,(vars_and_data_at_end_of_memory_flag);{{f714:3a6eae}} 
         or      a                 ;{{f717:b7}} 
@@ -382,122 +397,164 @@ get_start_of_free_space:          ;{{Addr=$f714 Code Calls/jump count: 2 Data us
         ld      hl,(address_after_end_of_program);{{f71c:2a66ae}} 
         ret                       ;{{f71f:c9}} 
 
-;;=prob alloc 2k file buffer
-prob_alloc_2k_file_buffer:        ;{{Addr=$f720 Code Calls/jump count: 1 Data use count: 0}}
+;;===================================
+;BASIC uses two 2k buffers, one each for read and write. Either both
+;are allocated or neither (it never allocates only one). file_buffer_flags
+;($b075) bit 2 maintains the 'buffers allocated' status, and if allocated,
+;the file_buffer_flags maintains the in-use state of each buffer (bits 1 and 0).
+;The 4k buffer will only be released (be the routines below) when neither 2k 
+;buffer is in use.
+
+;;=alloc and use file read buffer
+;Allocs file buffers if not allocated, 
+;marks read buffer as in use
+;returns address of 2k read buffer in DE
+alloc_and_use_file_read_buffer:   ;{{Addr=$f720 Code Calls/jump count: 1 Data use count: 0}}
         ld      de,$0001          ;{{f720:110100}} 
-        jr      _prob_alloc_2k_file_buffer_c_1;{{f723:1808}}  (+$08)
+        jr      _alloc_file_write_buffer_1;{{f723:1808}}  (+$08)
 
-;;=prob alloc 2k file buffer
-prob_alloc_2k_file_buffer_B:      ;{{Addr=$f725 Code Calls/jump count: 1 Data use count: 0}}
+;;=alloc and use file write buffer
+;Allocs file buffers if not allocated, 
+;marks write buffer as in use
+;returns address of 2k write buffer in DE
+alloc_and_use_file_write_buffer:  ;{{Addr=$f725 Code Calls/jump count: 1 Data use count: 0}}
         ld      de,$0802          ;{{f725:110208}} 
-        jr      _prob_alloc_2k_file_buffer_c_1;{{f728:1803}}  (+$03)
+        jr      _alloc_file_write_buffer_1;{{f728:1803}}  (+$03)
 
-;;=prob alloc 2k file buffer
-;returns address in DE
-prob_alloc_2k_file_buffer_C:      ;{{Addr=$f72a Code Calls/jump count: 2 Data use count: 0}}
+;;=alloc file write buffer
+;Allocs file buffers if not allocated, 
+;does NOT mark either buffer as in use (retains previous in use state)
+;returns address of 2k write buffer in DE
+alloc_file_write_buffer:          ;{{Addr=$f72a Code Calls/jump count: 2 Data use count: 0}}
         ld      de,$0800          ;{{f72a:110008}} 
-_prob_alloc_2k_file_buffer_c_1:   ;{{Addr=$f72d Code Calls/jump count: 2 Data use count: 0}}
+
+;Allocates the 4k file buffer if not allocated, sets the in use state of
+;buffer using value of E (bits 1 or 0)
+;If D is $00 returns the address of the read buffer in DE,
+;If D is $08 returns the address of the write buffer in DE.
+_alloc_file_write_buffer_1:       ;{{Addr=$f72d Code Calls/jump count: 2 Data use count: 0}}
         push    bc                ;{{f72d:c5}} 
         push    hl                ;{{f72e:e5}} 
-        ld      a,(poss_file_buffer_flag);{{f72f:3a75b0}} 
+        ld      a,(file_buffer_flags);{{f72f:3a75b0}} 
         or      a                 ;{{f732:b7}} 
-        jr      nz,_prob_alloc_2k_file_buffer_c_17;{{f733:2018}}  (+$18)
-        push    de                ;{{f735:d5}} 
+        jr      nz,_alloc_file_write_buffer_17;{{f733:2018}}  (+$18) Buffer already allocated?
+
+        push    de                ;{{f735:d5}} Allocate buffer
         ld      hl,(HIMEM_)       ;{{f736:2a5eae}}  HIMEM
         inc     hl                ;{{f739:23}} 
         ld      (address_of_the_highest_byte_of_free_RAM_),hl;{{f73a:2278b0}} 
         ld      de,$f000          ;{{f73d:1100f0}} ##LIT##;WARNING: Code area used as literal
         add     hl,de             ;{{f740:19}} 
         jp      nc,raise_memory_full_error_C;{{f741:d275f8}} 
-        call    _symbol_after_18  ;{{f744:cd08f8}} 
-        ld      (poss_file_buffer_address),hl;{{f747:2276b0}} 
+        call    move_strings_area ;{{f744:cd08f8}} 
+        ld      (address_of_4k_file_buffer_),hl;{{f747:2276b0}} 
         pop     de                ;{{f74a:d1}} 
-        ld      a,$04             ;{{f74b:3e04}} 
-_prob_alloc_2k_file_buffer_c_17:  ;{{Addr=$f74d Code Calls/jump count: 1 Data use count: 0}}
-        or      e                 ;{{f74d:b3}} 
-        ld      hl,(poss_file_buffer_address);{{f74e:2a76b0}} 
-        ld      e,$00             ;{{f751:1e00}} 
+        ld      a,$04             ;{{f74b:3e04}} Buffers allocate flag
+
+_alloc_file_write_buffer_17:      ;{{Addr=$f74d Code Calls/jump count: 1 Data use count: 0}}
+        or      e                 ;{{f74d:b3}} Update buffer in use flags
+        ld      hl,(address_of_4k_file_buffer_);{{f74e:2a76b0}} 
+        ld      e,$00             ;{{f751:1e00}} Get pointer to required buffer based on D
         add     hl,de             ;{{f753:19}} 
         ex      de,hl             ;{{f754:eb}} 
         pop     hl                ;{{f755:e1}} 
         pop     bc                ;{{f756:c1}} 
-        jr      set_RAMb075       ;{{f757:1827}}  (+$27)
+        jr      set_file_buffer_flag;{{f757:1827}}  (+$27)
 
-;;=prob release 2k file buffer
-prob_release_2k_file_buffer:      ;{{Addr=$f759 Code Calls/jump count: 2 Data use count: 0}}
+;;=unuse file write buffer
+;Frees the buffer if neither buffer is in use
+unuse_file_write_buffer:          ;{{Addr=$f759 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,$fe             ;{{f759:3efe}} 
-        jr      _prob_release_2k_file_buffer_c_1;{{f75b:1806}}  (+$06)
+        jr      _free_file_buffer_if_not_used_1;{{f75b:1806}}  (+$06)
 
-;;=prob release 2k file buffer
-prob_release_2k_file_buffer_B:    ;{{Addr=$f75d Code Calls/jump count: 2 Data use count: 0}}
+;;=unuse file read buffer
+;Frees the buffer if neither buffer is in use
+unuse_file_read_buffer:           ;{{Addr=$f75d Code Calls/jump count: 2 Data use count: 0}}
         ld      a,$fd             ;{{f75d:3efd}} 
-        jr      _prob_release_2k_file_buffer_c_1;{{f75f:1802}}  (+$02)
+        jr      _free_file_buffer_if_not_used_1;{{f75f:1802}}  (+$02)
 
-;;=prob release 2k file buffer
-;DE=address
-prob_release_2k_file_buffer_C:    ;{{Addr=$f761 Code Calls/jump count: 2 Data use count: 0}}
+;;=free file buffer if not used
+free_file_buffer_if_not_used:     ;{{Addr=$f761 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,$ff             ;{{f761:3eff}} 
-_prob_release_2k_file_buffer_c_1: ;{{Addr=$f763 Code Calls/jump count: 2 Data use count: 0}}
+
+;A=mask for bits to retain in file_buffer_flags (i.e inverse of buffer(s) to free)
+_free_file_buffer_if_not_used_1:  ;{{Addr=$f763 Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{f763:e5}} 
-        ld      hl,poss_file_buffer_flag;{{f764:2175b0}} 
-        and     (hl)              ;{{f767:a6}} 
+        ld      hl,file_buffer_flags;{{f764:2175b0}} 
+        and     (hl)              ;{{f767:a6}} Mask out and update file_buffer_flags
         ld      (hl),a            ;{{f768:77}} 
-        cp      $04               ;{{f769:fe04}} 
-        jr      nz,_prob_release_2k_file_buffer_c_11;{{f76b:2009}}  (+$09)
-        ld      hl,(poss_file_buffer_address);{{f76d:2a76b0}} 
+        cp      $04               ;{{f769:fe04}} Both buffers free?
+        jr      nz,_free_file_buffer_if_not_used_11;{{f76b:2009}}  (+$09)
+
+        ld      hl,(address_of_4k_file_buffer_);{{f76d:2a76b0}} Free buffersS
         ex      de,hl             ;{{f770:eb}} 
         call    compare_DE_to_HIMEM_plus_1;{{f771:cdecf5}}  compare DE with HIMEM
-        jr      z,_prob_release_2k_file_buffer_c_13;{{f774:2802}}  (+$02)
-_prob_release_2k_file_buffer_c_11:;{{Addr=$f776 Code Calls/jump count: 1 Data use count: 0}}
+        jr      z,_free_file_buffer_if_not_used_13;{{f774:2802}}  (+$02)
+_free_file_buffer_if_not_used_11: ;{{Addr=$f776 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{f776:e1}} 
         ret                       ;{{f777:c9}} 
 
-_prob_release_2k_file_buffer_c_13:;{{Addr=$f778 Code Calls/jump count: 1 Data use count: 0}}
+_free_file_buffer_if_not_used_13: ;{{Addr=$f778 Code Calls/jump count: 1 Data use count: 0}}
         ld      hl,(address_of_the_highest_byte_of_free_RAM_);{{f778:2a78b0}} 
-        call    _symbol_after_18  ;{{f77b:cd08f8}} 
+        call    move_strings_area ;{{f77b:cd08f8}} 
         pop     hl                ;{{f77e:e1}} 
 
-;;=clear RAM_b075
-clear_RAMb075:                    ;{{Addr=$f77f Code Calls/jump count: 3 Data use count: 0}}
+;;=clear file buffer flag
+clear_file_buffer_flag:           ;{{Addr=$f77f Code Calls/jump count: 3 Data use count: 0}}
         xor     a                 ;{{f77f:af}} 
-;;=set RAM_b075
-set_RAMb075:                      ;{{Addr=$f780 Code Calls/jump count: 1 Data use count: 0}}
-        ld      (poss_file_buffer_flag),a;{{f780:3275b0}} 
+;;=set file buffer flag
+set_file_buffer_flag:             ;{{Addr=$f780 Code Calls/jump count: 1 Data use count: 0}}
+        ld      (file_buffer_flags),a;{{f780:3275b0}} 
         ret                       ;{{f783:c9}} 
 
 ;;========================================================================
-;; command SYMBOL
-command_SYMBOL:                   ;{{Addr=$f784 Code Calls/jump count: 0 Data use count: 1}}
+;; command SYMBOL, SYMBOL AFTER
+;SYMBOL <character number>,<list of: <row>>
+;Defines the character matrix for a symbol (UDG, user defined graphics)
+;Row list must contain eight items
+;By default symbols after 240 can be defined. Others will need a SYMBOL AFTER command
+
+;SYMBOL AFTER <integer expression>
+;Define the first user definable symbol
+;Defaults to SYMBOL AFTER 240
+;Deletes any already created symbols
+;Cannot be used after a HIMEM has been issued since the last SYMBOL AFTER (except SYMBOL AFTER 256)
+
+command_SYMBOL_SYMBOL_AFTER:      ;{{Addr=$f784 Code Calls/jump count: 0 Data use count: 1}}
         cp      $80               ;{{f784:fe80}}  AFTER
-        jr      z,_command_symbol_26;{{f786:2829}}  (+$29)
+        jr      z,do_SYMBOL_AFTER ;{{f786:2829}}  (+$29)
+
         call    eval_expr_as_byte_or_error;{{f788:cdb8ce}}  get number and check it's less than 255 
         ld      c,a               ;{{f78b:4f}} 
         call    next_token_if_comma;{{f78c:cd15de}}  check for comma
-        ld      b,$08             ;{{f78f:0608}} 
+        ld      b,$08             ;{{f78f:0608}} We need 8 values
         scf                       ;{{f791:37}} 
-_command_symbol_7:                ;{{Addr=$f792 Code Calls/jump count: 1 Data use count: 0}}
+
+_command_symbol_symbol_after_7:   ;{{Addr=$f792 Code Calls/jump count: 1 Data use count: 0}}
         call    nc,next_token_if_prev_is_comma;{{f792:d441de}} 
         sbc     a,a               ;{{f795:9f}} 
         call    c,eval_expr_as_byte_or_error;{{f796:dcb8ce}}  get number and check it's less than 255 
         push    af                ;{{f799:f5}} 
         or      a                 ;{{f79a:b7}} 
-        djnz    _command_symbol_7 ;{{f79b:10f5}}  (-$0b)
+        djnz    _command_symbol_symbol_after_7;{{f79b:10f5}}  (-$0b)
+
         ex      de,hl             ;{{f79d:eb}} 
         ld      a,c               ;{{f79e:79}} 
         call    TXT_GET_MATRIX    ;{{f79f:cda5bb}}  firmware function: TXT GET MATRIX		
         jp      nc,Error_Improper_Argument;{{f7a2:d24dcb}}  Error: Improper Argument
-        ld      bc,LOW_JUMP       ;{{f7a5:010800}} 
+        ld      bc,$0008          ;{{f7a5:010800}} ###LIT### 8 bytes to write
         add     hl,bc             ;{{f7a8:09}} 
-_command_symbol_19:               ;{{Addr=$f7a9 Code Calls/jump count: 1 Data use count: 0}}
+_command_symbol_symbol_after_19:  ;{{Addr=$f7a9 Code Calls/jump count: 1 Data use count: 0}}
         pop     af                ;{{f7a9:f1}} 
         dec     hl                ;{{f7aa:2b}} 
         ld      (hl),a            ;{{f7ab:77}} 
         dec     c                 ;{{f7ac:0d}} 
-        jr      nz,_command_symbol_19;{{f7ad:20fa}}  (-$06)
+        jr      nz,_command_symbol_symbol_after_19;{{f7ad:20fa}}  (-$06)
         ex      de,hl             ;{{f7af:eb}} 
         ret                       ;{{f7b0:c9}} 
 
-_command_symbol_26:               ;{{Addr=$f7b1 Code Calls/jump count: 1 Data use count: 0}}
+;;=do SYMBOL AFTER
+do_SYMBOL_AFTER:                  ;{{Addr=$f7b1 Code Calls/jump count: 1 Data use count: 0}}
         call    get_next_token_skipping_space;{{f7b1:cd2cde}}  get next token skipping space
         call    eval_expr_as_int  ;{{f7b4:cdd8ce}}  get number
         push    hl                ;{{f7b7:e5}} 
@@ -507,7 +564,7 @@ _command_symbol_26:               ;{{Addr=$f7b1 Code Calls/jump count: 1 Data us
         push    de                ;{{f7c1:d5}} 
         call    TXT_GET_M_TABLE   ;{{f7c2:cdaebb}}  firmware function: TXT GET M TABLE
         ex      de,hl             ;{{f7c5:eb}} 
-        jr      nc,_command_symbol_50;{{f7c6:301b}}  (+$1b)
+        jr      nc,_do_symbol_after_24;{{f7c6:301b}}  (+$1b)
 ;; A = first character
 ;; HL = address of table
         cpl                       ;{{f7c8:2f}} 
@@ -520,12 +577,12 @@ _command_symbol_26:               ;{{Addr=$f7b1 Code Calls/jump count: 1 Data us
         call    compare_DE_to_HIMEM_plus_1;{{f7d0:cdecf5}}  compare DE with HIMEM
         jp      nz,Error_Improper_Argument;{{f7d3:c24dcb}}  Error: Improper Argument
         add     hl,de             ;{{f7d6:19}} 
-        call    _symbol_after_18  ;{{f7d7:cd08f8}} 
-        call    prob_release_2k_file_buffer_C;{{f7da:cd61f7}} 
+        call    move_strings_area ;{{f7d7:cd08f8}} 
+        call    free_file_buffer_if_not_used;{{f7da:cd61f7}} 
                                   ; HL = Address of table
         ld      de,$0100          ;{{f7dd:110001}}  first character in table
         call    TXT_SET_M_TABLE   ;{{f7e0:cdabbb}}  firmware function: TXT SET M TABLE
-_command_symbol_50:               ;{{Addr=$f7e3 Code Calls/jump count: 1 Data use count: 0}}
+_do_symbol_after_24:              ;{{Addr=$f7e3 Code Calls/jump count: 1 Data use count: 0}}
         pop     de                ;{{f7e3:d1}} 
         call    SYMBOL_AFTER      ;{{f7e4:cde9f7}}  no defined table
         pop     hl                ;{{f7e7:e1}} 
@@ -551,15 +608,19 @@ SYMBOL_AFTER:                     ;{{Addr=$f7e9 Code Calls/jump count: 2 Data us
         cp      $40               ;{{f7fb:fe40}} 
         jp      c,raise_memory_full_error_C;{{f7fd:da75f8}} 
         inc     hl                ;{{f800:23}} 
-        call    _symbol_after_18  ;{{f801:cd08f8}} 
+        call    move_strings_area ;{{f801:cd08f8}} 
         pop     de                ;{{f804:d1}} 
         jp      TXT_SET_M_TABLE   ;{{f805:c3abbb}}  firmware function: TXT SET M TABLE
 
 
-_symbol_after_18:                 ;{{Addr=$f808 Code Calls/jump count: 5 Data use count: 0}}
+;;=move strings area
+;Compact the strings area
+move_strings_area:                ;{{Addr=$f808 Code Calls/jump count: 5 Data use count: 0}}
         push    hl                ;{{f808:e5}} 
-        call    _function_fre_6   ;{{f809:cd64fc}} 
+        call    strings_area_garbage_collection;{{f809:cd64fc}} 
         ex      de,hl             ;{{f80c:eb}} 
+
+;Calc the number of bytes to move it by
         call    get_size_of_strings_area_in_BC;{{f80d:cdf8f5}} 
         ld      hl,(address_of_start_of_free_space_);{{f810:2a6cae}} 
         add     hl,bc             ;{{f813:09}} 
@@ -570,16 +631,22 @@ _symbol_after_18:                 ;{{Addr=$f808 Code Calls/jump count: 5 Data us
         ex      de,hl             ;{{f81d:eb}} 
         scf                       ;{{f81e:37}} 
         sbc     hl,de             ;{{f81f:ed52}} 
-        ld      (RAM_b07a),hl     ;{{f821:227ab0}} 
+        ld      (string_move_offset),hl;{{f821:227ab0}} 
         push    hl                ;{{f824:e5}} 
-        ld      de,_symbol_after_72;{{f825:1165f8}}   ##LABEL##
+
+;Iterate every string variable to add the offset to it's address
+        ld      de,adjust_string_descriptor_address_callback;{{f825:1165f8}}   ##LABEL##
         call    iterate_all_string_variables;{{f828:cd93da}} 
-        pop     bc                ;{{f82b:c1}} 
+
+;Now do the actual moving of the strings area
+        pop     bc                ;{{f82b:c1}} BC=offset
         ld      a,b               ;{{f82c:78}} 
-        rlca                      ;{{f82d:07}} 
-        jr      c,_symbol_after_51;{{f82e:3814}}  (+$14)
-        or      c                 ;{{f830:b1}} 
-        jr      z,_symbol_after_67;{{f831:282b}}  (+$2b)
+        rlca                      ;{{f82d:07}} High bit set if negative - moving area down
+        jr      c,_move_strings_area_33;{{f82e:3814}}  (+$14)
+        or      c                 ;{{f830:b1}} Zero offset?
+        jr      z,_move_strings_area_49;{{f831:282b}}  (+$2b)
+
+;Moving strings area down
         ld      hl,(address_of_end_of_Strings_area_);{{f833:2a73b0}} 
         ld      d,h               ;{{f836:54}} 
         ld      e,l               ;{{f837:5d}} 
@@ -589,9 +656,10 @@ _symbol_after_18:                 ;{{Addr=$f808 Code Calls/jump count: 5 Data us
         ex      de,hl             ;{{f83d:eb}} 
         call    copy_bytes_LDDR_BCcount_HLsource_DEdest;{{f83e:cdf5ff}}  copy bytes LDDR (BC = count)
         pop     hl                ;{{f841:e1}} 
-        jr      _symbol_after_64  ;{{f842:1813}}  (+$13)
+        jr      _move_strings_area_46;{{f842:1813}}  (+$13)
 
-_symbol_after_51:                 ;{{Addr=$f844 Code Calls/jump count: 1 Data use count: 0}}
+;Moving strings area up
+_move_strings_area_33:            ;{{Addr=$f844 Code Calls/jump count: 1 Data use count: 0}}
         ld      hl,(address_of_end_of_free_space_);{{f844:2a71b0}} 
         ld      d,h               ;{{f847:54}} 
         ld      e,l               ;{{f848:5d}} 
@@ -605,23 +673,33 @@ _symbol_after_51:                 ;{{Addr=$f844 Code Calls/jump count: 1 Data us
         ex      de,hl             ;{{f854:eb}} 
         dec     hl                ;{{f855:2b}} 
         pop     de                ;{{f856:d1}} 
-_symbol_after_64:                 ;{{Addr=$f857 Code Calls/jump count: 1 Data use count: 0}}
+
+;Done - moved
+_move_strings_area_46:            ;{{Addr=$f857 Code Calls/jump count: 1 Data use count: 0}}
         ld      (address_of_end_of_Strings_area_),hl;{{f857:2273b0}} 
         ex      de,hl             ;{{f85a:eb}} 
         ld      (address_of_end_of_free_space_),hl;{{f85b:2271b0}} 
-_symbol_after_67:                 ;{{Addr=$f85e Code Calls/jump count: 1 Data use count: 0}}
+
+;Done - no move
+_move_strings_area_49:            ;{{Addr=$f85e Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{f85e:e1}} 
         dec     hl                ;{{f85f:2b}} 
         ld      (HIMEM_),hl       ;{{f860:225eae}}  HIMEM
         inc     hl                ;{{f863:23}} 
         ret                       ;{{f864:c9}} 
 
-_symbol_after_72:                 ;{{Addr=$f865 Code Calls/jump count: 0 Data use count: 1}}
+;Called by string iterator:
+;DE=addr of /last/ byte of string descriptor
+;BC=string address
+;A=string length
+;;=adjust string descriptor address callback
+;Adjust the address in a string descriptor by adding &b07a (string move offset) to it.
+adjust_string_descriptor_address_callback:;{{Addr=$f865 Code Calls/jump count: 0 Data use count: 1}}
         ld      hl,(address_after_end_of_program);{{f865:2a66ae}} 
         call    compare_HL_BC     ;{{f868:cddeff}}  HL=BC?
         ret     nc                ;{{f86b:d0}} 
 
-        ld      hl,(RAM_b07a)     ;{{f86c:2a7ab0}} 
+        ld      hl,(string_move_offset);{{f86c:2a7ab0}} 
         add     hl,bc             ;{{f86f:09}} 
         ex      de,hl             ;{{f870:eb}} 
         ld      (hl),d            ;{{f871:72}} 
@@ -633,7 +711,6 @@ _symbol_after_72:                 ;{{Addr=$f865 Code Calls/jump count: 0 Data us
 raise_memory_full_error_C:        ;{{Addr=$f875 Code Calls/jump count: 6 Data use count: 0}}
         call    byte_following_call_is_error_code;{{f875:cd45cb}} 
         defb $07                  ;Inline error code: Memory full
-
 
 
 

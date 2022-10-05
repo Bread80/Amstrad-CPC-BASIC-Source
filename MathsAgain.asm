@@ -1,12 +1,18 @@
 ;;<< MATHS FUNCTIONS MIN, MAX and ROUND
 ;;========================================================================
 ;; function MIN
+;MIN(<list of: <numeric expression>>)
+;Returns the smallest of the numeric expressions
+
 function_MIN:                     ;{{Addr=$d23f Code Calls/jump count: 0 Data use count: 2}}
         ld      b,$ff             ;{{d23f:06ff}} 
         jr      _function_max_1   ;{{d241:1802}}  (+$02)
 
 ;;========================================================================
 ;; function MAX
+;MAX(<list of: <numeric expression>>)
+;Returns the largest of the numeric expressions
+
 function_MAX:                     ;{{Addr=$d243 Code Calls/jump count: 0 Data use count: 1}}
         ld      b,$01             ;{{d243:0601}} 
 ;;------------------------------------------------------------------------
@@ -15,7 +21,7 @@ _function_max_1:                  ;{{Addr=$d245 Code Calls/jump count: 1 Data us
 _function_max_2:                  ;{{Addr=$d248 Code Calls/jump count: 1 Data use count: 0}}
         call    next_token_if_prev_is_comma;{{d248:cd41de}} 
         jp      nc,next_token_if_close_bracket;{{d24b:d21dde}}  check for close bracket
-        call    probably_push_accumulator_on_execution_stack;{{d24e:cd74ff}} 
+        call    push_numeric_accumulator_on_execution_stack;{{d24e:cd74ff}} 
         call    eval_expression   ;{{d251:cd62cf}} 
         push    hl                ;{{d254:e5}} 
         ld      a,c               ;{{d255:79}} 
@@ -35,9 +41,12 @@ _function_max_18:                 ;{{Addr=$d267 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; function ROUND
+;ROUND(<numeric expression>[,decimals])
+;Rounds a number to the given number of decimal places.
+
 function_ROUND:                   ;{{Addr=$d26a Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expression   ;{{d26a:cd62cf}} 
-        call    probably_push_accumulator_on_execution_stack;{{d26d:cd74ff}} 
+        call    push_numeric_accumulator_on_execution_stack;{{d26d:cd74ff}} 
         call    next_token_if_prev_is_comma;{{d270:cd41de}} 
         ld      de,$0000          ;{{d273:110000}} ##LIT##
         call    c,eval_expr_as_int;{{d276:dcd8ce}}  get number

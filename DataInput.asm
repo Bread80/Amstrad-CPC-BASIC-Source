@@ -2,6 +2,10 @@
 ;;< (LINE) INPUT, RESTORE, READ (not DATA)
 ;;========================================================================
 ;; command LINE INPUT
+;LINE INPUT [#<stream expression>,][;][<quoted string>;]<string variable>
+;LINE INPUT [#<stream expression>,][;][<quoted string>,]<string variable>
+;As the INPUT command but reads the entire line into a string variable.
+;If the line is longer than 255 characters reads 255 characters.
 
 command_LINE_INPUT:               ;{{Addr=$db13 Code Calls/jump count: 0 Data use count: 1}}
         call    next_token_if_equals_inline_data_byte;{{db13:cd25de}} 
@@ -33,6 +37,30 @@ input_screen_to_buffer:           ;{{Addr=$db37 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command INPUT
+;INPUT [#<stream expression>,][;][<quoted string>;]<list of: <variable>>
+;INPUT [#<stream expression>,][;][<quoted string>,]<list of: <variable>>
+;If stream expression is omitted, defaults to #0
+
+;For keyboard streams, #0..#8:
+;Quoted string is a prompt to display. If the first form (with a semicolon) is used a 
+;question mark is output after it. If the second form (with a comma), no question mark.
+;If no quote string is given a question mark prompt is used.
+;After issuing the prompt a line is read. This is parsed as: <list of: <item>> where
+;<item> may be: <numeric value> or <quoted string> or <unquoted string>
+;These items are parsed and assigned to variables given in the command. Whitespace between 
+;<items> is removed.
+;If the optional semicolon is omitted BASIC starts a new line, if present then the cursor 
+;is left after the last character entered.
+
+;For file stream, #9:
+;No prompt is generated. If given it will be ignored.
+;BASIC attempts to read items from the file and match them to variables:
+;<numeric value> terminated by whitespace, comma, carriage return or end of file.
+;<quoted string> in double quotes, can also be terminated by end of file. A following whitespace, 
+;comma or carriage return is ignored.
+;<unquoted string> terminated by comma, carriage return or whitespace.
+;In all cases leading whitespace is ignored.
+;Strings terminate after max 255 characters.
 
 command_INPUT:                    ;{{Addr=$db43 Code Calls/jump count: 0 Data use count: 1}}
         call    swap_both_streams_exec_TOS_and_swap_back;{{db43:cdd4c1}} 
@@ -170,7 +198,7 @@ input_parse_item:                 ;{{Addr=$dbf7 Code Calls/jump count: 2 Data us
 input_parse_number:               ;{{Addr=$dc04 Code Calls/jump count: 1 Data use count: 0}}
         call    get_input_stream  ;{{dc04:cdc4c1}} 
         call    nc,input_from_file_ignore_leading_whitespace;{{dc07:d42cdc}} 
-        call    possibly_validate_input_buffer_is_a_number;{{dc0a:cd6fed}} 
+        call    convert_string_to_number;{{dc0a:cd6fed}} 
 _input_parse_number_3:            ;{{Addr=$dc0d Code Calls/jump count: 1 Data use count: 0}}
         push    af                ;{{dc0d:f5}} 
 
@@ -342,11 +370,14 @@ is_A_space_tab_cr:                ;{{Addr=$dcbf Code Calls/jump count: 3 Data us
 
 ;;========================================================================
 ;; command RESTORE
+;RESTORE [<line number>]
+;Restores the DATA pointer
+
 command_RESTORE:                  ;{{Addr=$dcc8 Code Calls/jump count: 0 Data use count: 1}}
         jr      z,reset_READ_pointer;{{dcc8:280a}}  (+$0a)
         call    eval_line_number_or_error;{{dcca:cd48cf}} 
         push    hl                ;{{dccd:e5}} 
-        call    find_address_of_line_or_error;{{dcce:cd5ce8}} 
+        call    find_line_or_error;{{dcce:cd5ce8}} 
         dec     hl                ;{{dcd1:2b}} 
         jr      set_READ_pointer  ;{{dcd2:1831}}  (+$31)
 
@@ -358,6 +389,9 @@ reset_READ_pointer:               ;{{Addr=$dcd4 Code Calls/jump count: 2 Data us
 
 ;;========================================================================
 ;; command READ
+;READ <list of: <variable>>
+;Reads from DATA statements
+
 command_READ:                     ;{{Addr=$dcda Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{dcda:e5}} 
         ld      hl,(READ_pointer) ;{{dcdb:2a17ae}} 

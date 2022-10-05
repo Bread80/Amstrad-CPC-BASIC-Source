@@ -8,6 +8,9 @@ variable_DERR:                    ;{{Addr=$d12b Code Calls/jump count: 0 Data us
             
 ;;==========================================================================
 ;; variable ERR
+;ERR
+;Returns the last error number
+
 variable_ERR:                     ;{{Addr=$d130 Code Calls/jump count: 0 Data use count: 1}}
         ld      a,(ERR__Error_No) ;{{d130:3a90ad}} 
 _variable_err_1:                  ;{{Addr=$d133 Code Calls/jump count: 1 Data use count: 0}}
@@ -18,6 +21,9 @@ _variable_err_1:                  ;{{Addr=$d133 Code Calls/jump count: 1 Data us
 
 ;;==========================================================================
 ;; variable TIME
+;TIME
+;Returns elapsed time since the machine was switched on in 1/300ths of a second
+
 variable_TIME:                    ;{{Addr=$d139 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d139:e5}} 
         call    KL_TIME_PLEASE    ;{{d13a:cd0dbd}} ; firmware function: KL TIME PLEASE
@@ -27,6 +33,10 @@ variable_TIME:                    ;{{Addr=$d139 Code Calls/jump count: 0 Data us
 
 ;;=======================================================================
 ;; prefix ERL
+;ERL
+;Returns the line number of the last error
+;If used in a relational expression ERL must be on the left hand side of the comparison for
+;BASIC to recognise the right hand side as a line number and RENUM to work correctly.
 
 prefix_ERL:                       ;{{Addr=$d142 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d142:e5}} 
@@ -35,6 +45,9 @@ prefix_ERL:                       ;{{Addr=$d142 Code Calls/jump count: 0 Data us
 
 ;;==========================================================================
 ;; variable HIMEM
+;HIMEM
+;Returns the address of the highest memory address available for BASIC.
+
 variable_HIMEM:                   ;{{Addr=$d148 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d148:e5}} 
         ld      hl,(HIMEM_)       ;{{d149:2a5eae}}  HIMEM
@@ -52,7 +65,7 @@ prefix_at_operator_:              ;{{Addr=$d14e Code Calls/jump count: 0 Data us
         ex      de,hl             ;{{d155:eb}} 
         ld      a,b               ;{{d156:78}} 
         cp      $03               ;{{d157:fe03}} String type
-        call    z,prob_copy_string_to_strings_area;{{d159:cc58fb}} 
+        call    z,copy_string_to_strings_area_if_not_in_strings_area;{{d159:cc58fb}} 
 ;;=store UINT to accumulator
 store_UINT_to_accumulator:        ;{{Addr=$d15c Code Calls/jump count: 2 Data use count: 0}}
         call    set_accumulator_as_REAL_from_unsigned_INT;{{d15c:cd89fe}} 
@@ -61,6 +74,9 @@ store_UINT_to_accumulator:        ;{{Addr=$d15c Code Calls/jump count: 2 Data us
 
 ;;==========================================================================
 ;; variable XPOS
+;XPOS
+;Returns the x position of the graphics cursor
+
 variable_XPOS:                    ;{{Addr=$d161 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d161:e5}} 
         call    GRA_ASK_CURSOR    ;{{d162:cdc6bb}} ; firmware function: gra ask cursor 
@@ -69,6 +85,9 @@ variable_XPOS:                    ;{{Addr=$d161 Code Calls/jump count: 0 Data us
 
 ;;==========================================================================
 ;; variable YPOS
+;YPOS
+;Returns the y position of the graphics cursor
+
 variable_YPOS:                    ;{{Addr=$d168 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d168:e5}} 
         call    GRA_ASK_CURSOR    ;{{d169:cdc6bb}} ; firmware function: gra ask cursor

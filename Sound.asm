@@ -1,6 +1,26 @@
 ;;<< SOUND FUNCTIONS
 ;;========================================================================
 ;; command SOUND
+;SOUND <channel status>,<tone period>[,<duration>[,<volume>[,volume envelope>[,<tone envelope>[,<noise period>]]]]]
+;Puts a sound in the sound queue
+;Channel status:
+;   Bits 0,1,2: Channel A, B, C respectively
+;   Bits 3,4,5: Rendezvous with channel A, B, C respectively
+;               Pauses this channel until a sound on rendezvous channel set to rendezvous with this channel
+;   Bit 6: Hold - when sound reaches head of queue, channel waits until a RELEASE command
+;   Bit 7: Flush - flushes specified channels and plays this sound
+;Tone period:   Produces a frequency of 125000/P where P is the tone period. Values 0..4095. 0 is no sound
+;Duration:      Default 20 (1/5th second)
+;   > 0:        Duration in 1/100ths second
+;   = 0:        Until the end of the colume envelope
+;   < 0:        Repeat the volume envelope abs(duration) times
+;Volume:    Initial volume for the sound. Values 0..15. Default 12
+;Volume envelope:   Specifies a volume envelope. Values 0..15. Default 0 (constants volume for 2 seconds)
+;Tone envelope:     Tone envelope. Values 0..15. Default 0 (constant)
+;Noise period:      0..31 where 0 means no noise
+
+
+
 command_SOUND:                    ;{{Addr=$d313 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_byte_or_error;{{d313:cdb8ce}}  get number and check it's less than 255 
         ld      (Current_SOUND_parameter_block_),a;{{d316:3299ad}} 
@@ -22,7 +42,7 @@ command_SOUND:                    ;{{Addr=$d313 Code Calls/jump count: 0 Data us
         ld      b,$20             ;{{d347:0620}} 
         call    eval_and_validate_sound_parameter;{{d349:cd5fd3}} 
         ld      (noise_period),a  ;{{d34c:329ead}} 
-        call    syntax_error_if_not_02;{{d34f:cd37de}} 
+        call    error_if_not_end_of_statement_or_eoln;{{d34f:cd37de}} 
         push    hl                ;{{d352:e5}} 
         ld      hl,Current_SOUND_parameter_block_;{{d353:2199ad}} 
         call    SOUND_QUEUE       ;{{d356:cdaabc}}  firmware function: sound queue
@@ -53,6 +73,9 @@ eval_expr_and_check_less_than_B:  ;{{Addr=$d369 Code Calls/jump count: 7 Data us
 
 ;;========================================================================
 ;; command RELEASE
+;RELEASE <sound channels>
+;Release sound channel(s) from a hold state
+;Channel is a bitwise value. 0, 1, 2 equal channels A,B,C
 
 command_RELEASE:                  ;{{Addr=$d370 Code Calls/jump count: 0 Data use count: 1}}
         ld      b,$08             ;{{d370:0608}} 
@@ -64,6 +87,17 @@ command_RELEASE:                  ;{{Addr=$d370 Code Calls/jump count: 0 Data us
 
 ;;========================================================
 ;; function SQ
+;SQ(<channel>)
+;Test the state of a sound queue
+;Channel can be 1,2 or 4 for channel A,B or C
+;Returns a bitwise value:
+;Bits
+;0..2:  Number of free entries in the queue
+;3..5:  Rendezvous state of the head of the queue
+;6:     Set if the head of the queue is Held
+;7:     Set if the channel is currently active
+;The last three items are mutually exclusive.
+;Disables any ON SQ interrupts
 
 function_SQ:                      ;{{Addr=$d37b Code Calls/jump count: 0 Data use count: 1}}
         call    function_CINT     ;{{d37b:cdb6fe}} 
@@ -97,6 +131,18 @@ raise_improper_argument_error_D:  ;{{Addr=$d39b Code Calls/jump count: 7 Data us
 
 ;;========================================================================
 ;; command ENV
+;ENV <envelope number>[,<list of: <envelope section>>]
+;Where <envelope section> is <step count>,<step count>,<pause time>
+;                           or <hardware envelope>,<envelope period>
+;There can be up to five envelope sections
+;Envelope number is     1..15
+;Step count is          0..127. If zero then set an absolute volume
+;Step size is           -128..+127. If <step count> is zero this is the absolute volume setting
+;Pause time is          0..255 in 1/100ths of a second where 0=256
+;Hardware envelope is   value for register 13
+;Envelope period is     value for registers 11 and 12
+
+;Creates a volume envelope
 
 ;; get envelope number (must be between 0 and 15)
 command_ENV:                      ;{{Addr=$d39e Code Calls/jump count: 0 Data use count: 1}}
@@ -139,6 +185,17 @@ _callback_for_env_10:             ;{{Addr=$d3cd Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command ENT
+;ENT <envelope number>[,<list of: <envelope section>>]
+;Where <envelope section> is <step count>,<step size>,<pause time>
+;                         or =<tone period>,<pause time>
+;There can be up to 5 envelope sections
+;Envelope number is 1..15
+;Step count is      0..239
+;Step size is       -128..+127
+;Pause time is      0..255 in 1/100ths of a second where 0=256
+;Tone period is     0..4095
+
+;Creates a tone envelope
 
 command_ENT:                      ;{{Addr=$d3d4 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_and_validate_less_than_128;{{d3d4:cd93d3}}  get number
@@ -235,7 +292,7 @@ _read_parameters_for_env_and_ent_1:;{{Addr=$d428 Code Calls/jump count: 1 Data u
         pop     de                ;{{d446:d1}} 
         djnz    _read_parameters_for_env_and_ent_1;{{d447:10df}}  (-$21)
 _read_parameters_for_env_and_ent_25:;{{Addr=$d449 Code Calls/jump count: 1 Data use count: 0}}
-        jp      syntax_error_if_not_02;{{d449:c337de}} 
+        jp      error_if_not_end_of_statement_or_eoln;{{d449:c337de}} 
 
 ;;=eval and validate tone period
 eval_and_validate_tone_period:    ;{{Addr=$d44c Code Calls/jump count: 2 Data use count: 0}}

@@ -69,29 +69,31 @@ infix_divide_:                    ;{{Addr=$fd52 Code Calls/jump count: 0 Data us
 ;;=================================================
 ;;infix integer division
 infix_integer_division:           ;{{Addr=$fd67 Code Calls/jump count: 0 Data use count: 1}}
-        call    _function_cint_6  ;{{fd67:cdc3fe}} 
+        call    convert_atHL_with_type_C_and_accumulator_to_ints;{{fd67:cdc3fe}} 
         ex      de,hl             ;{{fd6a:eb}} 
         call    INT_division_with_overflow_test;{{fd6b:cd9cdd}} 
         jp      c,store_HL_in_accumulator_as_INT;{{fd6e:da35ff}} 
-        jr      z,_infix_mod_4    ;{{fd71:2810}}  (+$10)
+        jr      z,raise_Division_by_zero_error;{{fd71:2810}}  (+$10)
         ld      hl,$8000          ;{{fd73:210080}} 
         jp      set_accumulator_as_REAL_from_unsigned_INT;{{fd76:c389fe}} 
 
 ;;=================================================
 ;;infix MOD
 infix_MOD:                        ;{{Addr=$fd79 Code Calls/jump count: 0 Data use count: 1}}
-        call    _function_cint_6  ;{{fd79:cdc3fe}} 
+        call    convert_atHL_with_type_C_and_accumulator_to_ints;{{fd79:cdc3fe}} 
         ex      de,hl             ;{{fd7c:eb}} 
         call    INT_modulo        ;{{fd7d:cda3dd}} 
         jp      c,store_HL_in_accumulator_as_INT;{{fd80:da35ff}} 
-_infix_mod_4:                     ;{{Addr=$fd83 Code Calls/jump count: 1 Data use count: 0}}
+
+;;=raise Division by zero error
+raise_Division_by_zero_error:     ;{{Addr=$fd83 Code Calls/jump count: 1 Data use count: 0}}
         call    byte_following_call_is_error_code;{{fd83:cd45cb}} 
         defb $0b                  ;Inline error code: Division by zero
 
 ;;============================================
 ;; infix AND
 infix_AND:                        ;{{Addr=$fd87 Code Calls/jump count: 0 Data use count: 1}}
-        call    _function_cint_6  ;{{fd87:cdc3fe}} 
+        call    convert_atHL_with_type_C_and_accumulator_to_ints;{{fd87:cdc3fe}} 
         ld      a,e               ;{{fd8a:7b}} 
         and     l                 ;{{fd8b:a5}} 
         ld      l,a               ;{{fd8c:6f}} 
@@ -105,7 +107,7 @@ infix_logic_done:                 ;{{Addr=$fd8f Code Calls/jump count: 3 Data us
 ;;=============================================
 ;; infix OR
 infix_OR:                         ;{{Addr=$fd92 Code Calls/jump count: 0 Data use count: 1}}
-        call    _function_cint_6  ;{{fd92:cdc3fe}} 
+        call    convert_atHL_with_type_C_and_accumulator_to_ints;{{fd92:cdc3fe}} 
         ld      a,e               ;{{fd95:7b}} 
         or      l                 ;{{fd96:b5}} 
         ld      l,a               ;{{fd97:6f}} 
@@ -116,7 +118,7 @@ infix_OR:                         ;{{Addr=$fd92 Code Calls/jump count: 0 Data us
 ;;==============================================
 ;; infix XOR
 infix_XOR:                        ;{{Addr=$fd9c Code Calls/jump count: 0 Data use count: 1}}
-        call    _function_cint_6  ;{{fd9c:cdc3fe}} 
+        call    convert_atHL_with_type_C_and_accumulator_to_ints;{{fd9c:cdc3fe}} 
         ld      a,e               ;{{fd9f:7b}} 
         xor     l                 ;{{fda0:ad}} 
         ld      l,a               ;{{fda1:6f}} 
@@ -134,6 +136,7 @@ bitwise_complementinvert:         ;{{Addr=$fda6 Code Calls/jump count: 1 Data us
         ld      a,h               ;{{fdac:7c}} 
         cpl                       ;{{fdad:2f}} 
         jr      infix_logic_done  ;{{fdae:18df}}  (-$21)
+
 
 
 

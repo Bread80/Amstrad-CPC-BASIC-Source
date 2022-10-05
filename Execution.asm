@@ -3,6 +3,14 @@
 ;;< Includes token handling utilities, TRON, TROFF, 
 ;;< and the command/statement look up table.
 ;;============================================
+;This block of routines raise a Syntax Error if the next character/token is not
+;the one specified.
+;Also, skips over any trailing spaces (ASCII $20) and:
+;If the following character (after the one to test) is:
+;end-of-line ($00):      returns Carry clear, Zero set
+;end-of-statament ($01): returns Carry clear, Zero clear
+;(otherwise):            returns Carry set, Zero clear
+
 ;; next token if comma
 next_token_if_comma:              ;{{Addr=$de15 Code Calls/jump count: 23 Data use count: 0}}
         ld      a,$2c             ;{{de15:3e2c}}  ','
@@ -42,7 +50,11 @@ next_token_if_value_in_A:         ;{{Addr=$de29 Code Calls/jump count: 4 Data us
         jr      nz,raise_syntax_error_D;{{de2a:200f}}  (+$0f)
 
 ;;=get next token skipping space
-;; skip spaces
+;;Skips spaces (ASCII $20) and returns the next non-space character/token
+;If that character is:
+;end-on-line ($00):      returns Carry clear, Zero set
+;end-of-statement ($01): returns Carry clear, Zero clear
+;(other):                returns Carry set, Zero clear
 get_next_token_skipping_space:    ;{{Addr=$de2c Code Calls/jump count: 53 Data use count: 1}}
         inc     hl                ;{{de2c:23}} 
         ld      a,(hl)            ;{{de2d:7e}} 
@@ -55,17 +67,18 @@ get_next_token_skipping_space:    ;{{Addr=$de2c Code Calls/jump count: 53 Data u
         or      a                 ;{{de35:b7}} 
         ret                       ;{{de36:c9}} 
 
-;;+----------------------------------------------------------
-;;syntax error if not $02
-syntax_error_if_not_02:           ;{{Addr=$de37 Code Calls/jump count: 16 Data use count: 0}}
+;;+===========================================================
+;;error if not end of statement or eoln
+error_if_not_end_of_statement_or_eoln:;{{Addr=$de37 Code Calls/jump count: 16 Data use count: 0}}
         ld      a,(hl)            ;{{de37:7e}} 
-        cp      $02               ;{{de38:fe02}} 
+        cp      $02               ;{{de38:fe02}} $00=end of line, $01=end of statement
         ret     c                 ;{{de3a:d8}} 
 
 ;;=raise syntax error
 raise_syntax_error_D:             ;{{Addr=$de3b Code Calls/jump count: 1 Data use count: 0}}
         jr      raise_syntax_error_E;{{de3b:186a}}  (+$6a)
 
+;;+===========================================================
 ;;=is next $02
 ;Carry set if EOLN or end of statement
 is_next_02:                       ;{{Addr=$de3d Code Calls/jump count: 9 Data use count: 0}}
@@ -73,7 +86,12 @@ is_next_02:                       ;{{Addr=$de3d Code Calls/jump count: 9 Data us
         cp      $02               ;{{de3e:fe02}} 
         ret                       ;{{de40:c9}} 
 
+;;+===========================================================
 ;;=next token if prev is comma
+
+;Skips spaces and reads the first token following
+;If the that token is a comma, skips any following whitespace and returns the next token and Carry set
+;  Otherwise, returns Carry clear
 next_token_if_prev_is_comma:      ;{{Addr=$de41 Code Calls/jump count: 44 Data use count: 0}}
         dec     hl                ;{{de41:2b}} 
         call    get_next_token_skipping_space;{{de42:cd2cde}}  get next token skipping space
@@ -106,7 +124,7 @@ execute_current_statement:        ;{{Addr=$de5d Code Calls/jump count: 2 Data us
         ld      hl,(address_of_byte_before_current_statement);{{de5d:2a1bae}} 
 
 ;;=execute statement atHL
-;HL points to first token, NOT line number
+;HL points to byte before first token
 execute_statement_atHL:           ;{{Addr=$de60 Code Calls/jump count: 7 Data use count: 0}}
         ld      (address_of_byte_before_current_statement),hl;{{de60:221bae}} HL=current execution address
         call    KL_POLL_SYNCHRONOUS;{{de63:cd21b9}} handle pending events
@@ -120,13 +138,13 @@ execute_statement_atHL:           ;{{Addr=$de60 Code Calls/jump count: 7 Data us
         jr      nc,raise_syntax_error_E;{{de74:3031}}  (+$31)
         inc     hl                ;{{de76:23}} 
 
-;;=execute end of line
-execute_end_of_line:              ;{{Addr=$de77 Code Calls/jump count: 4 Data use count: 0}}
-        ld      a,(hl)            ;{{de77:7e}} Next line number?
+;;=execute line atHL
+execute_line_atHL:                ;{{Addr=$de77 Code Calls/jump count: 4 Data use count: 0}}
+        ld      a,(hl)            ;{{de77:7e}} Line length zero = end of program
         inc     hl                ;{{de78:23}} 
         or      (hl)              ;{{de79:b6}} 
         inc     hl                ;{{de7a:23}} 
-        jr      z,end_execution   ;{{de7b:280f}}  (+$0f) line number zero = end of code marker
+        jr      z,end_execution   ;{{de7b:280f}}  (+$0f) line length zero = end of code marker
 
         ld      (address_of_line_number_LB_of_line_of_cur),hl;{{de7d:221dae}}  Start of current line
         inc     hl                ;{{de80:23}} 
@@ -207,12 +225,18 @@ get_line_number_atHL:             ;{{Addr=$deb8 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command TRON
+;TRON
+;Turns on execution tracing (the listing of line numbers to the console)
+
 command_TRON:                     ;{{Addr=$dec1 Code Calls/jump count: 0 Data use count: 1}}
         ld      a,$ff             ;{{dec1:3eff}} 
         jr      _command_troff_1  ;{{dec3:1801}}  (+$01)
 
 ;;========================================================================
 ;; command TROFF
+;TROFF
+;Turns off execution tracing. See TRON
+
 command_TROFF:                    ;{{Addr=$dec5 Code Calls/jump count: 1 Data use count: 1}}
         xor     a                 ;{{dec5:af}} 
 _command_troff_1:                 ;{{Addr=$dec6 Code Calls/jump count: 1 Data use count: 0}}
@@ -293,7 +317,7 @@ command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data us
         defw command_NEXT         ; NEXT  ##LABEL##
         defw command_NEW          ; NEW  ##LABEL##
         defw command_ON_ON_ERROR_GOTO; ON   ##LABEL## (and ON ERROR GOTO [line])
-        defw command_ON_BREAK_ON_BREAK_CONT_ON_BREAK_STOP; ON BREAK  ##LABEL##
+        defw command_ON_BREAK_GOSUB_ON_BREAK_CONT_ON_BREAK_STOP; ON BREAK  ##LABEL##
         defw command_ON_ERROR_GOTO_0; ON ERROR GOTO 0 ##LABEL##
         defw command_ON_SQ        ; ON SQ  ##LABEL##
         defw command_OPENIN       ; OPENIN  ##LABEL##
@@ -321,7 +345,7 @@ command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data us
         defw command_SOUND        ; SOUND  ##LABEL##
         defw command_SPEED_WRITE_SPEED_KEY_SPEED_INK; SPEED  ##LABEL##
         defw command_STOP         ; STOP  ##LABEL##
-        defw command_SYMBOL       ; SYMBOL  ##LABEL##
+        defw command_SYMBOL_SYMBOL_AFTER; SYMBOL  ##LABEL##
         defw command_TAG          ; TAG  ##LABEL##
         defw command_TAGOFF       ; TAGOFF  ##LABEL##
         defw command_TROFF        ; TROFF  ##LABEL##

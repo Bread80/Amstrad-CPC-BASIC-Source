@@ -1,6 +1,8 @@
 ;;<< DEF and DEF FN
 ;;========================================================================
 ;; command DEF
+;DEF FN<function name>[(<formal parameters>)]=<expression>
+;Defines a function with the given name
 
 command_DEF:                      ;{{Addr=$d171 Code Calls/jump count: 0 Data use count: 1}}
         call    next_token_if_equals_inline_data_byte;{{d171:cd25de}} 
@@ -74,7 +76,7 @@ prefix_FN_execute:                ;{{Addr=$d1cb Code Calls/jump count: 1 Data us
         call    eval_expression   ;{{d1d1:cd62cf}} eval the FN (ie run it as code)
         jp      nz,Error_Syntax_Error;{{d1d4:c249cb}}  Error: Syntax Error
         call    is_accumulator_a_string;{{d1d7:cd66ff}} 
-        call    z,copy_accumulator_to_strings_area;{{d1da:cc8afb}} 
+        call    z,push_accum_to_strings_stack_and_strings_area_if_not_on_string_stack;{{d1da:cc8afb}} 
 
         call    remove_FN_data_from_stack;{{d1dd:cd52da}} 
         pop     hl                ;{{d1e0:e1}} 

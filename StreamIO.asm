@@ -164,6 +164,10 @@ _process_new_lines_for_file_or_printer_13:;{{Addr=$c426 Code Calls/jump count: 3
 
 ;;========================================================================
 ;; command WIDTH
+;WIDTH <integer expression>
+;Set the printer width so BASIC can insert carriage returns.
+;Default 132. 255 means do not insert carriage returns
+
 command_WIDTH:                    ;{{Addr=$c42a Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_int_less_than_256;{{c42a:cdc3ce}} 
         ld      (WIDTH_),a        ;{{c42d:3209ac}} 
@@ -195,6 +199,10 @@ raise_File_not_open_error:        ;{{Addr=$c44c Code Calls/jump count: 2 Data us
 
 ;;=================================================
 ;; variable EOF
+;EOF
+;Test for end of input file
+;Returns -1 (true) or 0 (false)
+;If no file is open returns true
 
 variable_EOF:                     ;{{Addr=$c44f Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{c44f:e5}} 

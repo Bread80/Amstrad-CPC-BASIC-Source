@@ -34,6 +34,10 @@ Error_Improper_Argument:          ;{{Addr=$cb4d Code Calls/jump count: 22 Data u
 
 ;;========================================================================
 ;; command ERROR
+;ERROR <integer expression>
+;Raise the given error.
+;Valid values are 1..255. If the error number is not recognised then 'Unknown error' is produced
+
 command_ERROR:                    ;{{Addr=$cb51 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_int_less_than_256;{{cb51:cdc3ce}} 
         ret     nz                ;{{cb54:c0}} 
@@ -51,7 +55,7 @@ raise_error_no_tracking:          ;{{Addr=$cb64 Code Calls/jump count: 1 Data us
         ld      sp,$c000          ;{{cb64:3100c0}} ##LIT##
         ld      hl,(cache_of_execution_stack_next_free_ptr);{{cb67:2a19ae}} 
         call    set_execution_stack_next_free_ptr;{{cb6a:cd6ef6}} 
-        call    get_string_stack_first_free_ptr;{{cb6d:cdccfb}} 
+        call    clear_string_stack;{{cb6d:cdccfb}} 
         call    clear_FN_params_data;{{cb70:cd20da}} 
         call    get_resume_line_number;{{cb73:cdaacb}} C set if we have resume address
         ld      hl,(address_line_specified_by_the_ON_ERROR_);{{cb76:2a96ad}} 
@@ -65,7 +69,7 @@ raise_error_no_tracking:          ;{{Addr=$cb64 Code Calls/jump count: 1 Data us
         jr      nz,display_error_then_do_REPL;{{cb84:2005}}  (+$05)
         dec     (hl)              ;{{cb86:35}} 
         ex      de,hl             ;{{cb87:eb}} 
-        jp      execute_end_of_line;{{cb88:c377de}}  ON ERROR RESUME??
+        jp      execute_line_atHL ;{{cb88:c377de}}  ON ERROR RESUME??
 
 ;;=display error then do REPL
 display_error_then_do_REPL:       ;{{Addr=$cb8b Code Calls/jump count: 3 Data use count: 0}}
@@ -183,6 +187,9 @@ in_message:                       ;{{Addr=$cc21 Data Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command STOP
+;STOP
+;Halts execution leaving BASIC in a state where the program can be restarted.
+;Useful when debugging. Program can be restarted with CONT
 
 command_STOP:                     ;{{Addr=$cc26 Code Calls/jump count: 0 Data use count: 1}}
         ret     nz                ;{{cc26:c0}} 
@@ -194,6 +201,9 @@ command_STOP:                     ;{{Addr=$cc26 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command END
+;END
+;End program execution. Closes all files. Does not stop sound generation.
+
 command_END:                      ;{{Addr=$cc31 Code Calls/jump count: 0 Data use count: 1}}
         ret     nz                ;{{cc31:c0}} 
         call    set_if_error_data_before_stopping;{{cc32:cd66cc}} 
@@ -276,6 +286,9 @@ _set_last_run_error_line_data_6:  ;{{Addr=$cc8f Code Calls/jump count: 1 Data us
 
 ;;=============================================================================
 ;; command CONT
+;CONT
+;Continues execution after a [ESC][ESC] break sequence, or STOP or END command
+
 command_CONT:                     ;{{Addr=$cc93 Code Calls/jump count: 0 Data use count: 1}}
         ret     nz                ;{{cc93:c0}} 
         ld      hl,(last_RUN_error_address);{{cc94:2a92ad}} 
@@ -309,14 +322,16 @@ ON_ERROR_GOTO:                    ;{{Addr=$ccb8 Code Calls/jump count: 1 Data us
         defb $a0                  ;Inline token to test "GOTO"
         call    eval_line_number_or_error;{{ccbf:cd48cf}} 
         push    hl                ;{{ccc2:e5}} 
-        call    find_address_of_line_or_error;{{ccc3:cd5ce8}} 
+        call    find_line_or_error;{{ccc3:cd5ce8}} 
         ex      de,hl             ;{{ccc6:eb}} 
         pop     hl                ;{{ccc7:e1}} 
         jr      set_ON_ERROR_GOTO_line_address;{{ccc8:18e9}}  (-$17)
 
 ;;========================================================================
 ;; command ON ERROR GOTO 0
-;(but not ON ERROR GOTO [n]!)
+;(but not ON ERROR GOTO <line number>!)
+;Turns off error processing mode. See On ERROR GOTO <line number>
+
 command_ON_ERROR_GOTO_0:          ;{{Addr=$ccca Code Calls/jump count: 0 Data use count: 1}}
         call    clear_ON_ERROR_GOTO_target;{{ccca:cdb0cc}} 
         ld      a,(RESUME_flag_)  ;{{cccd:3a98ad}} 
@@ -327,6 +342,14 @@ command_ON_ERROR_GOTO_0:          ;{{Addr=$ccca Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command RESUME
+;RESUME
+;RESUME <line number>
+;RESUME NEXT
+;Resumes execution after an error.
+;Only valid in error processing mode enabled with ON ERROR GOTO <line number>
+;With no parameter resumes at the beginning of the statement containing the error
+;With line number resumes with the specified line
+;With NEXT resumes with the statement after that containing the error
 
 command_RESUME:                   ;{{Addr=$ccd5 Code Calls/jump count: 0 Data use count: 1}}
         jr      z,resume_and_execute;{{ccd5:2811}}  (+$11)
@@ -339,7 +362,7 @@ command_RESUME:                   ;{{Addr=$ccd5 Code Calls/jump count: 0 Data us
         ex      de,hl             ;{{cce2:eb}} 
         inc     hl                ;{{cce3:23}} 
         pop     af                ;{{cce4:f1}} 
-        jp      execute_end_of_line;{{cce5:c377de}} 
+        jp      execute_line_atHL ;{{cce5:c377de}} 
 
 ;;=resume and execute
 resume_and_execute:               ;{{Addr=$cce8 Code Calls/jump count: 1 Data use count: 0}}
@@ -454,8 +477,9 @@ division_by_zero_message:         ;{{Addr=$cdf6 Data Calls/jump count: 0 Data us
         defb "Broken ",$01+$80    ;(WAS WRONG!!)$20 "Broken in" (user terminated a cassette/disc operation?)
 
 ;;+------------------------------------------------------
-;;display error message inc partials
-display_error_message_inc_partials:;{{Addr=$ce73 Code Calls/jump count: 1 Data use count: 0}}
+;;display error partial
+;A=partial number
+display_error_partial:            ;{{Addr=$ce73 Code Calls/jump count: 1 Data use count: 0}}
         ld      de,error_message_partials_list;{{ce73:1114cd}} 
         call    find_error_message_in_table;{{ce76:cd92ce}} 
 
@@ -469,7 +493,7 @@ display_error_message_atDE:       ;{{Addr=$ce79 Code Calls/jump count: 3 Data us
 ;; if $20<code<$7f -> code is a ASCII character. Display character.
 ;; if $00<code<$1f -> code is a message number. Display this message.
         call    nc,output_char    ;{{ce7f:d4a0c3}} ; display text char
-        call    c,display_error_message_inc_partials;{{ce82:dc73ce}} ; display message partial
+        call    c,display_error_partial;{{ce82:dc73ce}} ; display message partial
         pop     de                ;{{ce85:d1}} 
 ;; get char
         ld      a,(de)            ;{{ce86:1a}} 

@@ -64,7 +64,7 @@ eval_expr_as_string:              ;{{Addr=$cee3 Code Calls/jump count: 1 Data us
         jr      nz,_eval_expr_as_uint_1;{{cee9:200d}}  (+$0d)
         push    hl                ;{{ceeb:e5}} 
         ld      hl,(accumulator)  ;{{ceec:2aa0b0}} 
-        call    prob_copy_string_to_strings_area;{{ceef:cd58fb}} 
+        call    copy_string_to_strings_area_if_not_in_strings_area;{{ceef:cd58fb}} 
         ex      de,hl             ;{{cef2:eb}} 
         pop     hl                ;{{cef3:e1}} 
         ret                       ;{{cef4:c9}} 
@@ -265,7 +265,7 @@ maths_and_logic_infix_operators:  ;{{Addr=$cf97 Code Calls/jump count: 1 Data us
 ;;=dispatch infix operator
 ;;DE = ptr to address of table entry
 dispatch_infix_operator:          ;{{Addr=$cfaa Code Calls/jump count: 1 Data use count: 0}}
-        call    probably_push_accumulator_on_execution_stack;{{cfaa:cd74ff}} 
+        call    push_numeric_accumulator_on_execution_stack;{{cfaa:cd74ff}} 
         push    de                ;{{cfad:d5}} 
         push    bc                ;{{cfae:c5}} 
         ld      a,(de)            ;{{cfaf:1a}} Read or restore previous operator precedence value?
@@ -308,7 +308,7 @@ comparison_infix_operator:        ;{{Addr=$cfc5 Code Calls/jump count: 1 Data us
         pop     bc                ;{{cfe1:c1}} 
         ex      (sp),hl           ;{{cfe2:e3}} 
         push    bc                ;{{cfe3:c5}} 
-        call    probably_string_comparison;{{cfe4:cd3ff9}} string compare???
+        call    string_comparison ;{{cfe4:cd3ff9}} string compare???
         pop     bc                ;{{cfe7:c1}} 
         call    process_comparison_result;{{cfe8:cd13d0}} 
         jr      infix_operator_or_done;{{cfeb:1886}}  (-$7a)
@@ -608,12 +608,13 @@ eval_functions_with_ff_prefix:    ;{{Addr=$d0da Code Calls/jump count: 1 Data us
 
 ;;-------------------------------------------------------------------------
 ;;=eval function which arent system variables
-;; value < $40 or => $4a
+;;Followed by: token < $40 or => $4a
 eval_function_which_arent_system_variables:;{{Addr=$d0e9 Code Calls/jump count: 1 Data use count: 0}}
         call    next_token_if_open_bracket;{{d0e9:cd19de}}  function so we need opening bracket
 
 ;Convert token to index into table.
-;Function tokens are $71 - $7f (complex parameter functions) and 
+;Function tokens are:
+;$71 - $7f (complex parameter functions) and 
 ;$00 - $1d (single simple parameter functions)
 ;This code converts them to a zero based index into the function look up table.
         ld      a,c               ;{{d0ec:79}} 
@@ -638,7 +639,7 @@ eval_function_which_arent_system_variables:;{{Addr=$d0e9 Code Calls/jump count: 
 ;(Contrast with next code section). Tokens $71 - $7f
         jr      c,jp_to_routine_in_function_table;{{d0f7:3809}}  (+$09)
 
-;; $ff prefix, then $00-$1d
+;; $ff prefix followed by $00-$1d
 ;For these functions we'll eval the parameter beforehand and save it some work.
 ;These are, presumably, functions which take a single, simple, parameter.
 ;(Contrast with JR immediately above). Tokens $00 - $1d
@@ -650,7 +651,7 @@ eval_function_which_arent_system_variables:;{{Addr=$d0e9 Code Calls/jump count: 
 
 ;;==========================================================================
 ;;jp to routine in function table
-;; $ff prefix, then $71 to $7f
+;; $ff prefix followed by $71 to $7f
 
 jp_to_routine_in_function_table:  ;{{Addr=$d102 Code Calls/jump count: 2 Data use count: 0}}
         ld      de,function_table ;{{d102:11e5d1}}  functions
@@ -671,7 +672,7 @@ jp_to_routine_in_table:           ;{{Addr=$d105 Code Calls/jump count: 1 Data us
 
 ;;==========================================================================
 ;;eval system variables
-;; keywords: $ff and $40 to $49
+;; keywords: $ff followed by $40 to $49
 ;; 
 ;; A = keyword index ($40-$49)
 

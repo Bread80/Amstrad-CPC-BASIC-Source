@@ -14,8 +14,10 @@ include "Includes/MemoryBASIC.asm"
 
         defw rsx_name_table       ; name table
 
-;On entry DE = first byte of available memory
-;HL,BC = upper memory addreses??
+;On entry
+;DE = first byte of available memory
+;HL=last byte of memory not used by BASIC
+;BC=last byte of memory not used by firmware
 
         ld      sp,$c000          ;{{c006:3100c0}} ##LIT##
         call    KL_ROM_WALK       ;{{c009:cdcbbc}}  firmware function: kl rom walk

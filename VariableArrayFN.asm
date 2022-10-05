@@ -3,8 +3,8 @@
 ;;< (Lots more work to do here)
 ;;===================================
 
-;;=delete program
-delete_program:                   ;{{Addr=$d5ea Code Calls/jump count: 2 Data use count: 0}}
+;;=clear all variables
+clear_all_variables:              ;{{Addr=$d5ea Code Calls/jump count: 2 Data use count: 0}}
         call    prob_reset_variable_linked_list_pointers;{{d5ea:cdfad5}} 
         ld      hl,(address_after_end_of_program);{{d5ed:2a66ae}} 
         ld      (address_of_start_of_Variables_and_DEF_FN),hl;{{d5f0:2268ae}} 
@@ -37,7 +37,7 @@ zero_A_bytes_at_HL:               ;{{Addr=$d607 Code Calls/jump count: 2 Data us
 ;;=clear DEFFN list and reset variable types and pointers
 clear_DEFFN_list_and_reset_variable_types_and_pointers:;{{Addr=$d60e Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,$0000          ;{{d60e:210000}} ##LIT##
-        ld      (DEFFN_linked_list_head),hl;{{d611:22ebad}} 
+        ld      (DEF_FN_linked_list_head),hl;{{d611:22ebad}} 
         jp      reset_variable_types_and_pointers;{{d614:c34dea}} 
 
 ;;===================================
@@ -121,6 +121,10 @@ _def_letters_bc_to_type_e_8:      ;{{Addr=$d649 Code Calls/jump count: 1 Data us
 
 ;;======================================================
 ;; command DEFSTR
+;DEFSTR <list of: <letter range>>
+;where <letter range> is <letter> or <letter>-<letter>
+;Defines the default type for variables starting with the given letter(s)
+;Letter ranges are inclusive
 
 command_DEFSTR:                   ;{{Addr=$d650 Code Calls/jump count: 0 Data use count: 1}}
         ld      e,$03             ;{{d650:1e03}} String type
@@ -128,6 +132,8 @@ command_DEFSTR:                   ;{{Addr=$d650 Code Calls/jump count: 0 Data us
 
 ;;=============================================================================
 ;; command DEFINT
+;DEFINT <list of: <letter range>>
+;As DEFSTR
 
 command_DEFINT:                   ;{{Addr=$d654 Code Calls/jump count: 0 Data use count: 1}}
         ld      e,$02             ;{{d654:1e02}} Int type
@@ -135,6 +141,9 @@ command_DEFINT:                   ;{{Addr=$d654 Code Calls/jump count: 0 Data us
 
 ;;=============================================================================
 ;; command DEFREAL
+;DEFREAL <list of: <letter range>>
+;As DEFSTR
+
 command_DEFREAL:                  ;{{Addr=$d658 Code Calls/jump count: 0 Data use count: 1}}
         ld      e,$05             ;{{d658:1e05}} Real type
 
@@ -142,7 +151,7 @@ command_DEFREAL:                  ;{{Addr=$d658 Code Calls/jump count: 0 Data us
 ;;=do DEFtype
 do_DEFtype:                       ;{{Addr=$d65a Code Calls/jump count: 3 Data use count: 0}}
         ld      a,(hl)            ;{{d65a:7e}} 
-        call    test_if_letter    ;{{d65b:cd92ff}}  is a alphabetical letter?
+        call    test_if_upcase_letter;{{d65b:cd92ff}}  is a alphabetical letter?
         jr      nc,raise_syntax_error_B;{{d65e:301e}}  (+$1e)
         ld      c,a               ;{{d660:4f}} 
         ld      b,a               ;{{d661:47}} 
@@ -150,7 +159,7 @@ do_DEFtype:                       ;{{Addr=$d65a Code Calls/jump count: 3 Data us
         cp      $2d               ;{{d665:fe2d}}  '-' - range of values
         jr      nz,_do_deftype_13 ;{{d667:200c}}  (+$0c)
         call    get_next_token_skipping_space;{{d669:cd2cde}}  get next token skipping space
-        call    test_if_letter    ;{{d66c:cd92ff}}  is a alphabetical letter?
+        call    test_if_upcase_letter;{{d66c:cd92ff}}  is a alphabetical letter?
         jr      nc,raise_syntax_error_B;{{d66f:300d}}  (+$0d)
         ld      c,a               ;{{d671:4f}} 
         call    get_next_token_skipping_space;{{d672:cd2cde}}  get next token skipping space
@@ -183,6 +192,8 @@ BAR_command_or_implicit_LET:      ;{{Addr=$d689 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command LET
+;LET <variable>=<expression>
+;Assign a value to a variable
 
 command_LET:                      ;{{Addr=$d68e Code Calls/jump count: 0 Data use count: 1}}
         call    parse_and_find_or_create_a_var;{{d68e:cdbfd6}} Find (or alloc) the variables
@@ -207,12 +218,16 @@ copy_accumulator_to_atHL:         ;{{Addr=$d6a8 Code Calls/jump count: 1 Data us
         call    is_accumulator_a_string;{{d6a8:cd66ff}} 
         jp      nz,copy_numeric_accumulator_to_atHL;{{d6ab:c283ff}} It's a number
         push    hl                ;{{d6ae:e5}} Otherwise it's a string
-        call    _copy_accumulator_to_strings_area_4;{{d6af:cd94fb}} Store string to strings area
+        call    prob_copy_to_strings_area_if_not_const_in_program_or_ROM;{{d6af:cd94fb}} Store string to strings area
         pop     de                ;{{d6b2:d1}} 
         jp      copy_value_atHL_to_atDE_accumulator_type;{{d6b3:c387ff}} 
 
 ;;========================================================================
 ;; command DIM
+;DIM <list of: <subscripted variable>>
+;Where <subscripted variable> is <variable name>(<dimension list>)
+;and <dimension list> is <list of: <integer expression>>
+;Declare array dimensions
 
 command_DIM:                      ;{{Addr=$d6b6 Code Calls/jump count: 1 Data use count: 1}}
         call    do_DIM_item       ;{{d6b6:cde0d7}} 
@@ -294,7 +309,7 @@ get_accum_data_type_in_A_B_and_C: ;{{Addr=$d709 Code Calls/jump count: 3 Data us
 ;;prob just skip over variable
 prob_just_skip_over_variable:     ;{{Addr=$d70f Code Calls/jump count: 1 Data use count: 0}}
         call    parse_var_type_and_name;{{d70f:cd31d9}} 
-        call    skip_over_batched_braces;{{d712:cd7ae9}} 
+        call    skip_over_matched_braces;{{d712:cd7ae9}} 
         jr      get_accum_data_type_in_A_B_and_C;{{d715:18f2}}  (-$0e)
 
 ;;==================================
@@ -423,7 +438,7 @@ prob_alloc_space_for_new_var:     ;{{Addr=$d77b Code Calls/jump count: 2 Data us
         push    af                ;{{d782:f5}} 
         ld      hl,(address_of_start_of_Arrays_area_);{{d783:2a6aae}} 
         ex      de,hl             ;{{d786:eb}} 
-        call    unknown_alloc_and_move_memory_up;{{d787:cdb8f6}} 
+        call    move_lower_memory_up;{{d787:cdb8f6}} 
         call    prob_grow_variables_space_ptrs_by_BC;{{d78a:cd1af6}} 
         pop     af                ;{{d78d:f1}} 
         call    copy_cached_string_and_store_data_type;{{d78e:cdb8d7}} 
@@ -676,11 +691,13 @@ _read_array_dimensions_21:        ;{{Addr=$d8aa Code Calls/jump count: 1 Data us
         ret                       ;{{d8b2:c9}} 
 
 ;;=create and alloc space for array
+;A=dimensions flag: $00=we're creating the array from a DIM statement and the dimensions are on the execution stack
+;                   $ff=we're creating a 'default' 10 item array due to the array being used,
 ;B=number of dimensions
-;Sizes of each dimension are pushed on the execution stack
+;If A=$00 then the array bounds (dimensions) are pushed on the execution stack
 create_and_alloc_space_for_array: ;{{Addr=$d8b3 Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{d8b3:e5}} 
-        ld      (RAM_ae0d),a      ;{{d8b4:320dae}} 
+        ld      (array_creation_flag_),a;{{d8b4:320dae}} 
         push    bc                ;{{d8b7:c5}} 
         ld      a,b               ;{{d8b8:78}} 
         add     a,a               ;{{d8b9:87}} 
@@ -689,7 +706,7 @@ create_and_alloc_space_for_array: ;{{Addr=$d8b3 Code Calls/jump count: 2 Data us
         push    af                ;{{d8bf:f5}} 
         ld      hl,(address_of_start_of_free_space_);{{d8c0:2a6cae}} 
         ex      de,hl             ;{{d8c3:eb}} 
-        call    unknown_alloc_and_move_memory_up;{{d8c4:cdb8f6}} Move data up out of the way
+        call    move_lower_memory_up;{{d8c4:cdb8f6}} Move data up out of the way
         pop     af                ;{{d8c7:f1}} 
         call    copy_cached_string_and_store_data_type;{{d8c8:cdb8d7}} Copy/store array name and type
         ld      h,b               ;{{d8cb:60}} 
@@ -708,7 +725,7 @@ create_and_alloc_space_for_array: ;{{Addr=$d8b3 Code Calls/jump count: 2 Data us
 
 _create_and_alloc_space_for_array_25:;{{Addr=$d8da Code Calls/jump count: 1 Data use count: 0}}
         push    de                ;{{d8da:d5}} Loop for each dimension
-        ld      a,(RAM_ae0d)      ;{{d8db:3a0dae}} 
+        ld      a,(array_creation_flag_);{{d8db:3a0dae}} 
         or      a                 ;{{d8de:b7}} 
         ld      de,$000a          ;{{d8df:110a00}} 
         ex      de,hl             ;{{d8e2:eb}} 
@@ -731,7 +748,7 @@ _create_and_alloc_space_for_array_25:;{{Addr=$d8da Code Calls/jump count: 1 Data
         ld      c,e               ;{{d8f8:4b}} 
         ld      d,h               ;{{d8f9:54}} 
         ld      e,l               ;{{d8fa:5d}} 
-        call    _unknown_alloc_and_move_memory_up_1;{{d8fb:cdbbf6}} 
+        call    _move_lower_memory_up_1;{{d8fb:cdbbf6}} 
         ld      (address_of_start_of_free_space_),hl;{{d8fe:226cae}} 
 
         push    bc                ;{{d901:c5}} Clear BC bytes of memory - cleanup? zero allocated space?
@@ -962,6 +979,8 @@ _update_array_list_heads_4:       ;{{Addr=$d9d3 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command ERASE
+;ERASE <list of: <variable name>>
+;Erases array(s)
 
 command_ERASE:                    ;{{Addr=$d9f0 Code Calls/jump count: 0 Data use count: 1}}
         call    reset_variable_types_and_pointers;{{d9f0:cd4dea}} 
@@ -1083,6 +1102,12 @@ push_FN_parameter_on_execution_stack:;{{Addr=$da6a Code Calls/jump count: 1 Data
 
 ;;=iterate all string variables
 ;iterates through all string variables and calls the code in DE for each one.
+
+;Iterator is called with:
+;DE=addr of /last/ byte of string descriptor
+;BC=string address
+;A=string length
+
 iterate_all_string_variables:     ;{{Addr=$da93 Code Calls/jump count: 3 Data use count: 0}}
         ld      hl,(FN_param_start);{{da93:2a10ae}} start with any FNs, if present
 

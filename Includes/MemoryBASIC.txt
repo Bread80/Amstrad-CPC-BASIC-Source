@@ -1,27 +1,33 @@
 Start of BASIC Operating System reserved area
 =============================================
+
+===IMMEDIATE MODE/REPL
 &AC00	&AC00	1	program line redundant spaces flag (0=keep extra spaces; <>0=remove)
 ==      &AC01	9*3	groups of 3 RET bytes (&C9) called by the Upper ROM
 &AC01	&AC1C	1	AUTO active flag (0=off; <>0=on)
 &AC02	&AC1D	2	AUTO line number. number of the next line (6128) or of the current line (464) for AUTO
 &AC04	&AC1F	2	AUTO increment step. step distance for AUTO
+
+===STREAMS
 &AC06	&AC21	1	current output stream (screen, printer or file)
 &AC07	&AC22	1	current input stream (screen?, keyboard or file)
 &AC08		    1   printer stream current x position (as used by VPOS function)
 &AC09	&AC24	1	WIDTH (&84=132)
 &AC0A	&AC25	1	file output stream current line position (as used by VPOS function)
 
-====PROGRAM FLOW & EVENTS
+===PROGRAM FLOW & EVENTS
 &AC0B           1   ON BREAK flag (&00=ON BREAK CONTINUE, &ff=ON BREAK STOP)
 &AC0C	&AC26	1	FOR/NEXT flag (0=NEXT not yet used; <>0=used)
 &AC0D	&AC27	5	FOR start value (real). Only 2 bytes are used if % or DEFINT variable
 &AC12	&AC2C	2	address of colon or line end byte after a NEXT command
 &AC14	&AC2E	2	address of LB of the line number containing WEND
+
 &AC16	&AC30	1	unknown event handler data
-&AC17	&AC31   1
+&AC17	&AC31   1   unknown ON BREAK GOSUB data. Set when ON BREAK GOSUB happens.
 &AC18	&AC32	2	prob cache of current execution addr during ON BREAK GOSUB handler
 &AC1A	&AC34	2	ON BREAK GOSUB handler line address (&0000=ON BREAK STOP)
 &AC1C	&AC36	2	address of location holding ROM routine address for KB event block
+
 &AC1E	&AC38	&0C	Event Block for ON SQ(l):
 &AC1E	&AC38	2	chain address to next event block; &0000 if last in chain, but &FFFF if unused
 &AC20	&AC3A	1	count
@@ -31,8 +37,11 @@ Start of BASIC Operating System reserved area
 &AC25	&AC3F	1	(first byte of user field)
 &AC26	&AC40	2	address of the end of program line byte or ':' after 'ON SQ(x) GOSUB line number' statement
 &AC28	&AC42	2	address of the end of program line byte of the line before the GOSUB routine
+
 &AC2A	&AC44	&0C	Event Block for ON SQ(2), arranged as &AC1E onwards - second ON SQ priority
+
 &AC36	&AC50	&0C	Event Block for ON SQ(4), arranged as &AC1E onwards - lowest ON SQ priority
+
 &AC42	&AC5C	&12	Ticker and Event Block for AFTER/EVERY Timer 0
 &AC42	&AC5C	2	chain address to next event block (usually to another timer or &00FF)
 &AC44	&AC5E	2	'count down' count
@@ -45,14 +54,17 @@ Start of BASIC Operating System reserved area
 &AC4F	&AC69	1	(first byte of user field)
 &AC50	&AC6A	2	address of the end of program line byte or ':' after statement in use when the timer `timed-out'
 &AC52	&AC6C	2	address of tbe end of program line byte of tbe line before the GOSUB routine
+
 &AC54	&AC6E	&12	Ticker and Event Block for AFTER/EVERY Timer 1 (3rd Timer priority) arranged as at &AC42
+
 &AC66	&AC80	&12	Ticker and Event Block for AFTER/EVERY Timer 2 (2nd Timer priority) arranged as at &AC42
+
 &AC78	&AC92	&12	Ticker and Event Block for AFTER/EVERY Timer 3 (highest priority) arranged as at &AC42
 
-====
+===EDIT BUFFER
 &AC8A	&ACA4	&100	BASIC input area for lines (as typed in and not tokenised) or for INPUT
 
-====ERRORS
+===ERRORS
 &AD8C	&ADA6	2	address of line number LB in line containing error
 &AD8E	&ADA8	2	address of byte before statement containing error - ie of ':' or of HB of Line No
 &AD90	&ADAA	1	ERR - Error No
@@ -82,7 +94,7 @@ Start of BASIC Operating System reserved area
 &ADAC	&ADC5	3	fourth section of the envelope, as &ADA3
 &ADAF	&ADC8	3	fifth section of the envelope, as &ADA3
 
-===
+===MATHS
 &ADB2	&ADCB	5	power operator parameter
 
 ===VARIABLES
@@ -93,51 +105,50 @@ Start of BASIC Operating System reserved area
 &ADF1   &AE0A   2   string array linked list head
 
 &ADF3	&AE0C	26*1	table of DEFINT (&02), DEFSTR (&03) or DEFREAL default (&05), for variables `a' to `z'
-&AE0D	&AE26		
+&AE0D	&AE26   1   array creation flag (temporary store). $00 if creating due to a DIM statement, $ff if creating due to a reference.
 &AE0E	&AE27	2	poss cached addr/variable name address on execution stack
 &AE10	&AE29	2	FN param start
 &AE12	&AE2B	2	FN param end. If non-zero also serves as the head of the linked list of variables (params) for the FN
 
-====INPUT
+===INPUT
 &AE14	&AE2D	1	input prompt separator. The separator before the current item in an (LINE) INPUT statement: either ';' or ','
 &AE15	&AE2E	2	address of line number LB of last BASIC line (or &FFFF)
 &AE17	&AE30	2	READ pointer. Usually address of byte before next DATA item (eg comma or space)
 
-====EXECUTION
+===EXECUTION
 &AE19	&AE32	2	cache of execution stack next free ptr. address of next space on GOSUB etc stack, (see also &B06F)
 &AE1B	&AE34	2	address of byte before current statement (&003F if in Direct Command mode)
 &AE1D	&AE36	2	address of line number LB of line of current statement (&0000 if in Direct Command mode)
 &AE1F	&AE38	1	trace flag. (0=TROFF; <>0=TRON)
-&AE20	&AE39	1	tokenisation state flag. &00=normal, &ff=tokenise number as line number (may have other uses)
-&AE21	&AE3A	1   line address vs line number flag. &00=all GOTO/GOSUBs store line numbers, &ff=some/all store line addresses. Line numbers are converted to addresses as BASIC executes them, and converted back in immediate mode.
-&AE22	&AE3B	2	unknown DELETE temp 1
-&AE24	&AE3D	2	unknown DELETE temp 2
+&AE20	&AE39	1	tokenise state flag. &00=normal, &01==number(s) following token will be tokenised as line numbers, &ff=just written a variable, copy following digits and periods(.) as literals(??)
+&AE21	&AE3A	1   line address vs line number flag. &00=all GOTO/GOSUBs store line numbers, not &00=some/all store line addresses. Line numbers are converted to addresses as BASIC executes them, and converted back in immediate mode.
+&AE22	&AE3B	2	DELETE range start. Temp cache of first address to delete
+&AE24	&AE3D	2	DELETE range length. Temp cache of number of bytes to delete
 
-====CASSETTE/DISC
-&AE26	&AE3F	2	address to load cassette file to
-&AE28	&AE41	1   unknown CHAIN flag (error check?)
-&AE29	&AE42	1	file type from cassette header
-&AE2A	&AE43	2	file length from cassette header
+===CASSETTE/DISC
+&AE26	&AE3F	2	address to load binary file to. Either specified in a LOAD or RUN, or read from file header.
+&AE28	&AE41	1   CHAIN MERGE flag. $00 for CHAIN MERGE, <> $00 for CHAIN
+&AE29	&AE42	1	file type from file header
+&AE2A	&AE43	2	file length from file header
 &AE2C	&AE45	1	program protection flag (<>0 hides program as if protected)
 
-====TEXT OUTPUT
-&AE2D	&AE46	17	buffer used to form binary or hexadecimal numbers before printing etc
-
-&AE3A	&AE53	5	start of buffer used to form hexadecimal numbers before printing etc
+====NUMBER CONVERSION
+&AE2D	&AE46	17	pre-conversion buffer. ASCII to number: Numbers are copied here before conversion from ASCII. Digits are converted from ASCII to binary before writing. Digits are terminated with $ff. (Exponents are converted separately, not placed here). Number (decimal) to ASCII: raw ASCII (BCD?) digits are written here before formatting.
+&AE3A	&AE53	5	conversion buffer. Numbers are stored here during conversion from strings
 ===&AE3A	&AE53	1	Key Number used with INKEY (providing the Key Number is written as a decimal)
-&AE3E	&AE57	1	last byte (usually &00 or &20) of the formed binary or hexadecimal number
+&AE3E	&AE57	1	end of conversion buffer. (usually &00 or &20)
 
-===&AE43	&AE5D	13	buffer used to form decimal numbers before printing etc
-&AE4C           2
-&AE4E	&AE68	1	last byte (usually &00 or &20) of the formed decimal number
-&AE50           1
+===&AE43	&AE5D	13	format buffer. Buffer used to form decimal numbers, including formatting. Data is right aligned and null terminated. The number itself ends at the byte before 'exponent prefix'.
+&AE4C           2   exponent prefix. Contains either 'E+' or 'E-' of an exponent, $00 if no exponent
+&AE4E	&AE68	2	exponent value. Contains the two digits of the exponent
+&AE4F           1   end of number in format buffer. (for decimal number to string conversions)
+&AE50           1   trailing sign in format buffer
+&AE51   		1	end of format buffer. Last usable byte of. Contains $00 if number has a trailing sign
+&AE52	&AE6E	1   Chars before the decimal point in format string
+&AE53           1	Chars after decimal point in format string (including decimal point, e.g. the number #.### would have a value of 4
+&AE54   		1	Print format currency symbol - & or $. Written when parsing a number format
 
-&AE51   		1	
-&AE52	&AE6E	1
-&AE53           1	
-&AE54   		1	
-
-      &AE70	2	temporary store for address after using (&AE68)
+        &AE70	2	temporary store for address after using (&AE68)
       
 ====CALLs and RSXs
 &AE55	&AE72	2	Machine code address to CALL (used by CALL and RSX dispatcher)
@@ -145,14 +156,14 @@ Start of BASIC Operating System reserved area
 &AE58	&AE75	2	BASIC Parser position, moved on to ':', or the end of program line byte after a CALL or an RSX
 &AE5A	&AE77	2	saved address for SP during a CALL or an RSX
 
-====
-&AE5C	&AE79	2	ZONE value
-==      &AE7A	1	
+====PRINTING
+&AE5C	&AE79	1	ZONE value
+&AE5D   &AE7A	1   end of PRINT USING expr list flag. Used during PRINT USING only. Set to $ff when we have reached the end of the expr list for the PRINT USING, otherwise $00. This controls whether the print routine inserts a parameter into the format string or not.
 
 ====MEMORY
 &AE5E	&AE7B	2	HIMEM (set by MEMORY)
 ==      &AE7D	2	address of the byte before the UDG area (the end of the user M/C routine area or the Strings area) if the UDG area is still present, otherwise the highest byte of Program etc area
-&AE60       	2		address of highest byte of free RAM (ie last byte of UDG area)
+&AE60       	2	address of highest byte of free RAM (ie last byte of UDG area)
 &AE62	&AE7F	2	address of start of ROM lower reserved area (used for tokenised lines)
 &AE64	&AE81	2	address of end of ROM lower reserved area (byte before Program area)
 &AE66	&AE83	2	address after end of program. Usually as AE68 unless they've been moved to end of memory
@@ -161,54 +172,60 @@ Start of BASIC Operating System reserved area
 &AE6C	&AE89	2	address of start of free space (where next Array entry is placed)
 &AE6E	    	1   vars and data at end of memory flag. &ff=at end of memory, &00 otherwise. They get moved to end of memory when editing program, and merging etc.
 
-====Execution stack
+====EXECUTION STACK
 ----
-&AE70	&AE8C	&1FF	execution stack. GOSUB, FOR and WHILE stack. Entries are added above any existing ones in use (mixed as encountered) at address given by &B06F and must be used up in the opposite order. Completed entries are not deleted, just overwitten by the next new entry:
+&AE70	&AE8C	&1FF	execution stack. GOSUB, FOR and WHILE stack. Entries are added above any existing ones in use (mixed as encountered) at address given by &B06F and must be used up in the opposite order. Completed entries are not deleted, just overwritten by the next new entry:
+
+Offset  Length  Usage
 GOSUB entry:
-1	(byte of &00) (Possibly the GOSUB type - normal, event or break)
-2	address of end of program line byte or ':' after GOSUB statement (the point to RETURN to)
-2	address of line number HB of line containing GOSUB
-1	byte of &06, ie the length of the GOSUB entry
+0       1	    GOSUB type: &00=normal, &01=event (EVERY, AFTER), &02=ON BREAK
+1       2	    address of end of program line byte or ':' after GOSUB statement (the point to RETURN to)
+3       2	    address of line number of line containing GOSUB
+5       1	    byte of &06, ie the length of the GOSUB entry
+
 FOR entry:
-2	address of current value of control variable (in Variables area)
-5	value of limit (ie the TO value) - there are two bytes only for Integer FORs
-5	value of STEP - two bytes for Integer FORs
-1	sign byte (&00 for positive; &01 for negative)
-2	address of the end of program line byte, or `:' after the FOR statement (ie the address for the NEXT loop to restart at)
-2	address of line number LB of line containing FOR
-2	address of byte after NEXT statement (ie the address to continue at when the limit is exceeded)
-2	address of byte after NEXT statement again
-1	length byte (&16 for Real FORs; &10 for Integer FORs)
+0       2	    address of current value of control variable (in Variables area)
+2       5/2	    value of limit (ie the TO value) - five bytes if control variable is a real, two if it's an integer
+7/4     5/2	    value of STEP - five bytes if control variable is a real, two if it's an integer
+12/6    1	    sign byte (&01 for positive; &ff for negative)
+13/8    2	    address of the end of program line byte, or ':' after the FOR statement (ie the address for the NEXT loop to restart at)
+15/10   2	    address of line number of line containing FOR
+17/12   2	    if NEXT specifies variables then the address of the byte after the variable name in the next statement, otherwise the byte after the next statement
+19/14   2	    if NEXT specifies variables then the address of the first byte of the variable name in the NEXT statement, otherwise the byte after the NEXT statement
+20/15   1	    length byte (&16 for Real FORs; &10 for Integer FORs)
+
 WHILE entry: (66 max capacity):
-2	address of line number LB of line containing WHILE
-2	address of the end of program line byte or `:' after WEND statement (ie the address to continue at when the condition is false)
-2	address of condition after the WHILE command
-1	length byte of &07 - end of WHILE entry proper but:
+0       2	    address of line number LB of line containing WHILE
+2       2	    address of the end of program line byte or ':' after WEND statement (ie the address to continue at when the condition is false)
+4       2	    address of condition after the WHILE command
+6       1	    length byte of &07 - end of WHILE entry proper but:
 +5	value of condition (0 or -1 as a floating point value) only while the WHILE entry is the last on the stack
+
+==&B06E   &B08A   1   last byte of execution stack
 
 &B06F	&B08B	2	execution stack next free ptr. address of the next space on the GOSUB etc stack (see also &AE19)
 NB: The free space on the stack is also used as a workspace by various routines for values and addresses and for Variable names
 
-
+====MEMORY AGAIN
 &B071	&B08D	2	address of end of free space (the byte before the Strings area)
 &B073	&B08F	2	address of end of Strings area (=HIMEM)
-&B075	&B091   1	poss file buffer flag
+&B075	&B091   1	file buffer flags. Bitwise flags: $04: set if 4k buffer is allocated. $02 if write buffer is in use. $01 if read buffer is in use.
 ==      &B092	2	
-&B076	&B094	2	poss file buffer address
+&B076	&B094	2	address of 4k file buffer (if allocated - see $b075)
 &B078	&B096	2	address of the highest byte of free RAM disregarding UDGs (usually &A6FB)
 
-====String processing
+====STRING PROCESSING
 ----
-&B07A	&B098	2	
+&B07A	&B098	2	string move offset. When moving strings area (ie. via MEMORY command) this stores the offset - how many bytes up or down each string is moving by. BASIC then iterates over every string variable to update it's string descriptor.
 &B07C	&B09A	2	string stack first free ptr. addr of next entry in String Concat area
-&B07E	&B09C	30  string stack first. 10*3	concatenation area holding descriptors of strings being used
+&B07E	&B09C	30  string stack first. 10*3. Stack for string descriptors used in current calculation
 &B09B   &B0B9   1   string stack last.
 &B09C	&B0BA	1	length of last String used
 &B09D	&B0BB	2	address of last String used
 ==      &B0BD	2	
 ==      &B0BF	2	
 
-====Accumulator
+====(VIRTUAL) ACCUMULATOR
 ----
 &B09F	&BOC1	1	accumulator data type. type byte used with the Virtual Accumulator (&02=Integer; &03=String; &05=Real) Note that the constants used here correspond to the number of bytes used to store each one (string = address + length).
 &B0A0	&B0C2	5	accumulator. Virtual Accumulator used by the maths routines (two bytes for an Integer value; three bytes for a String Descriptor; five bytes for a Real value)

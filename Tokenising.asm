@@ -36,10 +36,10 @@ tokenise_item:                    ;{{Addr=$dfc8 Code Calls/jump count: 1 Data us
         or      a                 ;{{dfc9:b7}} 
         ret     z                 ;{{dfca:c8}} end of buffer
 
-        call    test_if_letter    ;{{dfcb:cd92ff}}  is a alphabetical letter?
+        call    test_if_upcase_letter;{{dfcb:cd92ff}}  is a alphabetical letter?
         jr      c,tokenise_letters;{{dfce:381c}}  (+$1c)
         call    test_if_period_or_digit;{{dfd0:cda0ff}} 
-        jp      c,tokenise_a_number;{{dfd3:dae2e0}} 
+        jp      c,tokenise_period_or_digit;{{dfd3:dae2e0}} 
         cp      "&"               ;{{dfd6:fe26}} '&' = hex or binary prefix
         jp      z,tokenise_hex_or_binary_number;{{dfd8:ca36e1}} 
         inc     hl                ;{{dfdb:23}} 
@@ -64,7 +64,7 @@ tokenise_letters:                 ;{{Addr=$dfec Code Calls/jump count: 1 Data us
         ret     c                 ;{{dfef:d8}} carry set if it's already been written
                                   ;othwise it's a token >= &80
         cp      $c5               ;{{dff0:fec5}} REM
-        jp      z,copy_until_end_of_buffer;{{dff2:cac3e1}} 
+        jp      z,copy_comment_to_buffer;{{dff2:cac3e1}} 
         push    hl                ;{{dff5:e5}} 
         ld      hl,tokenisation_table_A;{{dff6:2112e0}} DATA and DEFxxxx
         call    check_if_byte_exists_in_table;{{dff9:cdcaff}} ; check if byte exists in table 
@@ -135,7 +135,7 @@ _token_is_in_tokenisation_table_a_12:;{{Addr=$e02c Code Calls/jump count: 1 Data
 ;;clear tokenisation state flag
 clear_tokenisation_state_flag:    ;{{Addr=$e035 Code Calls/jump count: 2 Data use count: 0}}
         xor     a                 ;{{e035:af}} 
-        ld      (tokenisation_state_flag),a;{{e036:3220ae}} 
+        ld      (tokenise_state_flag),a;{{e036:3220ae}} 
         ret                       ;{{e039:c9}} 
 
 ;;===================================================
@@ -169,7 +169,7 @@ _tokenise_identifiers_18:         ;{{Addr=$e05b Code Calls/jump count: 1 Data us
         pop     af                ;{{e05b:f1}} 
         ld      a,(de)            ;{{e05c:1a}} get prev token
         or      a                 ;{{e05d:b7}} tokens >= &80 = statements and miscellaneous
-        jp      m,test_for_specially_encoded_keywords;{{e05e:faafe0}} do tests and return the token for caller to process
+        jp      m,test_for_keywords_taking_line_numbers;{{e05e:faafe0}} do tests and return the token for caller to process
         pop     de                ;{{e061:d1}} tokens <&80 = functions
         pop     bc                ;{{e062:c1}} 
         push    af                ;{{e063:f5}} 
@@ -178,7 +178,7 @@ _tokenise_identifiers_18:         ;{{Addr=$e05b Code Calls/jump count: 1 Data us
         pop     af                ;{{e069:f1}} 
         call    write_tokenised_byte_to_memory;{{e06a:cd08e0}} write function token
         xor     a                 ;{{e06d:af}} 
-        jr      set_tokenisation_status_flag;{{e06e:183a}}  (+$3a)
+        jr      set_tokenise_line_number_flag;{{e06e:183a}}  (+$3a)
 
 ;;=tokenise variable
 tokenise_variable:                ;{{Addr=$e070 Code Calls/jump count: 2 Data use count: 0}}
@@ -224,26 +224,27 @@ tokenise_variable_name_loop:      ;{{Addr=$e097 Code Calls/jump count: 1 Data us
         jr      tokenise_variable_name_loop;{{e0a2:18f3}}  (-$0d)
 
 _tokenise_variable_name_loop_7:   ;{{Addr=$e0a4 Code Calls/jump count: 1 Data use count: 0}}
-        call    set_bit7_of_prev_byte;{{e0a4:cdb5e1}} set bit 7 of last char of name
+        call    _tokenise_bar_command_9;{{e0a4:cdb5e1}} set bit 7 of last char of name
         pop     hl                ;{{e0a7:e1}} 
         ld      a,$ff             ;{{e0a8:3eff}} 
-;;=set tokenisation status flag
-set_tokenisation_status_flag:     ;{{Addr=$e0aa Code Calls/jump count: 1 Data use count: 0}}
-        ld      (tokenisation_state_flag),a;{{e0aa:3220ae}} 
+;;=set tokenise line number flag
+set_tokenise_line_number_flag:    ;{{Addr=$e0aa Code Calls/jump count: 1 Data use count: 0}}
+        ld      (tokenise_state_flag),a;{{e0aa:3220ae}} 
         scf                       ;{{e0ad:37}} 
         ret                       ;{{e0ae:c9}} 
 
 ;;==================================
-;; test for specially encoded keywords
-;sets tokenisation state flag (ae20) to &ff if token is one of these
-test_for_specially_encoded_keywords:;{{Addr=$e0af Code Calls/jump count: 1 Data use count: 0}}
+;; test for keywords taking line numbers
+;sets tokenise line number flag (ae20) to &ff if token is one of these.
+;If set numbers following will be tokenised as line numbers
+test_for_keywords_taking_line_numbers:;{{Addr=$e0af Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{e0af:e5}} 
         ld      c,a               ;{{e0b0:4f}} 
-        ld      hl,specially_encoded_keywords;{{e0b1:21c3e0}} 
+        ld      hl,keywords_taking_line_numbers;{{e0b1:21c3e0}} 
         call    check_if_byte_exists_in_table;{{e0b4:cdcaff}} ;check if byte exists in table
         sbc     a,a               ;{{e0b7:9f}} 
         and     $01               ;{{e0b8:e601}} 
-        ld      (tokenisation_state_flag),a;{{e0ba:3220ae}} 
+        ld      (tokenise_state_flag),a;{{e0ba:3220ae}} 
         ld      a,c               ;{{e0bd:79}} 
         pop     hl                ;{{e0be:e1}} 
         pop     de                ;{{e0bf:d1}} 
@@ -252,9 +253,9 @@ test_for_specially_encoded_keywords:;{{Addr=$e0af Code Calls/jump count: 1 Data 
         ret                       ;{{e0c2:c9}} 
 
 ;;================================================
-;; specially encoded keywords
-;; keywords which need special encoding(??)
-specially_encoded_keywords:       ;{{Addr=$e0c3 Data Calls/jump count: 0 Data use count: 1}}
+;; keywords taking line numbers
+;; keywords which can be followed by a line number
+keywords_taking_line_numbers:     ;{{Addr=$e0c3 Data Calls/jump count: 0 Data use count: 1}}
                                   
         defb $c7                  ;RESTORE
         defb $81                  ;AUTO
@@ -290,64 +291,72 @@ _convert_variable_type_suffix_7:  ;{{Addr=$e0dc Code Calls/jump count: 1 Data us
         scf                       ;{{e0e0:37}} 
         ret                       ;{{e0e1:c9}} 
 
-;**tk
 ;;==============================================
-;;tokenise a number
+;;tokenise period or digit
 
-tokenise_a_number:                ;{{Addr=$e0e2 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(tokenisation_state_flag);{{e0e2:3a20ae}} 
-        or      a                 ;{{e0e5:b7}} 
-        jr      z,_tokenise_a_number_12;{{e0e6:2810}}  (+$10)
+tokenise_period_or_digit:         ;{{Addr=$e0e2 Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,(tokenise_state_flag);{{e0e2:3a20ae}} 
+        or      a                 ;{{e0e5:b7}} Flag=$00=Tokenise as a number
+        jr      z,_tokenise_period_or_digit_12;{{e0e6:2810}}  (+$10) No
+
         ld      a,(hl)            ;{{e0e8:7e}} 
-        inc     hl                ;{{e0e9:23}} 
-        jp      m,write_tokenised_byte_to_memory;{{e0ea:fa08e0}} 
-        dec     hl                ;{{e0ed:2b}} 
-        push    de                ;{{e0ee:d5}} 
-        call    convert_number_a  ;{{e0ef:cdcfee}} 
-        jr      nc,_tokenise_a_number_37;{{e0f2:3032}}  (+$32)
-        ld      a,$1e             ;{{e0f4:3e1e}}  16-bit line number
-        jr      _tokenise_hex_or_binary_number_9;{{e0f6:184d}}  (+$4d)
+        inc     hl                ;{{e0e9:23}} Flag=$ff=Just written a variable, copy as literal(??)
+        jp      m,write_tokenised_byte_to_memory;{{e0ea:fa08e0}} Write token and return
 
-_tokenise_a_number_12:            ;{{Addr=$e0f8 Code Calls/jump count: 1 Data use count: 0}}
+        dec     hl                ;{{e0ed:2b}} Flag=$01=Tokenise a line number
+        push    de                ;{{e0ee:d5}} 
+        call    parse_line_number ;{{e0ef:cdcfee}} 
+        jr      nc,tokenise_copy_invalid_data;{{e0f2:3032}}  (+$32) Not a valid line number, copy as raw data
+        ld      a,$1e             ;{{e0f4:3e1e}}  16-bit line number
+        jr      tokenise_write_from_accumulator;{{e0f6:184d}}  (+$4d)
+
+_tokenise_period_or_digit_12:     ;{{Addr=$e0f8 Code Calls/jump count: 1 Data use count: 0}}
         push    de                ;{{e0f8:d5}} 
         push    bc                ;{{e0f9:c5}} 
-        call    _possibly_validate_input_buffer_is_a_number_12;{{e0fa:cd8aed}} 
+        call    convert_string_to_positive_number;{{e0fa:cd8aed}} 
         pop     bc                ;{{e0fd:c1}} 
-        jr      nc,_tokenise_a_number_37;{{e0fe:3026}}  (+$26)
+        jr      nc,tokenise_copy_invalid_data;{{e0fe:3026}}  (+$26)
         call    is_accumulator_a_string;{{e100:cd66ff}} 
-        ld      a,$1f             ;{{e103:3e1f}} 
-        jr      nc,_tokenise_hex_or_binary_number_9;{{e105:303e}}  (+$3e)
-        ld      de,(accumulator)  ;{{e107:ed5ba0b0}} 
-        ld      a,d               ;{{e10b:7a}} 
-        or      a                 ;{{e10c:b7}} 
-        ld      a,$1a             ;{{e10d:3e1a}} 
-        jr      nz,_tokenise_hex_or_binary_number_9;{{e10f:2034}}  (+$34)
-        ex      (sp),hl           ;{{e111:e3}} 
-        ex      de,hl             ;{{e112:eb}} 
-        ld      a,l               ;{{e113:7d}} 
-        cp      $0a               ;{{e114:fe0a}} 
-        jr      nc,_tokenise_a_number_32;{{e116:3004}}  (+$04)
-        add     a,$0e             ;{{e118:c60e}} 
-        jr      _tokenise_a_number_35;{{e11a:1806}}  (+$06)
+        ld      a,$1f             ;{{e103:3e1f}} Floating point number
+        jr      nc,tokenise_write_from_accumulator;{{e105:303e}}  (+$3e)
 
-_tokenise_a_number_32:            ;{{Addr=$e11c Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,$19             ;{{e11c:3e19}} 
+        ld      de,(accumulator)  ;{{e107:ed5ba0b0}} 
+        ld      a,d               ;{{e10b:7a}} Single byte value?
+        or      a                 ;{{e10c:b7}} 
+        ld      a,$1a             ;{{e10d:3e1a}} 16-bit value displayed in decimal
+        jr      nz,tokenise_write_from_accumulator;{{e10f:2034}}  (+$34)
+
+        ex      (sp),hl           ;{{e111:e3}} Get write buffer addr into HL...
+        ex      de,hl             ;{{e112:eb}} ...then DE; Value into HL
+        ld      a,l               ;{{e113:7d}} 
+        cp      $0a               ;{{e114:fe0a}} Number <= 10?
+        jr      nc,_tokenise_period_or_digit_32;{{e116:3004}}  (+$04)
+        add     a,$0e             ;{{e118:c60e}} Tokens $0e to $18 = numeric constants 0 to 10
+        jr      _tokenise_period_or_digit_35;{{e11a:1806}}  (+$06)
+
+_tokenise_period_or_digit_32:     ;{{Addr=$e11c Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,$19             ;{{e11c:3e19}} 8-bit value displayed in decimal
         call    write_tokenised_byte_to_memory;{{e11e:cd08e0}} 
         ld      a,l               ;{{e121:7d}} 
-_tokenise_a_number_35:            ;{{Addr=$e122 Code Calls/jump count: 1 Data use count: 0}}
+_tokenise_period_or_digit_35:     ;{{Addr=$e122 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{e122:e1}} 
         jp      write_tokenised_byte_to_memory;{{e123:c308e0}} 
 
-_tokenise_a_number_37:            ;{{Addr=$e126 Code Calls/jump count: 4 Data use count: 0}}
-        ld      a,(hl)            ;{{e126:7e}} 
+;;=tokenise copy invalid data
+;Used to copy invalid (untokenisable) code
+;HL=source address
+;TOS=destination address
+;DE=address of last byte to copy
+tokenise_copy_invalid_data:       ;{{Addr=$e126 Code Calls/jump count: 4 Data use count: 0}}
+        ld      a,(hl)            ;{{e126:7e}} HL=read buffer ptr
         inc     hl                ;{{e127:23}} 
-        ex      (sp),hl           ;{{e128:e3}} 
-        ex      de,hl             ;{{e129:eb}} 
-        call    write_tokenised_byte_to_memory;{{e12a:cd08e0}} 
-        ex      de,hl             ;{{e12d:eb}} 
-        ex      (sp),hl           ;{{e12e:e3}} 
+        ex      (sp),hl           ;{{e128:e3}} Get write buffer address...
+        ex      de,hl             ;{{e129:eb}} ...into DE...
+        call    write_tokenised_byte_to_memory;{{e12a:cd08e0}} ...and write token to buffer
+        ex      de,hl             ;{{e12d:eb}} New buffer ptr back to HL...
+        ex      (sp),hl           ;{{e12e:e3}} ...And back to TOS.
         call    compare_HL_DE     ;{{e12f:cdd8ff}}  HL=DE?
-        jr      nz,_tokenise_a_number_37;{{e132:20f2}}  (-$0e)
+        jr      nz,tokenise_copy_invalid_data;{{e132:20f2}}  (-$0e)
         pop     de                ;{{e134:d1}} 
         ret                       ;{{e135:c9}} 
 
@@ -356,34 +365,38 @@ _tokenise_a_number_37:            ;{{Addr=$e126 Code Calls/jump count: 4 Data us
 tokenise_hex_or_binary_number:    ;{{Addr=$e136 Code Calls/jump count: 1 Data use count: 0}}
         push    de                ;{{e136:d5}} 
         push    bc                ;{{e137:c5}} 
-        call    _possibly_validate_input_buffer_is_a_number_12;{{e138:cd8aed}} 
+        call    convert_string_to_positive_number;{{e138:cd8aed}} 
         pop     bc                ;{{e13b:c1}} 
-        jr      nc,_tokenise_a_number_37;{{e13c:30e8}}  (-$18)
+        jr      nc,tokenise_copy_invalid_data;{{e13c:30e8}}  (-$18)
         cp      $02               ;{{e13e:fe02}} 
-        ld      a,$1b             ;{{e140:3e1b}} 
-        jr      z,_tokenise_hex_or_binary_number_9;{{e142:2801}}  (+$01)
-        inc     a                 ;{{e144:3c}} 
+        ld      a,$1b             ;{{e140:3e1b}} 16-bit constant in displayed in binary format
+        jr      z,tokenise_write_from_accumulator;{{e142:2801}}  (+$01)
+        inc     a                 ;{{e144:3c}} $1c=16-bit constant displayed in hex format
 
-_tokenise_hex_or_binary_number_9: ;{{Addr=$e145 Code Calls/jump count: 4 Data use count: 0}}
+;;=tokenise write from accumulator
+;A=token (prefix)
+;Value is in accumulator
+tokenise_write_from_accumulator:  ;{{Addr=$e145 Code Calls/jump count: 4 Data use count: 0}}
         pop     de                ;{{e145:d1}} 
         call    write_tokenised_byte_to_memory;{{e146:cd08e0}} 
         push    hl                ;{{e149:e5}} 
         ld      hl,accumulator    ;{{e14a:21a0b0}} 
         call    get_accumulator_data_type;{{e14d:cd4bff}} 
-_tokenise_hex_or_binary_number_14:;{{Addr=$e150 Code Calls/jump count: 1 Data use count: 0}}
+_tokenise_write_from_accumulator_5:;{{Addr=$e150 Code Calls/jump count: 1 Data use count: 0}}
         push    af                ;{{e150:f5}} 
         ld      a,(hl)            ;{{e151:7e}} 
         inc     hl                ;{{e152:23}} 
         call    write_tokenised_byte_to_memory;{{e153:cd08e0}} 
         pop     af                ;{{e156:f1}} 
         dec     a                 ;{{e157:3d}} 
-        jr      nz,_tokenise_hex_or_binary_number_14;{{e158:20f6}}  (-$0a)
+        jr      nz,_tokenise_write_from_accumulator_5;{{e158:20f6}}  (-$0a)
         pop     hl                ;{{e15a:e1}} 
         ret                       ;{{e15b:c9}} 
 
 ;;=====================================
 ;; tokenise any other ascii char
 ;; Any ASCII char between $33 and $127 which is not a letter, number, period or '&'
+;I.e. strings, bar commands, ? print statement, maths and comparison etc operators, and ' comments
 
 tokenise_any_other_ascii_char:    ;{{Addr=$e15c Code Calls/jump count: 1 Data use count: 0}}
         cp      $22               ;{{e15c:fe22}}  '"'
@@ -392,21 +405,22 @@ tokenise_any_other_ascii_char:    ;{{Addr=$e15c Code Calls/jump count: 1 Data us
         jr      z,tokenise_bar_command;{{e162:283f}}  (+$3f)
         push    bc                ;{{e164:c5}} 
         push    de                ;{{e165:d5}} 
-        xor     $3f               ;{{e166:ee3f}} 
-        ld      b,$bf             ;{{e168:06bf}} 
+        xor     $3f               ;{{e166:ee3f}}  "?" char
+        ld      b,$bf             ;{{e168:06bf}}  PRINT token
         jr      z,_tokenise_any_other_ascii_char_18;{{e16a:2810}}  (+$10)
+
         dec     hl                ;{{e16c:2b}} 
-        ld      de,symbols_table  ;{{e16d:1136e7}} 
+        ld      de,symbols_table  ;{{e16d:1136e7}}  Symbols (i.e maths operators, comparisons)
         call    keyword_to_token_within_single_table;{{e170:cdebe3}} 
         ld      a,(de)            ;{{e173:1a}} 
-        jr      c,_tokenise_any_other_ascii_char_16;{{e174:3802}}  (+$02)
-        ld      a,(hl)            ;{{e176:7e}} 
+        jr      c,_tokenise_any_other_ascii_char_16;{{e174:3802}}  (+$02) 
+        ld      a,(hl)            ;{{e176:7e}} Not found in symbol table?
         inc     hl                ;{{e177:23}} 
 _tokenise_any_other_ascii_char_16:;{{Addr=$e178 Code Calls/jump count: 1 Data use count: 0}}
         ld      b,a               ;{{e178:47}} 
         call    _tokenise_any_other_ascii_char_25;{{e179:cd89e1}} 
 _tokenise_any_other_ascii_char_18:;{{Addr=$e17c Code Calls/jump count: 1 Data use count: 0}}
-        ld      (tokenisation_state_flag),a;{{e17c:3220ae}} 
+        ld      (tokenise_state_flag),a;{{e17c:3220ae}} 
         ld      a,b               ;{{e17f:78}} 
         pop     de                ;{{e180:d1}} 
         pop     bc                ;{{e181:c1}} 
@@ -414,14 +428,19 @@ _tokenise_any_other_ascii_char_18:;{{Addr=$e17c Code Calls/jump count: 1 Data us
         jr      z,tokenise_single_quote_comment;{{e184:2836}}  (+$36)
         jp      write_tokenised_byte_to_memory;{{e186:c308e0}} 
 
+;Get new state flag value
+;Converts A as follows:
+;If A=1 (":" symbol) or $23, returns A=0
+;otherwise if flag=$ff returns A=0,
+;otherwise returns flag.
 _tokenise_any_other_ascii_char_25:;{{Addr=$e189 Code Calls/jump count: 1 Data use count: 0}}
         dec     a                 ;{{e189:3d}} 
         ret     z                 ;{{e18a:c8}} 
 
-        xor     $22               ;{{e18b:ee22}}  '"'
+        xor     $22               ;{{e18b:ee22}} $23 = "#". Testing for stream number?
         ret     z                 ;{{e18d:c8}} 
 
-        ld      a,(tokenisation_state_flag);{{e18e:3a20ae}} 
+        ld      a,(tokenise_state_flag);{{e18e:3a20ae}} 
         inc     a                 ;{{e191:3c}} 
         ret     z                 ;{{e192:c8}} 
 
@@ -448,18 +467,18 @@ tokenise_string:                  ;{{Addr=$e195 Code Calls/jump count: 3 Data us
 tokenise_bar_command:             ;{{Addr=$e1a3 Code Calls/jump count: 1 Data use count: 0}}
         call    write_tokenised_byte_to_memory;{{e1a3:cd08e0}} 
         xor     a                 ;{{e1a6:af}} 
-        ld      (tokenisation_state_flag),a;{{e1a7:3220ae}} 
+        ld      (tokenise_state_flag),a;{{e1a7:3220ae}} 
+
 _tokenise_bar_command_3:          ;{{Addr=$e1aa Code Calls/jump count: 1 Data use count: 0}}
-        call    write_tokenised_byte_to_memory;{{e1aa:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e1aa:cd08e0}} Copy bar command name
         ld      a,(hl)            ;{{e1ad:7e}} 
         inc     hl                ;{{e1ae:23}} 
         call    test_if_letter_period_or_digit;{{e1af:cd9cff}} 
         jr      c,_tokenise_bar_command_3;{{e1b2:38f6}}  (-$0a)
         dec     hl                ;{{e1b4:2b}} 
 
-;;=set bit7 of prev byte
-set_bit7_of_prev_byte:            ;{{Addr=$e1b5 Code Calls/jump count: 1 Data use count: 0}}
-        dec     de                ;{{e1b5:1b}} 
+_tokenise_bar_command_9:          ;{{Addr=$e1b5 Code Calls/jump count: 1 Data use count: 0}}
+        dec     de                ;{{e1b5:1b}} Set bit 7 of last char of name
         ld      a,(de)            ;{{e1b6:1a}} 
         or      $80               ;{{e1b7:f680}} 
         ld      (de),a            ;{{e1b9:12}} 
@@ -469,16 +488,18 @@ set_bit7_of_prev_byte:            ;{{Addr=$e1b5 Code Calls/jump count: 1 Data us
 ;;====================================
 ;; tokenise single quote comment
 tokenise_single_quote_comment:    ;{{Addr=$e1bc Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,$01             ;{{e1bc:3e01}} 
+        ld      a,$01             ;{{e1bc:3e01}} End of statement (:). Always written before tick comment
         call    write_tokenised_byte_to_memory;{{e1be:cd08e0}} 
         ld      a,$c0             ;{{e1c1:3ec0}} "'"
-;;=copy until end of buffer
-copy_until_end_of_buffer:         ;{{Addr=$e1c3 Code Calls/jump count: 2 Data use count: 0}}
+
+;;=copy comment to buffer
+copy_comment_to_buffer:           ;{{Addr=$e1c3 Code Calls/jump count: 2 Data use count: 0}}
         call    write_tokenised_byte_to_memory;{{e1c3:cd08e0}} 
         ld      a,(hl)            ;{{e1c6:7e}} 
         inc     hl                ;{{e1c7:23}} 
         or      a                 ;{{e1c8:b7}} 
-        jr      nz,copy_until_end_of_buffer;{{e1c9:20f8}}  (-$08)
+        jr      nz,copy_comment_to_buffer;{{e1c9:20f8}}  (-$08)
+
         dec     hl                ;{{e1cb:2b}} 
         ret                       ;{{e1cc:c9}} 
 

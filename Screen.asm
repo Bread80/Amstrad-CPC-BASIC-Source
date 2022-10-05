@@ -1,6 +1,8 @@
 ;;<< SCREEN HANDLING FUNCTIONS
 ;;========================================================================
 ;; command PEN
+;PEN [#<stream expression>,]<masked ink>
+;Sets the ink to use for the foreground of the given window.
 
 command_PEN:                      ;{{Addr=$c224 Code Calls/jump count: 0 Data use count: 1}}
         call    exec_TOS_on_evalled_stream_and_swap_back;{{c224:cde5c1}} 
@@ -14,6 +16,8 @@ command_PEN:                      ;{{Addr=$c224 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command PAPER
+;PAPER [#<stream expression>,]<masked ink>
+;Sets the ink to use for the background of the given window.
 
 command_PAPER:                    ;{{Addr=$c239 Code Calls/jump count: 0 Data use count: 1}}
         call    exec_TOS_on_evalled_stream_and_swap_back;{{c239:cde5c1}} 
@@ -29,6 +33,8 @@ _command_paper_3:                 ;{{Addr=$c242 Code Calls/jump count: 1 Data us
 
 ;;=========================================================================
 ;; command BORDER
+;BORDER <colour>[,colour]
+;Set the border colour. If two values are supplied border will flash between them
 
 command_BORDER:                   ;{{Addr=$c248 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_one_or_two_numbers_less_than_32;{{c248:cd62c2}}  one or two numbers each less than 32
@@ -40,6 +46,8 @@ command_BORDER:                   ;{{Addr=$c248 Code Calls/jump count: 0 Data us
 
 ;;=========================================================================
 ;; command INK
+;INK <ink number>,<colour>[,<colour>]
+;Specifies the colour for an ink. If two colours are given the ink flashes between the two.
 
 command_INK:                      ;{{Addr=$c251 Code Calls/jump count: 0 Data use count: 1}}
         call    check_value_is_less_than_16;{{c251:cd71c2}}  check parameter is less than 16
@@ -80,6 +88,8 @@ check_value_is_less_than_16:      ;{{Addr=$c271 Code Calls/jump count: 5 Data us
 
 ;;========================================================================
 ;; command MODE
+;MODE <integer expression>
+;Changes screen mode
 
 command_MODE:                     ;{{Addr=$c275 Code Calls/jump count: 0 Data use count: 1}}
         ld      a,$03             ;{{c275:3e03}} 
@@ -92,6 +102,9 @@ command_MODE:                     ;{{Addr=$c275 Code Calls/jump count: 0 Data us
 
 ;;=============================================================================
 ;; command CLS
+;CLS [#<stream expression>]
+;Clear the screen window for a stream
+;Stream expression must be 0..7. If no value is given stream #0 is cleared.
 
 command_CLS:                      ;{{Addr=$c280 Code Calls/jump count: 0 Data use count: 1}}
         call    exec_TOS_on_evalled_stream_and_swap_back;{{c280:cde5c1}} 
@@ -118,10 +131,13 @@ exec_tos_on_stream_and_swap_back_B:;{{Addr=$c290 Code Calls/jump count: 1 Data u
 function_COPYCHR:                 ;{{Addr=$c298 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_stream_param_and_exec_TOS_and_swap_back;{{c298:cd89c2}} 
         call    TXT_RD_CHAR       ;{{c29b:cd60bb}}  firmware function: txt rd char
-        jp      _function_chr_2   ;{{c29e:c378fa}} 
+        jp      create_single_char_or_null_string;{{c29e:c378fa}} 
 
 ;;========================================================================
 ;; function VPOS
+;VPOS(#<stream expression>)
+;Returns the vertical position of the given stream
+
 function_VPOS:                    ;{{Addr=$c2a1 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_stream_param_and_exec_TOS_and_swap_back;{{c2a1:cd89c2}} 
         push    hl                ;{{c2a4:e5}} 
@@ -130,6 +146,14 @@ function_VPOS:                    ;{{Addr=$c2a1 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; function POS
+;POS(#<stream expression>)
+;Established the position of the specified stream.
+;1. Screen streams #0..#7: Returns the current x coordinate. 1 is the left column
+;2. Printer stream #8: Returns the current position across the printer, counting 
+;all character codes greater than &1F. 1 is the left column
+;3. Cassette output stream #9: Returns the number of printing characters since the last 
+;carriage return, where printing characters are those > &1F. 1 is the leftmost column.
+
 function_POS:                     ;{{Addr=$c2aa Code Calls/jump count: 0 Data use count: 1}}
         call    eval_and_validate_stream_number;{{c2aa:cd0dc2}} 
         call    exec_tos_on_stream_and_swap_back_B;{{c2ad:cd90c2}} 
@@ -208,6 +232,9 @@ _poss_validate_xpos_in_d_15:      ;{{Addr=$c2fd Code Calls/jump count: 3 Data us
 
 ;;========================================================================
 ;; command LOCATE
+;LOCATE [#<stream expression>,]<x coordinate>,<y coordinate>
+;Positions the text cursor in the specified stream, default 0.
+;Valid coordinates are 0..255. (1,1) is the top-left or the window.
 
 command_LOCATE:                   ;{{Addr=$c2ff Code Calls/jump count: 0 Data use count: 1}}
         call    exec_TOS_on_evalled_stream_and_swap_back;{{c2ff:cde5c1}} 
@@ -222,6 +249,11 @@ command_LOCATE:                   ;{{Addr=$c2ff Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command WINDOW, WINDOW SWAP
+;WINDOW [#<stream expression>,]<left>,<right>,<top>,<bottom>
+;Defines a text window. Values can be 1..255
+;WINDOW SWAP <stream expression>,<stream expression>
+;Swaps two text windows
+
 command_WINDOW_WINDOW_SWAP:       ;{{Addr=$c30e Code Calls/jump count: 0 Data use count: 1}}
         cp      $e7               ;{{c30e:fee7}} 
         jr      z,window_swap     ;{{c310:2816}}  (+$16)
@@ -260,6 +292,11 @@ eval_number_less_than_8:          ;{{Addr=$c33e Code Calls/jump count: 2 Data us
 
 ;;========================================================================
 ;; command TAG
+;TAG [#<stream expression>]
+;Enables text at graphics on the given stream
+;Text is printed with the top left pixel at the graphics cursor position.
+;Control characters have to effect and print as symbols
+
 command_TAG:                      ;{{Addr=$c343 Code Calls/jump count: 0 Data use count: 1}}
         call    exec_TOS_on_evalled_stream_and_swap_back;{{c343:cde5c1}} 
         ld      a,$ff             ;{{c346:3eff}} 
@@ -267,6 +304,9 @@ command_TAG:                      ;{{Addr=$c343 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command TAGOFF
+;TAGOFF [#<stream expression>]
+;Cancels TAG for the given stream
+
 command_TAGOFF:                   ;{{Addr=$c34a Code Calls/jump count: 0 Data use count: 1}}
         call    exec_TOS_on_evalled_stream_and_swap_back;{{c34a:cde5c1}} 
         xor     a                 ;{{c34d:af}} 

@@ -41,8 +41,10 @@ include "Includes/MemoryBASIC.asm"
 
         defw rsx_name_table       ; name table
 
-;On entry DE = first byte of available memory
-;HL,BC = upper memory addreses??
+;On entry
+;DE = first byte of available memory
+;HL=last byte of memory not used by BASIC
+;BC=last byte of memory not used by firmware
 
         ld      sp,$c000          ;{{c006:3100c0}} ##LIT##
         call    KL_ROM_WALK       ;{{c009:cdcbbc}}  firmware function: kl rom walk
@@ -83,17 +85,20 @@ rsx_name_table:                   ;{{Addr=$c040 Data Calls/jump count: 0 Data us
 ;;< REPL loop, EDIT, AUTO, NEW, CLEAR (INPUT)
 ;;========================================================================
 ;; command EDIT
+;EDIT <line number>
+;Edit the given line number
+
 command_EDIT:                     ;{{Addr=$c046 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_line_number_or_error;{{c046:cd48cf}} 
         ret     nz                ;{{c049:c0}} 
 
 _command_edit_2:                  ;{{Addr=$c04a Code Calls/jump count: 1 Data use count: 0}}
         ld      sp,$c000          ;{{c04a:3100c0}} ##LIT##
-        call    find_address_of_line_or_error;{{c04d:cd5ce8}} 
+        call    find_line_or_error;{{c04d:cd5ce8}} 
         call    detokenise_line_atHL_to_buffer;{{c050:cd54e2}} convert line to string (detokenise)
 
         call    edit_text_in_BASIC_input_area_and_display_new_line;{{c053:cd01cb}}  edit
-        jr      c,_display_ready_message_22;{{c056:385f}}  (+$5f)
+        jr      c,REPL_execute_or_insert_in_program;{{c056:385f}}  (+$5f)
 
 ;;========================================
 ;;REPL Read Eval Print Loop
@@ -101,7 +106,7 @@ _command_edit_2:                  ;{{Addr=$c04a Code Calls/jump count: 1 Data us
 ;;This is the command line!
 REPL_Read_Eval_Print_Loop:        ;{{Addr=$c058 Code Calls/jump count: 10 Data use count: 0}}
         ld      sp,$c000          ;{{c058:3100c0}} ##LIT##
-        call    _reset_basic_16   ;{{c05b:cd66c1}} 
+        call    reset_string_stack_and_fn_params;{{c05b:cd66c1}} 
         call    get_current_line_number;{{c05e:cdb5de}} 
         call    c,SOUND_HOLD      ;{{c061:dcb6bc}}  firmware function: sound hold
         call    ON_BREAK_CONT     ;{{c064:cdd0c4}}  ON BREAK CONT
@@ -127,53 +132,56 @@ display_ready_message:            ;{{Addr=$c081 Code Calls/jump count: 1 Data us
         call    output_ASCIIZ_string;{{c084:cd8bc3}} ; display 0 terminated string
 
 ;;-----------------------------------------------------------------
-
-_display_ready_message_2:         ;{{Addr=$c087 Code Calls/jump count: 3 Data use count: 0}}
+;;=REPL input loop
+REPL_input_loop:                  ;{{Addr=$c087 Code Calls/jump count: 3 Data use count: 0}}
         call    zero_current_line_address;{{c087:cdaade}} 
-_display_ready_message_3:         ;{{Addr=$c08a Code Calls/jump count: 1 Data use count: 0}}
+_repl_input_loop_1:               ;{{Addr=$c08a Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(AUTO_active_flag_);{{c08a:3a01ac}}  AUTO active?
         or      a                 ;{{c08d:b7}} 
-        jr      z,_display_ready_message_19;{{c08e:281f}}  (+$1f)
+        jr      z,REPL_get_input  ;{{c08e:281f}}  (+$1f)
 
 ;;next AUTO line number
         call    next_AUTO_line_number;{{c090:cd0dc1}} 
         jr      nc,REPL_Read_Eval_Print_Loop;{{c093:30c3}}  (-$3d)
 
         call    skip_space_tab_or_line_feed;{{c095:cd4dde}}  skip space, lf or tab	
-        call    convert_number_a  ;{{c098:cdcfee}} 
-        jr      nc,_display_ready_message_16;{{c09b:300a}} 
+        call    parse_line_number ;{{c098:cdcfee}} 
+        jr      nc,REPL_no_line_number;{{c09b:300a}} 
+
         call    skip_space_tab_or_line_feed;{{c09d:cd4dde}}  skip space, lf or tab	
         or      a                 ;{{c0a0:b7}} 
         scf                       ;{{c0a1:37}} 
-        call    z,find_address_of_line;{{c0a2:cc64e8}} 
-        jr      nc,_display_ready_message_3;{{c0a5:30e3}}  (-$1d)
-_display_ready_message_16:        ;{{Addr=$c0a7 Code Calls/jump count: 1 Data use count: 0}}
+        call    z,find_line       ;{{c0a2:cc64e8}} 
+        jr      nc,_repl_input_loop_1;{{c0a5:30e3}}  (-$1d)
+
+;;=REPL no line number
+REPL_no_line_number:              ;{{Addr=$c0a7 Code Calls/jump count: 1 Data use count: 0}}
         call    nc,cancel_AUTO_mode;{{c0a7:d4dec0}} 
         ld      hl,BASIC_input_area_for_lines_;{{c0aa:218aac}} 
-        jr      _display_ready_message_22;{{c0ad:1808}}  (+$08)
+        jr      REPL_execute_or_insert_in_program;{{c0ad:1808}}  (+$08)
 
 ;;-----------------------------------------------------------------
-
-_display_ready_message_19:        ;{{Addr=$c0af Code Calls/jump count: 2 Data use count: 0}}
+;;=REPL get input
+REPL_get_input:                   ;{{Addr=$c0af Code Calls/jump count: 2 Data use count: 0}}
         call    input_text_to_BASIC_input_area;{{c0af:cdf9ca}}  edit
-        jr      nc,_display_ready_message_19;{{c0b2:30fb}}  (-$05)
+        jr      nc,REPL_get_input ;{{c0b2:30fb}}  (-$05)
         call    output_new_line   ;{{c0b4:cd98c3}} ; new text line
 
-;; either execute or edit/insert in program
-_display_ready_message_22:        ;{{Addr=$c0b7 Code Calls/jump count: 2 Data use count: 0}}
+;;=REPL execute or insert in program
+REPL_execute_or_insert_in_program:;{{Addr=$c0b7 Code Calls/jump count: 2 Data use count: 0}}
         call    skip_space_tab_or_line_feed;{{c0b7:cd4dde}}  skip space, lf or tab
         or      a                 ;{{c0ba:b7}} 
-        jr      z,_display_ready_message_2;{{c0bb:28ca}}  (-$36) empty buffer - loop
-        call    convert_number_a  ;{{c0bd:cdcfee}} 
-        jr      nc,tokenise_and_execute;{{c0c0:300b}}  (+$0b) no line number so execute
-        call    _function_instr_70;{{c0c2:cd4dfb}} 
-        call    _convert_line_addresses_to_line_numbers_24;{{c0c5:cda5e7}} 
-        call    _reset_basic_33   ;{{c0c8:cd8fc1}} 
-        jr      _display_ready_message_2;{{c0cb:18ba}}  (-$46)
+        jr      z,REPL_input_loop ;{{c0bb:28ca}}  (-$36) empty buffer - loop
+        call    parse_line_number ;{{c0bd:cdcfee}} 
+        jr      nc,REPL_tokenise_and_execute;{{c0c0:300b}}  (+$0b) no line number so execute
+        call    copy_all_strings_vars_to_strings_area_if_not_in_strings_area;{{c0c2:cd4dfb}} 
+        call    prob_tokenise_and_insert_line;{{c0c5:cda5e7}} 
+        call    reset_exec_data   ;{{c0c8:cd8fc1}} 
+        jr      REPL_input_loop   ;{{c0cb:18ba}}  (-$46)
 
 ;;+-----------------------------------------------------------------
-;;tokenise and execute
-tokenise_and_execute:             ;{{Addr=$c0cd Code Calls/jump count: 1 Data use count: 0}}
+;;REPL tokenise and execute
+REPL_tokenise_and_execute:        ;{{Addr=$c0cd Code Calls/jump count: 1 Data use count: 0}}
         call    tokenise_a_BASIC_line;{{c0cd:cda4df}} 
         call    ON_BREAK_STOP     ;{{c0d0:cdd3c4}}  ON BREAK STOP
         dec     hl                ;{{c0d3:2b}} 
@@ -205,6 +213,9 @@ set_auto_mode_B:                  ;{{Addr=$c0e6 Code Calls/jump count: 1 Data us
  
 ;;==================================================================
 ;; command AUTO
+;AUTO [<line number>],[<increment>]
+;Generate line numbers. Values default to 10
+
 command_AUTO:                     ;{{Addr=$c0ea Code Calls/jump count: 0 Data use count: 1}}
         ld      de,$000a          ;{{c0ea:110a00}}  default line number is 10
         jr      z,_command_auto_3 ;{{c0ed:2802}} no parameters
@@ -216,13 +227,13 @@ _command_auto_3:                  ;{{Addr=$c0f1 Code Calls/jump count: 1 Data us
         ld      de,$000a          ;{{c0f5:110a00}}  default increment is 10
         call    next_token_if_prev_is_comma;{{c0f8:cd41de}} 
         call    c,eval_line_number_or_error;{{c0fb:dc48cf}}  read increment if given
-        call    syntax_error_if_not_02;{{c0fe:cd37de}} 
+        call    error_if_not_end_of_statement_or_eoln;{{c0fe:cd37de}} 
         ex      de,hl             ;{{c101:eb}} 
         ld      (AUTO_increment_step),hl;{{c102:2204ac}} AUTO increment step
         pop     hl                ;{{c105:e1}} 
         call    set_AUTO_mode     ;{{c106:cde1c0}} store line number to create or edit
         pop     bc                ;{{c109:c1}} 
-        jp      _display_ready_message_2;{{c10a:c387c0}} 
+        jp      REPL_input_loop   ;{{c10a:c387c0}} 
 
 ;;=-----------------------------------------------------------------
 ;;next AUTO line number
@@ -247,6 +258,9 @@ next_AUTO_line_number:            ;{{Addr=$c10d Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command NEW
+;NEW
+;Completely clears the current contents of memory
+
 command_NEW:                      ;{{Addr=$c128 Code Calls/jump count: 0 Data use count: 1}}
         ret     nz                ;{{c128:c0}} 
         call    reset_basic       ;{{c129:cd45c1}} 
@@ -254,20 +268,24 @@ command_NEW:                      ;{{Addr=$c128 Code Calls/jump count: 0 Data us
 
 ;;=============================================================================
 ;; command CLEAR, CLEAR INPUT
+;CLEAR
+;Clear all variables and files
 
 command_CLEAR_CLEAR_INPUT:        ;{{Addr=$c12f Code Calls/jump count: 0 Data use count: 1}}
         cp      $a3               ;{{c12f:fea3}}  token for "INPUT"
         jr      z,CLEAR_INPUT     ;{{c131:280c}}  CLEAR INPUT
 
         push    hl                ;{{c133:e5}} 
-        call    _reset_basic_22   ;{{c134:cd78c1}} 
-        call    _reset_basic_13   ;{{c137:cd5fc1}} 
-        call    _reset_basic_33   ;{{c13a:cd8fc1}} 
+        call    reset_variable_data;{{c134:cd78c1}} 
+        call    close_streams_and_reset_angle_mode_string_stack_and_fn_params;{{c137:cd5fc1}} 
+        call    reset_exec_data   ;{{c13a:cd8fc1}} 
         pop     hl                ;{{c13d:e1}} 
         ret                       ;{{c13e:c9}} 
 
 ;;========================================================================
 ;; CLEAR INPUT
+;CLEAR INPUT ??
+
 CLEAR_INPUT:                      ;{{Addr=$c13f Code Calls/jump count: 1 Data use count: 0}}
         call    get_next_token_skipping_space;{{c13f:cd2cde}}  get next token skipping space
         jp      KM_FLUSH          ;{{c142:c33dbd}}  firmware function: km flush
@@ -288,31 +306,35 @@ reset_basic:                      ;{{Addr=$c145 Code Calls/jump count: 3 Data us
         ld      (hl),a            ;{{c153:77}} 
         ldir                      ;{{c154:edb0}} 
         ld      (program_protection_flag_),a;{{c156:322cae}} 
-        call    delete_program    ;{{c159:cdead5}} 
-        call    _reset_basic_19   ;{{c15c:cd6fc1}} 
-_reset_basic_13:                  ;{{Addr=$c15f Code Calls/jump count: 1 Data use count: 0}}
+        call    clear_all_variables;{{c159:cdead5}} 
+        call    clear_program_and_variables_etc;{{c15c:cd6fc1}} 
+;;=close streams and reset angle mode, string stack and fn params
+close_streams_and_reset_angle_mode_string_stack_and_fn_params:;{{Addr=$c15f Code Calls/jump count: 1 Data use count: 0}}
         call    close_input_and_output_streams;{{c15f:cd00d3}}  close input and output streams
-_reset_basic_14:                  ;{{Addr=$c162 Code Calls/jump count: 1 Data use count: 0}}
+;;=reset angle mode, string stack and fn params
+reset_angle_mode_string_stack_and_fn_params:;{{Addr=$c162 Code Calls/jump count: 1 Data use count: 0}}
         xor     a                 ;{{c162:af}} 
         call    SET_ANGLE_MODE    ;{{c163:cd97bd}}  maths: set angle mode
 
-
-_reset_basic_16:                  ;{{Addr=$c166 Code Calls/jump count: 1 Data use count: 0}}
-        call    get_string_stack_first_free_ptr;{{c166:cdccfb}}  string catenation
+;;=reset string stack and fn params
+reset_string_stack_and_fn_params: ;{{Addr=$c166 Code Calls/jump count: 1 Data use count: 0}}
+        call    clear_string_stack;{{c166:cdccfb}}  string catenation
         call    clear_FN_params_data;{{c169:cd20da}} 
         jp      select_txt_stream_zero;{{c16c:c3a1c1}} 
 
 ;;-------------------------------------------------------------------
-
-_reset_basic_19:                  ;{{Addr=$c16f Code Calls/jump count: 3 Data use count: 0}}
+;;=clear program and variables etc
+clear_program_and_variables_etc:  ;{{Addr=$c16f Code Calls/jump count: 3 Data use count: 0}}
         call    command_TROFF     ;{{c16f:cdc5de}} ; TROFF
         call    cancel_AUTO_mode  ;{{c172:cddec0}} 
-        call    _reset_basic_31   ;{{c175:cd89c1}} 
-_reset_basic_22:                  ;{{Addr=$c178 Code Calls/jump count: 3 Data use count: 0}}
+        call    reset_zone_and_clear_program;{{c175:cd89c1}} 
+
+;;=reset variable data
+reset_variable_data:              ;{{Addr=$c178 Code Calls/jump count: 3 Data use count: 0}}
         push    bc                ;{{c178:c5}} 
         push    hl                ;{{c179:e5}} 
         call    empty_strings_area;{{c17a:cd8cf6}} 
-        call    delete_program    ;{{c17d:cdead5}} 
+        call    clear_all_variables;{{c17d:cdead5}} 
         call    defreal_a_to_z    ;{{c180:cd38d6}} 
         call    reset_variable_types_and_pointers;{{c183:cd4dea}} 
         pop     hl                ;{{c186:e1}} 
@@ -320,12 +342,15 @@ _reset_basic_22:                  ;{{Addr=$c178 Code Calls/jump count: 3 Data us
         ret                       ;{{c188:c9}} 
 
 ;;-----------------------------------------------------------------
-_reset_basic_31:                  ;{{Addr=$c189 Code Calls/jump count: 2 Data use count: 0}}
+;;=reset zone and clear program
+reset_zone_and_clear_program:     ;{{Addr=$c189 Code Calls/jump count: 2 Data use count: 0}}
         call    set_zone_13       ;{{c189:cd99f2}} 
-        call    poss_clear_program_area;{{c18c:cd61e7}} ; ?
+        call    clear_program     ;{{c18c:cd61e7}} ; ?
 
 ;;-----------------------------------------------------------------
-_reset_basic_33:                  ;{{Addr=$c18f Code Calls/jump count: 7 Data use count: 0}}
+;;=reset exec data
+;Appears to be a 'light' reset after running and before editing etc.
+reset_exec_data:                  ;{{Addr=$c18f Code Calls/jump count: 7 Data use count: 0}}
         call    clear_error_handlers;{{c18f:cdaccc}} 
         call    clear_last_RUN_error_line_address;{{c192:cd7ecc}} 
         call    initialise_event_system;{{c195:cda3c9}} 
@@ -390,8 +415,8 @@ eval_and_select_txt_stream:       ;{{Addr=$c1ca Code Calls/jump count: 1 Data us
         call    eval_and_validate_stream_number_if_present;{{c1ca:cdfbc1}} 
         jr      select_txt_stream ;{{c1cd:18d7}}  (-$29)
 
-;;=exec BC on evalled stream and swap back
-exec_BC_on_evalled_stream_and_swap_back:;{{Addr=$c1cf Code Calls/jump count: 2 Data use count: 0}}
+;;=exec following on evalled stream and swap back
+exec_following_on_evalled_stream_and_swap_back:;{{Addr=$c1cf Code Calls/jump count: 2 Data use count: 0}}
         call    eval_and_validate_stream_number_if_present;{{c1cf:cdfbc1}} 
         jr      exec_TOS_on_stream_and_swap_back;{{c1d2:1818}}  (+$18)
 
@@ -437,7 +462,7 @@ eval_and_validate_stream_number_if_present:;{{Addr=$c1fb Code Calls/jump count: 
         call    eval_and_validate_stream_number;{{c201:cd0dc2}} 
         push    af                ;{{c204:f5}} 
         call    next_token_if_prev_is_comma;{{c205:cd41de}} 
-        call    nc,syntax_error_if_not_02;{{c208:d437de}} 
+        call    nc,error_if_not_end_of_statement_or_eoln;{{c208:d437de}} 
         pop     af                ;{{c20b:f1}} 
         ret                       ;{{c20c:c9}} 
 
@@ -481,6 +506,8 @@ check_number_is_less_than_2:      ;{{Addr=$c220 Code Calls/jump count: 5 Data us
 ;;<< SCREEN HANDLING FUNCTIONS
 ;;========================================================================
 ;; command PEN
+;PEN [#<stream expression>,]<masked ink>
+;Sets the ink to use for the foreground of the given window.
 
 command_PEN:                      ;{{Addr=$c224 Code Calls/jump count: 0 Data use count: 1}}
         call    exec_TOS_on_evalled_stream_and_swap_back;{{c224:cde5c1}} 
@@ -494,6 +521,8 @@ command_PEN:                      ;{{Addr=$c224 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command PAPER
+;PAPER [#<stream expression>,]<masked ink>
+;Sets the ink to use for the background of the given window.
 
 command_PAPER:                    ;{{Addr=$c239 Code Calls/jump count: 0 Data use count: 1}}
         call    exec_TOS_on_evalled_stream_and_swap_back;{{c239:cde5c1}} 
@@ -509,6 +538,8 @@ _command_paper_3:                 ;{{Addr=$c242 Code Calls/jump count: 1 Data us
 
 ;;=========================================================================
 ;; command BORDER
+;BORDER <colour>[,colour]
+;Set the border colour. If two values are supplied border will flash between them
 
 command_BORDER:                   ;{{Addr=$c248 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_one_or_two_numbers_less_than_32;{{c248:cd62c2}}  one or two numbers each less than 32
@@ -520,6 +551,8 @@ command_BORDER:                   ;{{Addr=$c248 Code Calls/jump count: 0 Data us
 
 ;;=========================================================================
 ;; command INK
+;INK <ink number>,<colour>[,<colour>]
+;Specifies the colour for an ink. If two colours are given the ink flashes between the two.
 
 command_INK:                      ;{{Addr=$c251 Code Calls/jump count: 0 Data use count: 1}}
         call    check_value_is_less_than_16;{{c251:cd71c2}}  check parameter is less than 16
@@ -560,6 +593,8 @@ check_value_is_less_than_16:      ;{{Addr=$c271 Code Calls/jump count: 5 Data us
 
 ;;========================================================================
 ;; command MODE
+;MODE <integer expression>
+;Changes screen mode
 
 command_MODE:                     ;{{Addr=$c275 Code Calls/jump count: 0 Data use count: 1}}
         ld      a,$03             ;{{c275:3e03}} 
@@ -572,6 +607,9 @@ command_MODE:                     ;{{Addr=$c275 Code Calls/jump count: 0 Data us
 
 ;;=============================================================================
 ;; command CLS
+;CLS [#<stream expression>]
+;Clear the screen window for a stream
+;Stream expression must be 0..7. If no value is given stream #0 is cleared.
 
 command_CLS:                      ;{{Addr=$c280 Code Calls/jump count: 0 Data use count: 1}}
         call    exec_TOS_on_evalled_stream_and_swap_back;{{c280:cde5c1}} 
@@ -598,10 +636,13 @@ exec_tos_on_stream_and_swap_back_B:;{{Addr=$c290 Code Calls/jump count: 1 Data u
 function_COPYCHR:                 ;{{Addr=$c298 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_stream_param_and_exec_TOS_and_swap_back;{{c298:cd89c2}} 
         call    TXT_RD_CHAR       ;{{c29b:cd60bb}}  firmware function: txt rd char
-        jp      _function_chr_2   ;{{c29e:c378fa}} 
+        jp      create_single_char_or_null_string;{{c29e:c378fa}} 
 
 ;;========================================================================
 ;; function VPOS
+;VPOS(#<stream expression>)
+;Returns the vertical position of the given stream
+
 function_VPOS:                    ;{{Addr=$c2a1 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_stream_param_and_exec_TOS_and_swap_back;{{c2a1:cd89c2}} 
         push    hl                ;{{c2a4:e5}} 
@@ -610,6 +651,14 @@ function_VPOS:                    ;{{Addr=$c2a1 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; function POS
+;POS(#<stream expression>)
+;Established the position of the specified stream.
+;1. Screen streams #0..#7: Returns the current x coordinate. 1 is the left column
+;2. Printer stream #8: Returns the current position across the printer, counting 
+;all character codes greater than &1F. 1 is the left column
+;3. Cassette output stream #9: Returns the number of printing characters since the last 
+;carriage return, where printing characters are those > &1F. 1 is the leftmost column.
+
 function_POS:                     ;{{Addr=$c2aa Code Calls/jump count: 0 Data use count: 1}}
         call    eval_and_validate_stream_number;{{c2aa:cd0dc2}} 
         call    exec_tos_on_stream_and_swap_back_B;{{c2ad:cd90c2}} 
@@ -688,6 +737,9 @@ _poss_validate_xpos_in_d_15:      ;{{Addr=$c2fd Code Calls/jump count: 3 Data us
 
 ;;========================================================================
 ;; command LOCATE
+;LOCATE [#<stream expression>,]<x coordinate>,<y coordinate>
+;Positions the text cursor in the specified stream, default 0.
+;Valid coordinates are 0..255. (1,1) is the top-left or the window.
 
 command_LOCATE:                   ;{{Addr=$c2ff Code Calls/jump count: 0 Data use count: 1}}
         call    exec_TOS_on_evalled_stream_and_swap_back;{{c2ff:cde5c1}} 
@@ -702,6 +754,11 @@ command_LOCATE:                   ;{{Addr=$c2ff Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command WINDOW, WINDOW SWAP
+;WINDOW [#<stream expression>,]<left>,<right>,<top>,<bottom>
+;Defines a text window. Values can be 1..255
+;WINDOW SWAP <stream expression>,<stream expression>
+;Swaps two text windows
+
 command_WINDOW_WINDOW_SWAP:       ;{{Addr=$c30e Code Calls/jump count: 0 Data use count: 1}}
         cp      $e7               ;{{c30e:fee7}} 
         jr      z,window_swap     ;{{c310:2816}}  (+$16)
@@ -740,6 +797,11 @@ eval_number_less_than_8:          ;{{Addr=$c33e Code Calls/jump count: 2 Data us
 
 ;;========================================================================
 ;; command TAG
+;TAG [#<stream expression>]
+;Enables text at graphics on the given stream
+;Text is printed with the top left pixel at the graphics cursor position.
+;Control characters have to effect and print as symbols
+
 command_TAG:                      ;{{Addr=$c343 Code Calls/jump count: 0 Data use count: 1}}
         call    exec_TOS_on_evalled_stream_and_swap_back;{{c343:cde5c1}} 
         ld      a,$ff             ;{{c346:3eff}} 
@@ -747,6 +809,9 @@ command_TAG:                      ;{{Addr=$c343 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command TAGOFF
+;TAGOFF [#<stream expression>]
+;Cancels TAG for the given stream
+
 command_TAGOFF:                   ;{{Addr=$c34a Code Calls/jump count: 0 Data use count: 1}}
         call    exec_TOS_on_evalled_stream_and_swap_back;{{c34a:cde5c1}} 
         xor     a                 ;{{c34d:af}} 
@@ -960,6 +1025,10 @@ _process_new_lines_for_file_or_printer_13:;{{Addr=$c426 Code Calls/jump count: 3
 
 ;;========================================================================
 ;; command WIDTH
+;WIDTH <integer expression>
+;Set the printer width so BASIC can insert carriage returns.
+;Default 132. 255 means do not insert carriage returns
+
 command_WIDTH:                    ;{{Addr=$c42a Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_int_less_than_256;{{c42a:cdc3ce}} 
         ld      (WIDTH_),a        ;{{c42d:3209ac}} 
@@ -991,6 +1060,10 @@ raise_File_not_open_error:        ;{{Addr=$c44c Code Calls/jump count: 2 Data us
 
 ;;=================================================
 ;; variable EOF
+;EOF
+;Test for end of input file
+;Returns -1 (true) or 0 (false)
+;If no file is open returns true
 
 variable_EOF:                     ;{{Addr=$c44f Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{c44f:e5}} 
@@ -1064,11 +1137,13 @@ arm_break_handler_B:              ;{{Addr=$c480 Code Calls/jump count: 1 Data us
 ;;=======================================================================================
 ;;break handling routine
 ;Called from firmware break handler
+
+;Clear any characters in the input buffer prior to the break key being pressed
 break_handling_routine:           ;{{Addr=$c492 Code Calls/jump count: 1 Data use count: 1}}
         call    KM_READ_CHAR      ;{{c492:cd09bb}}  firmware function: km read char
         jr      nc,_break_handling_routine_4;{{c495:3004}}  (+$04) No key available  
         cp      $ef               ;{{c497:feef}}  
-        jr      nz,break_handling_routine;{{c499:20f7}}  (-$09) Loop until $ef. Code for break released?
+        jr      nz,break_handling_routine;{{c499:20f7}}  (-$09) Loop until $ef. Code for break key.
 
 _break_handling_routine_4:        ;{{Addr=$c49b Code Calls/jump count: 1 Data use count: 0}}
         call    break_pause       ;{{c49b:cda1c4}}  wait for second break, or resume
@@ -1133,6 +1208,10 @@ _on_break_stop_1:                 ;{{Addr=$c4d5 Code Calls/jump count: 1 Data us
 ;;<< GRAPHICS FUNCTIONS
 ;;========================================================================
 ;; command ORIGIN
+;ORIGIN <x>,<y>[,<left>,<right>,<top>,<bottom>]
+;Sets graphics screen origin and window
+;If left, right, top, bottom are omitted then current window remains unchanged.
+;(0,0) is the bottom, left of the screen.
 
 command_ORIGIN:                   ;{{Addr=$c4de Code Calls/jump count: 0 Data use count: 1}}
         call    eval_two_int_params;{{c4de:cd8cc5}} params x,y
@@ -1162,6 +1241,9 @@ _command_origin_18:               ;{{Addr=$c4ff Code Calls/jump count: 1 Data us
 
 ;;=============================================================================
 ;; command CLG
+;CLG [<masked ink>]
+;Clear the graphics screen to the given ink. If no ink is given the value
+;from the last call to CLG is used, or ink 0 if no CLG command has been executed
 
 command_CLG:                      ;{{Addr=$c506 Code Calls/jump count: 0 Data use count: 1}}
         call    is_next_02        ;{{c506:cd3dde}} 
@@ -1177,7 +1259,7 @@ command_FILL:                     ;{{Addr=$c512 Code Calls/jump count: 0 Data us
         call    check_value_is_less_than_16;{{c512:cd71c2}}  check parameter is less than 16
         push    hl                ;{{c515:e5}} 
         push    af                ;{{c516:f5}} 
-        call    _function_fre_6   ;{{c517:cd64fc}} (free up?) and calc free memory?
+        call    strings_area_garbage_collection;{{c517:cd64fc}} (free up?) and calc free memory?
         call    get_free_space_byte_count_in_HL_addr_in_DE;{{c51a:cdfcf6}} 
         ld      bc,$001d          ;{{c51d:011d00}} 
         call    compare_HL_BC     ;{{c520:cddeff}}  HL=BC?
@@ -1191,36 +1273,59 @@ command_FILL:                     ;{{Addr=$c512 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command MOVE
+;MOVE <x coordinate>,<y coordinate>
+;Moves the graphic cursor
+
 command_MOVE:                     ;{{Addr=$c52f Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_MOVE_ABSOLUTE;{{c52f:01c0bb}}  firmware function: gra move absolute
         jr      plotdraw_general_function;{{c532:1817}} 
 
 ;;========================================================================
 ;; command MOVER
+;MOVER <x coordinate>,<y coordinate>
+;Moves the graphic cursor relative to it's current position
+
 command_MOVER:                    ;{{Addr=$c534 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_MOVE_RELATIVE;{{c534:01c3bb}}  firmware function: gra move relative
         jr      plotdraw_general_function;{{c537:1812}} 
 
 ;;========================================================================
 ;; command DRAW
+;DRAW <x coordinate>,<y coordinate>[,<masked ink>]
+;Draw a line on the screen from the current position to that given.
+;If no masked ink is specified that given in the last call to DRAW, DRAWR, PLOT or PLOTR 
+;will be used. If no such commands have been used, ink 1 will be used.
+
 command_DRAW:                     ;{{Addr=$c539 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_LlNE_ABSOLUTE;{{c539:01f6bb}}  firmware function: gra line absolute
         jr      plotdraw_general_function;{{c53c:180d}} 
 
 ;;========================================================================
 ;; command DRAWR
+;DRAWR <x offset>,<y offset>[,<masked ink>]
+;Draws a line from the current position to the given offset from that position
+;See DRAW
+
 command_DRAWR:                    ;{{Addr=$c53e Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_LINE_RELATIVE;{{c53e:01f9bb}}  firmware function: gra line relative
         jr      plotdraw_general_function;{{c541:1808}} 
 
 ;;========================================================================
 ;; command PLOT
+;PLOT <x coordinate>,<y coordinate>[,<masked ink>]
+;Plots a pixel at the given location
+;See DRAW
+
 command_PLOT:                     ;{{Addr=$c543 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_PLOT_ABSOLUTE;{{c543:01eabb}}  firmware function: gra plot absolute
         jr      plotdraw_general_function;{{c546:1803}} 
 
 ;;========================================================================
 ;; command PLOTR
+;PLOTR <x offset>,<y offset>[,<masked ink>]
+;Plots a pixel at the given offset from the current position
+;See DRAW
+
 command_PLOTR:                    ;{{Addr=$c548 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_PLOT_RELATIVE;{{c548:01edbb}}  firmware function: gra plot relative
 
@@ -1255,12 +1360,20 @@ _plotdraw_general_function_13:    ;{{Addr=$c568 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; function TEST
+;TEST(<x coordinate>,<y coordinate>)
+;Returns the ink at the given pixel location. Also moves th graphics cursor.
+;If the location is outside the current graphics window the value used in the last CLG
+;command is returned. If no CLG command hs been used returns 0
+
 function_TEST:                    ;{{Addr=$c571 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_TEST_ABSOLUTE;{{c571:01f0bb}}  firmware function: GRA TEST ABSOLUTE
         jr      _function_testr_1 ;{{c574:1803}}  
 
 ;;========================================================================
 ;; function TESTR
+;TESTR(<x offset>,<y offset>)
+;As TEST but the position is relative to the current graphics cursor position
+
 function_TESTR:                   ;{{Addr=$c576 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,GRA_TEST_RELATIVE;{{c576:01f3bb}}  firmware function: GRA TEST RELATIVE
 ;;------------------------------------------------------------------------
@@ -1344,8 +1457,15 @@ _command_mask_4:                  ;{{Addr=$c5ca Code Calls/jump count: 1 Data us
 ;;<< CONTROL FLOW
 ;;< FOR, IF, GOTO, GOSUB, WHILE
 ;;========================================================================
-
 ;; command FOR
+;FOR <simple variable>=<start> TO <end> [STEP <step size>]
+;Variable and values can be integer or real.
+;The matching NEXT is established when executing the FOR, and is the next matching 
+;NEXT (taking account of nesting) sequentially in the program code, ignoring order 
+;of execution.
+;Terminates when the variable is >= the end value (positive step) or 
+;<= the end value (negative step)
+;The FOR loop can be terminated by avoiding the NEXT
 
 command_FOR:                      ;{{Addr=$c5d4 Code Calls/jump count: 0 Data use count: 1}}
         call    parse_and_find_or_alloc_FOR_var;{{c5d4:cdecd6}} 
@@ -1441,7 +1561,7 @@ _command_for_73:                  ;{{Addr=$c65b Code Calls/jump count: 1 Data us
         inc     hl                ;{{c668:23}} 
         ex      de,hl             ;{{c669:eb}} 
         pop     hl                ;{{c66a:e1}} 
-        call    syntax_error_if_not_02;{{c66b:cd37de}} Validate step is an INT
+        call    error_if_not_end_of_statement_or_eoln;{{c66b:cd37de}} Validate step is an INT
         ex      de,hl             ;{{c66e:eb}} 
         ld      (hl),e            ;{{c66f:73}} 
         inc     hl                ;{{c670:23}} 
@@ -1484,6 +1604,9 @@ raise_Unexpected_NEXT:            ;{{Addr=$c69e Code Calls/jump count: 2 Data us
 
 ;;========================================================================
 ;; command NEXT
+;NEXT [<list of: <variable>>]
+;Ends a FOR loop. See FOR
+
 command_NEXT:                     ;{{Addr=$c6a2 Code Calls/jump count: 0 Data use count: 1}}
         ld      a,$ff             ;{{c6a2:3eff}} 
         ld      (FORNEXT_flag_),a ;{{c6a4:320cac}} &ff=NEXT has been used
@@ -1659,6 +1782,14 @@ _update_and_test_int_for_loop_counter_24:;{{Addr=$c757 Code Calls/jump count: 1 
 
 ;;========================================================================
 ;; command IF
+;IF <logical expression> THEN <option part> [ELSE <option part>]
+;IF <logical expression> GOTO <line number> [ELSE <option part>]
+;where <option part> is <statements> or <line number>
+;Conditional execution.
+;An IF statement terminates at the end of the line.
+;GOTO can also be GO TO
+;Line numbers must be constants
+;IF statements can be nested as long as they are all on the same line.
 
 command_IF:                       ;{{Addr=$c767 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expression   ;{{c767:cd62cf}} 
@@ -1683,6 +1814,9 @@ _command_if_5:                    ;{{Addr=$c772 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command GOTO
+;GOTO <line number>
+;GO TO <line number>
+;Jump to a line. Line number must be a constant
 
 command_GOTO:                     ;{{Addr=$c786 Code Calls/jump count: 1 Data use count: 1}}
         call    eval_and_convert_line_number_to_line_address;{{c786:cd27e8}} 
@@ -1693,6 +1827,9 @@ command_GOTO:                     ;{{Addr=$c786 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command GOSUB
+;GOSUB <line number>
+;GO SUB <line number>
+;Call a subroutine. Line number must be a constant.
 
 command_GOSUB:                    ;{{Addr=$c78c Code Calls/jump count: 0 Data use count: 1}}
         call    eval_and_convert_line_number_to_line_address;{{c78c:cd27e8}} 
@@ -1731,6 +1868,8 @@ special_GOSUB_HL:                 ;{{Addr=$c793 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command RETURN
+;RETURN
+;Returns from a subroutine
 
 command_RETURN:                   ;{{Addr=$c7b0 Code Calls/jump count: 0 Data use count: 1}}
         ret     nz                ;{{c7b0:c0}} 
@@ -1780,6 +1919,12 @@ _find_last_return_item_on_execution_stack_1:;{{Addr=$c7d2 Code Calls/jump count:
 
 ;;========================================================================
 ;; command WHILE
+;WHILE <logical expression>
+;Begins a WHILE ... WEND loop
+;The matching WEND is established when WHILE is encountered, and is searched for sequentially
+;in the code, ignoring order of execution, but respecting and nested WHILE loops.
+;WHILE can be terminated by avoiding the WEND
+
 command_WHILE:                    ;{{Addr=$c7e7 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{c7e7:e5}} 
         call    find_matching_WEND;{{c7e8:cdc9ca}} 
@@ -1822,6 +1967,9 @@ command_WHILE:                    ;{{Addr=$c7e7 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command WEND
+;WEND
+;Terminates a WHILE ... WEND loop.
+;See WHILE
 
 command_WEND:                     ;{{Addr=$c81a Code Calls/jump count: 0 Data use count: 1}}
         ret     nz                ;{{c81a:c0}} 
@@ -1914,11 +2062,24 @@ _find_whilewend_data_on_execution_stack_26:;{{Addr=$c87f Code Calls/jump count: 
 ;; command ON, ON ERROR GOTO
 ;(except ON ERROR GOTO 0!)
 
+;ON <selector> GOTO <list of: <line number>>
+;ON <selector> GOSUB <list of: <line number>>
+;Choose on of a number of destinations based off a value.
+;Value must be 0..255
+;Value 1 selects the first target, 2 the second and so on.
+;Value 0 or any value greater than the number of items in the list does nothing.
+
+;ON ERROR GOTO <line number>
+;Turns on error processing mode. Can be turned off with ON ERROR GOTO 0 (see elsewhere)
+;The specified line will be jumped to when an error occurs. ERR and ERL can be used to 
+;handle errors, or ERROR to invoke default error handling. RESUME can be used to return.
+
 command_ON_ON_ERROR_GOTO:         ;{{Addr=$c882 Code Calls/jump count: 0 Data use count: 1}}
         cp      $9c               ;{{c882:fe9c}} token for ERROR
         jp      z,ON_ERROR_GOTO   ;{{c884:cab8cc}} 
 
-;ON [expr] GOTO/GOSUB [list of line numbers]
+
+
         call    eval_expr_as_byte_or_error;{{c887:cdb8ce}}  get number and check it's less than 255 
         ld      c,a               ;{{c88a:4f}} C = index into list of item to goto/gosub
         ld      a,(hl)            ;{{c88b:7e}} 
@@ -1992,7 +2153,7 @@ finished_processing_events:       ;{{Addr=$c8d8 Code Calls/jump count: 1 Data us
         jp      c,unknown_execution_error;{{c8ea:da3ecc}} 
         inc     hl                ;{{c8ed:23}} 
         pop     af                ;{{c8ee:f1}} 
-        jp      execute_end_of_line;{{c8ef:c377de}} 
+        jp      execute_line_atHL ;{{c8ef:c377de}} 
 
 ;;=do ON BREAK
 ;(Called after the break pause and then unpause)
@@ -2011,7 +2172,7 @@ do_ON_BREAK:                      ;{{Addr=$c8f2 Code Calls/jump count: 1 Data us
         push    bc                ;{{c905:c5}} ON BREAK CONTinue?
         call    SOUND_CONTINUE    ;{{c906:cdb9bc}}  firmware function: sound continue
         pop     bc                ;{{c909:c1}} 
-        ld      de,RAM_ac17       ;{{c90a:1117ac}} 
+        ld      de,unknown_ON_BREAK_GOSUB_data;{{c90a:1117ac}} 
         ld      c,$02             ;{{c90d:0e02}} 
         jr      handle_event_etc_GOSUBs;{{c90f:1822}}  (+$22)
 
@@ -2107,13 +2268,16 @@ _prob_return_from_break_handler_7:;{{Addr=$c972 Code Calls/jump count: 1 Data us
         jp      execute_statement_atHL;{{c973:c360de}} 
 
 ;;========================================================================
-;; command ON BREAK, ON BREAK CONT, ON BREAK STOP
+;; command ON BREAK GOSUB, ON BREAK CONT, ON BREAK STOP
+;ON BREAK GOSUB <line number>
+;ON BREAK STOP
+;Performs the specified action when [ESC][ESC] is pressed
 
-command_ON_BREAK_ON_BREAK_CONT_ON_BREAK_STOP:;{{Addr=$c976 Code Calls/jump count: 0 Data use count: 1}}
-        call    _command_on_break_on_break_cont_on_break_stop_2;{{c976:cd7cc9}} 
+command_ON_BREAK_GOSUB_ON_BREAK_CONT_ON_BREAK_STOP:;{{Addr=$c976 Code Calls/jump count: 0 Data use count: 1}}
+        call    _command_on_break_gosub_on_break_cont_on_break_stop_2;{{c976:cd7cc9}} 
         jp      get_next_token_skipping_space;{{c979:c32cde}}  get next token skipping space
 
-_command_on_break_on_break_cont_on_break_stop_2:;{{Addr=$c97c Code Calls/jump count: 1 Data use count: 0}}
+_command_on_break_gosub_on_break_cont_on_break_stop_2:;{{Addr=$c97c Code Calls/jump count: 1 Data use count: 0}}
         cp      $8b               ;{{c97c:fe8b}}  token for "CONT"
         jp      z,ON_BREAK_CONT   ;{{c97e:cad0c4}}  ON BREAK CONT
 
@@ -2136,6 +2300,12 @@ set_ON_BREAK_handler_line_address:;{{Addr=$c990 Code Calls/jump count: 1 Data us
 ;;EVENTS
 ;;========================================================================
 ;; command DI
+;DI
+;Disables interrupts (BASIC interrupts, not system/machine code interrupts)
+;Does not affect break interrupts (ESC key)
+;If interrupts are disabled in an interrupt handler subroutine they are
+;implicitly re-enabled by the terminating RETURN statement
+
 command_DI:                       ;{{Addr=$c997 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{c997:e5}} 
         call    KL_EVENT_DISABLE  ;{{c998:cd04bd}}  firmware function: KL EVENT DISABLE
@@ -2144,6 +2314,10 @@ command_DI:                       ;{{Addr=$c997 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command EI
+;EI
+;Enables interrupts which have been disabled by DI
+;See DI
+
 command_EI:                       ;{{Addr=$c99d Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{c99d:e5}} 
         call    KL_EVENT_ENABLE   ;{{c99e:cd07bd}}  firmware function: KL EVENT ENABLE
@@ -2204,8 +2378,10 @@ _initialise_event_blocks_15:      ;{{Addr=$c9f1 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command ON SQ
-;ON SQ(channel) GOSUB [line]
-;channel number = 1,2,4
+;ON SQ(<channel>) GOSUB <line number>
+;channel number = 1,2,4 for channels A, B, or C
+;Enables an interrupt for when there is a free slot in the given sound queue.
+;The SOUND command and SQ function disable ON SQ interrupts
 
 command_ON_SQ:                    ;{{Addr=$c9f5 Code Calls/jump count: 0 Data use count: 1}}
         call    next_token_if_open_bracket;{{c9f5:cd19de}}  check for open bracket
@@ -2243,6 +2419,10 @@ raise_improper_argument_error_B:  ;{{Addr=$ca1f Code Calls/jump count: 3 Data us
 
 ;;==================================================================
 ;; command AFTER
+;AFTER <time delay>[,<timer number>] GOSUB <line number>
+;Call a subroutine after the specified period in 1/50ths of a second
+;Timer number 0-3, default 0. Timer 3 has highest priority, 0 the lowest.
+
 command_AFTER:                    ;{{Addr=$ca22 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_positive_int_or_error;{{ca22:cdcece}} Get delay
         ld      bc,$0000          ;{{ca25:010000}} ##LIT##
@@ -2250,6 +2430,10 @@ command_AFTER:                    ;{{Addr=$ca22 Code Calls/jump count: 0 Data us
 
 ;;==================================================================
 ;; command EVERY
+;EVERY <time delay>[,<timer number>] GOSUB <line number>
+;Call a subroutine at regular intervals, given in 1/50ths of a second
+;Timer number 0-3, default 0
+
 command_EVERY:                    ;{{Addr=$ca2a Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_positive_int_or_error;{{ca2a:cdcece}} Get period
         ld      b,d               ;{{ca2d:42}} 
@@ -2280,6 +2464,10 @@ init_timer_event:                 ;{{Addr=$ca2f Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function REMAIN
+;REMAIN(<timer number>)
+;Gets the timer remaining count for a timer.
+;Values 0..3
+;Returns zero if the timer was not enabled
 
 function_REMAIN:                  ;{{Addr=$ca50 Code Calls/jump count: 0 Data use count: 1}}
         call    function_CINT     ;{{ca50:cdb6fe}} 
@@ -2543,6 +2731,10 @@ Error_Improper_Argument:          ;{{Addr=$cb4d Code Calls/jump count: 22 Data u
 
 ;;========================================================================
 ;; command ERROR
+;ERROR <integer expression>
+;Raise the given error.
+;Valid values are 1..255. If the error number is not recognised then 'Unknown error' is produced
+
 command_ERROR:                    ;{{Addr=$cb51 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_int_less_than_256;{{cb51:cdc3ce}} 
         ret     nz                ;{{cb54:c0}} 
@@ -2560,7 +2752,7 @@ raise_error_no_tracking:          ;{{Addr=$cb64 Code Calls/jump count: 1 Data us
         ld      sp,$c000          ;{{cb64:3100c0}} ##LIT##
         ld      hl,(cache_of_execution_stack_next_free_ptr);{{cb67:2a19ae}} 
         call    set_execution_stack_next_free_ptr;{{cb6a:cd6ef6}} 
-        call    get_string_stack_first_free_ptr;{{cb6d:cdccfb}} 
+        call    clear_string_stack;{{cb6d:cdccfb}} 
         call    clear_FN_params_data;{{cb70:cd20da}} 
         call    get_resume_line_number;{{cb73:cdaacb}} C set if we have resume address
         ld      hl,(address_line_specified_by_the_ON_ERROR_);{{cb76:2a96ad}} 
@@ -2574,7 +2766,7 @@ raise_error_no_tracking:          ;{{Addr=$cb64 Code Calls/jump count: 1 Data us
         jr      nz,display_error_then_do_REPL;{{cb84:2005}}  (+$05)
         dec     (hl)              ;{{cb86:35}} 
         ex      de,hl             ;{{cb87:eb}} 
-        jp      execute_end_of_line;{{cb88:c377de}}  ON ERROR RESUME??
+        jp      execute_line_atHL ;{{cb88:c377de}}  ON ERROR RESUME??
 
 ;;=display error then do REPL
 display_error_then_do_REPL:       ;{{Addr=$cb8b Code Calls/jump count: 3 Data use count: 0}}
@@ -2692,6 +2884,9 @@ in_message:                       ;{{Addr=$cc21 Data Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command STOP
+;STOP
+;Halts execution leaving BASIC in a state where the program can be restarted.
+;Useful when debugging. Program can be restarted with CONT
 
 command_STOP:                     ;{{Addr=$cc26 Code Calls/jump count: 0 Data use count: 1}}
         ret     nz                ;{{cc26:c0}} 
@@ -2703,6 +2898,9 @@ command_STOP:                     ;{{Addr=$cc26 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command END
+;END
+;End program execution. Closes all files. Does not stop sound generation.
+
 command_END:                      ;{{Addr=$cc31 Code Calls/jump count: 0 Data use count: 1}}
         ret     nz                ;{{cc31:c0}} 
         call    set_if_error_data_before_stopping;{{cc32:cd66cc}} 
@@ -2785,6 +2983,9 @@ _set_last_run_error_line_data_6:  ;{{Addr=$cc8f Code Calls/jump count: 1 Data us
 
 ;;=============================================================================
 ;; command CONT
+;CONT
+;Continues execution after a [ESC][ESC] break sequence, or STOP or END command
+
 command_CONT:                     ;{{Addr=$cc93 Code Calls/jump count: 0 Data use count: 1}}
         ret     nz                ;{{cc93:c0}} 
         ld      hl,(last_RUN_error_address);{{cc94:2a92ad}} 
@@ -2818,14 +3019,16 @@ ON_ERROR_GOTO:                    ;{{Addr=$ccb8 Code Calls/jump count: 1 Data us
         defb $a0                  ;Inline token to test "GOTO"
         call    eval_line_number_or_error;{{ccbf:cd48cf}} 
         push    hl                ;{{ccc2:e5}} 
-        call    find_address_of_line_or_error;{{ccc3:cd5ce8}} 
+        call    find_line_or_error;{{ccc3:cd5ce8}} 
         ex      de,hl             ;{{ccc6:eb}} 
         pop     hl                ;{{ccc7:e1}} 
         jr      set_ON_ERROR_GOTO_line_address;{{ccc8:18e9}}  (-$17)
 
 ;;========================================================================
 ;; command ON ERROR GOTO 0
-;(but not ON ERROR GOTO [n]!)
+;(but not ON ERROR GOTO <line number>!)
+;Turns off error processing mode. See On ERROR GOTO <line number>
+
 command_ON_ERROR_GOTO_0:          ;{{Addr=$ccca Code Calls/jump count: 0 Data use count: 1}}
         call    clear_ON_ERROR_GOTO_target;{{ccca:cdb0cc}} 
         ld      a,(RESUME_flag_)  ;{{cccd:3a98ad}} 
@@ -2836,6 +3039,14 @@ command_ON_ERROR_GOTO_0:          ;{{Addr=$ccca Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command RESUME
+;RESUME
+;RESUME <line number>
+;RESUME NEXT
+;Resumes execution after an error.
+;Only valid in error processing mode enabled with ON ERROR GOTO <line number>
+;With no parameter resumes at the beginning of the statement containing the error
+;With line number resumes with the specified line
+;With NEXT resumes with the statement after that containing the error
 
 command_RESUME:                   ;{{Addr=$ccd5 Code Calls/jump count: 0 Data use count: 1}}
         jr      z,resume_and_execute;{{ccd5:2811}}  (+$11)
@@ -2848,7 +3059,7 @@ command_RESUME:                   ;{{Addr=$ccd5 Code Calls/jump count: 0 Data us
         ex      de,hl             ;{{cce2:eb}} 
         inc     hl                ;{{cce3:23}} 
         pop     af                ;{{cce4:f1}} 
-        jp      execute_end_of_line;{{cce5:c377de}} 
+        jp      execute_line_atHL ;{{cce5:c377de}} 
 
 ;;=resume and execute
 resume_and_execute:               ;{{Addr=$cce8 Code Calls/jump count: 1 Data use count: 0}}
@@ -2963,8 +3174,9 @@ division_by_zero_message:         ;{{Addr=$cdf6 Data Calls/jump count: 0 Data us
         defb "Broken ",$01+$80    ;(WAS WRONG!!)$20 "Broken in" (user terminated a cassette/disc operation?)
 
 ;;+------------------------------------------------------
-;;display error message inc partials
-display_error_message_inc_partials:;{{Addr=$ce73 Code Calls/jump count: 1 Data use count: 0}}
+;;display error partial
+;A=partial number
+display_error_partial:            ;{{Addr=$ce73 Code Calls/jump count: 1 Data use count: 0}}
         ld      de,error_message_partials_list;{{ce73:1114cd}} 
         call    find_error_message_in_table;{{ce76:cd92ce}} 
 
@@ -2978,7 +3190,7 @@ display_error_message_atDE:       ;{{Addr=$ce79 Code Calls/jump count: 3 Data us
 ;; if $20<code<$7f -> code is a ASCII character. Display character.
 ;; if $00<code<$1f -> code is a message number. Display this message.
         call    nc,output_char    ;{{ce7f:d4a0c3}} ; display text char
-        call    c,display_error_message_inc_partials;{{ce82:dc73ce}} ; display message partial
+        call    c,display_error_partial;{{ce82:dc73ce}} ; display message partial
         pop     de                ;{{ce85:d1}} 
 ;; get char
         ld      a,(de)            ;{{ce86:1a}} 
@@ -3114,7 +3326,7 @@ eval_expr_as_string:              ;{{Addr=$cee3 Code Calls/jump count: 1 Data us
         jr      nz,_eval_expr_as_uint_1;{{cee9:200d}}  (+$0d)
         push    hl                ;{{ceeb:e5}} 
         ld      hl,(accumulator)  ;{{ceec:2aa0b0}} 
-        call    prob_copy_string_to_strings_area;{{ceef:cd58fb}} 
+        call    copy_string_to_strings_area_if_not_in_strings_area;{{ceef:cd58fb}} 
         ex      de,hl             ;{{cef2:eb}} 
         pop     hl                ;{{cef3:e1}} 
         ret                       ;{{cef4:c9}} 
@@ -3315,7 +3527,7 @@ maths_and_logic_infix_operators:  ;{{Addr=$cf97 Code Calls/jump count: 1 Data us
 ;;=dispatch infix operator
 ;;DE = ptr to address of table entry
 dispatch_infix_operator:          ;{{Addr=$cfaa Code Calls/jump count: 1 Data use count: 0}}
-        call    probably_push_accumulator_on_execution_stack;{{cfaa:cd74ff}} 
+        call    push_numeric_accumulator_on_execution_stack;{{cfaa:cd74ff}} 
         push    de                ;{{cfad:d5}} 
         push    bc                ;{{cfae:c5}} 
         ld      a,(de)            ;{{cfaf:1a}} Read or restore previous operator precedence value?
@@ -3358,7 +3570,7 @@ comparison_infix_operator:        ;{{Addr=$cfc5 Code Calls/jump count: 1 Data us
         pop     bc                ;{{cfe1:c1}} 
         ex      (sp),hl           ;{{cfe2:e3}} 
         push    bc                ;{{cfe3:c5}} 
-        call    probably_string_comparison;{{cfe4:cd3ff9}} string compare???
+        call    string_comparison ;{{cfe4:cd3ff9}} string compare???
         pop     bc                ;{{cfe7:c1}} 
         call    process_comparison_result;{{cfe8:cd13d0}} 
         jr      infix_operator_or_done;{{cfeb:1886}}  (-$7a)
@@ -3658,12 +3870,13 @@ eval_functions_with_ff_prefix:    ;{{Addr=$d0da Code Calls/jump count: 1 Data us
 
 ;;-------------------------------------------------------------------------
 ;;=eval function which arent system variables
-;; value < $40 or => $4a
+;;Followed by: token < $40 or => $4a
 eval_function_which_arent_system_variables:;{{Addr=$d0e9 Code Calls/jump count: 1 Data use count: 0}}
         call    next_token_if_open_bracket;{{d0e9:cd19de}}  function so we need opening bracket
 
 ;Convert token to index into table.
-;Function tokens are $71 - $7f (complex parameter functions) and 
+;Function tokens are:
+;$71 - $7f (complex parameter functions) and 
 ;$00 - $1d (single simple parameter functions)
 ;This code converts them to a zero based index into the function look up table.
         ld      a,c               ;{{d0ec:79}} 
@@ -3688,7 +3901,7 @@ eval_function_which_arent_system_variables:;{{Addr=$d0e9 Code Calls/jump count: 
 ;(Contrast with next code section). Tokens $71 - $7f
         jr      c,jp_to_routine_in_function_table;{{d0f7:3809}}  (+$09)
 
-;; $ff prefix, then $00-$1d
+;; $ff prefix followed by $00-$1d
 ;For these functions we'll eval the parameter beforehand and save it some work.
 ;These are, presumably, functions which take a single, simple, parameter.
 ;(Contrast with JR immediately above). Tokens $00 - $1d
@@ -3700,7 +3913,7 @@ eval_function_which_arent_system_variables:;{{Addr=$d0e9 Code Calls/jump count: 
 
 ;;==========================================================================
 ;;jp to routine in function table
-;; $ff prefix, then $71 to $7f
+;; $ff prefix followed by $71 to $7f
 
 jp_to_routine_in_function_table:  ;{{Addr=$d102 Code Calls/jump count: 2 Data use count: 0}}
         ld      de,function_table ;{{d102:11e5d1}}  functions
@@ -3721,7 +3934,7 @@ jp_to_routine_in_table:           ;{{Addr=$d105 Code Calls/jump count: 1 Data us
 
 ;;==========================================================================
 ;;eval system variables
-;; keywords: $ff and $40 to $49
+;; keywords: $ff followed by $40 to $49
 ;; 
 ;; A = keyword index ($40-$49)
 
@@ -3763,6 +3976,9 @@ variable_DERR:                    ;{{Addr=$d12b Code Calls/jump count: 0 Data us
             
 ;;==========================================================================
 ;; variable ERR
+;ERR
+;Returns the last error number
+
 variable_ERR:                     ;{{Addr=$d130 Code Calls/jump count: 0 Data use count: 1}}
         ld      a,(ERR__Error_No) ;{{d130:3a90ad}} 
 _variable_err_1:                  ;{{Addr=$d133 Code Calls/jump count: 1 Data use count: 0}}
@@ -3773,6 +3989,9 @@ _variable_err_1:                  ;{{Addr=$d133 Code Calls/jump count: 1 Data us
 
 ;;==========================================================================
 ;; variable TIME
+;TIME
+;Returns elapsed time since the machine was switched on in 1/300ths of a second
+
 variable_TIME:                    ;{{Addr=$d139 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d139:e5}} 
         call    KL_TIME_PLEASE    ;{{d13a:cd0dbd}} ; firmware function: KL TIME PLEASE
@@ -3782,6 +4001,10 @@ variable_TIME:                    ;{{Addr=$d139 Code Calls/jump count: 0 Data us
 
 ;;=======================================================================
 ;; prefix ERL
+;ERL
+;Returns the line number of the last error
+;If used in a relational expression ERL must be on the left hand side of the comparison for
+;BASIC to recognise the right hand side as a line number and RENUM to work correctly.
 
 prefix_ERL:                       ;{{Addr=$d142 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d142:e5}} 
@@ -3790,6 +4013,9 @@ prefix_ERL:                       ;{{Addr=$d142 Code Calls/jump count: 0 Data us
 
 ;;==========================================================================
 ;; variable HIMEM
+;HIMEM
+;Returns the address of the highest memory address available for BASIC.
+
 variable_HIMEM:                   ;{{Addr=$d148 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d148:e5}} 
         ld      hl,(HIMEM_)       ;{{d149:2a5eae}}  HIMEM
@@ -3807,7 +4033,7 @@ prefix_at_operator_:              ;{{Addr=$d14e Code Calls/jump count: 0 Data us
         ex      de,hl             ;{{d155:eb}} 
         ld      a,b               ;{{d156:78}} 
         cp      $03               ;{{d157:fe03}} String type
-        call    z,prob_copy_string_to_strings_area;{{d159:cc58fb}} 
+        call    z,copy_string_to_strings_area_if_not_in_strings_area;{{d159:cc58fb}} 
 ;;=store UINT to accumulator
 store_UINT_to_accumulator:        ;{{Addr=$d15c Code Calls/jump count: 2 Data use count: 0}}
         call    set_accumulator_as_REAL_from_unsigned_INT;{{d15c:cd89fe}} 
@@ -3816,6 +4042,9 @@ store_UINT_to_accumulator:        ;{{Addr=$d15c Code Calls/jump count: 2 Data us
 
 ;;==========================================================================
 ;; variable XPOS
+;XPOS
+;Returns the x position of the graphics cursor
+
 variable_XPOS:                    ;{{Addr=$d161 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d161:e5}} 
         call    GRA_ASK_CURSOR    ;{{d162:cdc6bb}} ; firmware function: gra ask cursor 
@@ -3824,6 +4053,9 @@ variable_XPOS:                    ;{{Addr=$d161 Code Calls/jump count: 0 Data us
 
 ;;==========================================================================
 ;; variable YPOS
+;YPOS
+;Returns the y position of the graphics cursor
+
 variable_YPOS:                    ;{{Addr=$d168 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d168:e5}} 
         call    GRA_ASK_CURSOR    ;{{d169:cdc6bb}} ; firmware function: gra ask cursor
@@ -3840,6 +4072,8 @@ _variable_ypos_2:                 ;{{Addr=$d16c Code Calls/jump count: 1 Data us
 ;;<< DEF and DEF FN
 ;;========================================================================
 ;; command DEF
+;DEF FN<function name>[(<formal parameters>)]=<expression>
+;Defines a function with the given name
 
 command_DEF:                      ;{{Addr=$d171 Code Calls/jump count: 0 Data use count: 1}}
         call    next_token_if_equals_inline_data_byte;{{d171:cd25de}} 
@@ -3913,7 +4147,7 @@ prefix_FN_execute:                ;{{Addr=$d1cb Code Calls/jump count: 1 Data us
         call    eval_expression   ;{{d1d1:cd62cf}} eval the FN (ie run it as code)
         jp      nz,Error_Syntax_Error;{{d1d4:c249cb}}  Error: Syntax Error
         call    is_accumulator_a_string;{{d1d7:cd66ff}} 
-        call    z,copy_accumulator_to_strings_area;{{d1da:cc8afb}} 
+        call    z,push_accum_to_strings_stack_and_strings_area_if_not_on_string_stack;{{d1da:cc8afb}} 
 
         call    remove_FN_data_from_stack;{{d1dd:cd52da}} 
         pop     hl                ;{{d1e0:e1}} 
@@ -3956,7 +4190,7 @@ simple_function_table:            ;{{Addr=$d203 Data Calls/jump count: 0 Data us
                                   
         defw function_ABS         ; ABS $00     ##LABEL##
         defw function_ASC         ; ASC $01 ##LABEL##
-        defw funciton_ATN         ; ATN $02 ##LABEL##
+        defw function_ATN         ; ATN $02 ##LABEL##
         defw function_CHR         ; CHR$  ##LABEL##
         defw function_CINT        ; CINT  ##LABEL##
         defw function_COS         ; COS  ##LABEL##
@@ -3992,12 +4226,18 @@ simple_function_table:            ;{{Addr=$d203 Data Calls/jump count: 0 Data us
 ;;<< MATHS FUNCTIONS MIN, MAX and ROUND
 ;;========================================================================
 ;; function MIN
+;MIN(<list of: <numeric expression>>)
+;Returns the smallest of the numeric expressions
+
 function_MIN:                     ;{{Addr=$d23f Code Calls/jump count: 0 Data use count: 2}}
         ld      b,$ff             ;{{d23f:06ff}} 
         jr      _function_max_1   ;{{d241:1802}}  (+$02)
 
 ;;========================================================================
 ;; function MAX
+;MAX(<list of: <numeric expression>>)
+;Returns the largest of the numeric expressions
+
 function_MAX:                     ;{{Addr=$d243 Code Calls/jump count: 0 Data use count: 1}}
         ld      b,$01             ;{{d243:0601}} 
 ;;------------------------------------------------------------------------
@@ -4006,7 +4246,7 @@ _function_max_1:                  ;{{Addr=$d245 Code Calls/jump count: 1 Data us
 _function_max_2:                  ;{{Addr=$d248 Code Calls/jump count: 1 Data use count: 0}}
         call    next_token_if_prev_is_comma;{{d248:cd41de}} 
         jp      nc,next_token_if_close_bracket;{{d24b:d21dde}}  check for close bracket
-        call    probably_push_accumulator_on_execution_stack;{{d24e:cd74ff}} 
+        call    push_numeric_accumulator_on_execution_stack;{{d24e:cd74ff}} 
         call    eval_expression   ;{{d251:cd62cf}} 
         push    hl                ;{{d254:e5}} 
         ld      a,c               ;{{d255:79}} 
@@ -4026,9 +4266,12 @@ _function_max_18:                 ;{{Addr=$d267 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; function ROUND
+;ROUND(<numeric expression>[,decimals])
+;Rounds a number to the given number of decimal places.
+
 function_ROUND:                   ;{{Addr=$d26a Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expression   ;{{d26a:cd62cf}} 
-        call    probably_push_accumulator_on_execution_stack;{{d26d:cd74ff}} 
+        call    push_numeric_accumulator_on_execution_stack;{{d26d:cd74ff}} 
         call    next_token_if_prev_is_comma;{{d270:cd41de}} 
         ld      de,$0000          ;{{d273:110000}} ##LIT##
         call    c,eval_expr_as_int;{{d276:dcd8ce}}  get number
@@ -4054,27 +4297,35 @@ function_ROUND:                   ;{{Addr=$d26a Code Calls/jump count: 0 Data us
 ;;< CAT, OPENIN, OPENOUT, CLOSEIN, CLOSEOUT
 ;;=============================================================================
 ;; command CAT
+;CAT
+;Show a list of files on cassette/disc
+
 command_CAT:                      ;{{Addr=$d296 Code Calls/jump count: 0 Data use count: 1}}
         ret     nz                ;{{d296:c0}} 
         push    hl                ;{{d297:e5}} 
         call    close_input_and_output_streams;{{d298:cd00d3}} 
-        call    prob_alloc_2k_file_buffer_C;{{d29b:cd2af7}} alloc 2k buffer??
+        call    alloc_file_write_buffer;{{d29b:cd2af7}} alloc 2k buffer??
         call    CAS_CATALOG       ;{{d29e:cd9bbc}}  firmware function: cas catalog
         jp      z,raise_file_not_open_error_C;{{d2a1:ca37cc}} 
         pop     hl                ;{{d2a4:e1}} 
-        jp      prob_release_2k_file_buffer_C;{{d2a5:c361f7}} release 2k buffer??
+        jp      free_file_buffer_if_not_used;{{d2a5:c361f7}} release 2k buffer??
 
 ;;=============================================================================
 ;; command OPENOUT
+;Opens the given file for output.
+;If the filename begins with ! it will suppress messages
 
 command_OPENOUT:                  ;{{Addr=$d2a8 Code Calls/jump count: 1 Data use count: 1}}
         call    read_filename     ;{{d2a8:cdc7d2}} 
-        call    prob_alloc_2k_file_buffer_B;{{d2ab:cd25f7}} 
+        call    alloc_and_use_file_write_buffer;{{d2ab:cd25f7}} 
         call    set_file_output_stream_line_pos_to_1;{{d2ae:cd69c4}} 
         jp      CAS_OUT_OPEN      ;{{d2b1:c38cbc}}  firmware function: cas out open
 
 ;;=============================================================================
 ;; command OPENIN
+;OPENIN <filename>
+;Opens the given file for input.
+;If the filename begins with ! it will suppress messages
 
 command_OPENIN:                   ;{{Addr=$d2b4 Code Calls/jump count: 0 Data use count: 1}}
         call    read_filename_and_open_in;{{d2b4:cdbed2}} 
@@ -4087,12 +4338,12 @@ command_OPENIN:                   ;{{Addr=$d2b4 Code Calls/jump count: 0 Data us
 ;;=read filename and open in
 read_filename_and_open_in:        ;{{Addr=$d2be Code Calls/jump count: 2 Data use count: 0}}
         call    read_filename     ;{{d2be:cdc7d2}} 
-        call    prob_alloc_2k_file_buffer;{{d2c1:cd20f7}} 
+        call    alloc_and_use_file_read_buffer;{{d2c1:cd20f7}} 
         jp      CAS_IN_OPEN       ;{{d2c4:c377bc}}  firmware function: cas in open
 
 ;;=read filename
 read_filename:                    ;{{Addr=$d2c7 Code Calls/jump count: 2 Data use count: 0}}
-        call    prob_alloc_2k_file_buffer_C;{{d2c7:cd2af7}} 
+        call    alloc_file_write_buffer;{{d2c7:cd2af7}} 
         call    eval_expr_as_string_and_get_length;{{d2ca:cd03cf}} 
         ex      (sp),hl           ;{{d2cd:e3}} 
         ex      de,hl             ;{{d2ce:eb}} 
@@ -4122,22 +4373,26 @@ _set_cas_noisy_11:                ;{{Addr=$d2ea Code Calls/jump count: 2 Data us
 
 ;;==========================================================================
 ;; command CLOSEIN
+;CLOSEIN
+;Close the input file
 
 command_CLOSEIN:                  ;{{Addr=$d2ed Code Calls/jump count: 3 Data use count: 1}}
         push    hl                ;{{d2ed:e5}} 
         call    CAS_IN_CLOSE      ;{{d2ee:cd7abc}}  firmware function: cas in close
         pop     hl                ;{{d2f1:e1}} 
-        jp      prob_release_2k_file_buffer;{{d2f2:c359f7}} 
+        jp      unuse_file_write_buffer;{{d2f2:c359f7}} 
 
 ;;==========================================================================
 ;; command CLOSEOUT
+;CLOSEOUT
+;Close the output file
 
 command_CLOSEOUT:                 ;{{Addr=$d2f5 Code Calls/jump count: 2 Data use count: 1}}
         push    hl                ;{{d2f5:e5}} 
         call    CAS_OUT_CLOSE     ;{{d2f6:cd8fbc}}  firmware function: cas out close
         jp      z,raise_file_not_open_error_C;{{d2f9:ca37cc}} 
         pop     hl                ;{{d2fc:e1}} 
-        jp      prob_release_2k_file_buffer_B;{{d2fd:c35df7}} 
+        jp      unuse_file_read_buffer;{{d2fd:c35df7}} 
 
 ;;==========================================================================
 ;;close input and output streams
@@ -4146,9 +4401,9 @@ close_input_and_output_streams:   ;{{Addr=$d300 Code Calls/jump count: 6 Data us
         push    de                ;{{d301:d5}} 
         push    hl                ;{{d302:e5}} 
         call    CAS_IN_ABANDON    ;{{d303:cd7dbc}}  firmware function: cas in abandon
-        call    prob_release_2k_file_buffer;{{d306:cd59f7}} 
+        call    unuse_file_write_buffer;{{d306:cd59f7}} 
         call    CAS_OUT_ABANDON   ;{{d309:cd92bc}}  firmware function: cas out abandon
-        call    prob_release_2k_file_buffer_B;{{d30c:cd5df7}} 
+        call    unuse_file_read_buffer;{{d30c:cd5df7}} 
         pop     hl                ;{{d30f:e1}} 
         pop     de                ;{{d310:d1}} 
         pop     bc                ;{{d311:c1}} 
@@ -4161,6 +4416,26 @@ close_input_and_output_streams:   ;{{Addr=$d300 Code Calls/jump count: 6 Data us
 ;;<< SOUND FUNCTIONS
 ;;========================================================================
 ;; command SOUND
+;SOUND <channel status>,<tone period>[,<duration>[,<volume>[,volume envelope>[,<tone envelope>[,<noise period>]]]]]
+;Puts a sound in the sound queue
+;Channel status:
+;   Bits 0,1,2: Channel A, B, C respectively
+;   Bits 3,4,5: Rendezvous with channel A, B, C respectively
+;               Pauses this channel until a sound on rendezvous channel set to rendezvous with this channel
+;   Bit 6: Hold - when sound reaches head of queue, channel waits until a RELEASE command
+;   Bit 7: Flush - flushes specified channels and plays this sound
+;Tone period:   Produces a frequency of 125000/P where P is the tone period. Values 0..4095. 0 is no sound
+;Duration:      Default 20 (1/5th second)
+;   > 0:        Duration in 1/100ths second
+;   = 0:        Until the end of the colume envelope
+;   < 0:        Repeat the volume envelope abs(duration) times
+;Volume:    Initial volume for the sound. Values 0..15. Default 12
+;Volume envelope:   Specifies a volume envelope. Values 0..15. Default 0 (constants volume for 2 seconds)
+;Tone envelope:     Tone envelope. Values 0..15. Default 0 (constant)
+;Noise period:      0..31 where 0 means no noise
+
+
+
 command_SOUND:                    ;{{Addr=$d313 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_byte_or_error;{{d313:cdb8ce}}  get number and check it's less than 255 
         ld      (Current_SOUND_parameter_block_),a;{{d316:3299ad}} 
@@ -4182,7 +4457,7 @@ command_SOUND:                    ;{{Addr=$d313 Code Calls/jump count: 0 Data us
         ld      b,$20             ;{{d347:0620}} 
         call    eval_and_validate_sound_parameter;{{d349:cd5fd3}} 
         ld      (noise_period),a  ;{{d34c:329ead}} 
-        call    syntax_error_if_not_02;{{d34f:cd37de}} 
+        call    error_if_not_end_of_statement_or_eoln;{{d34f:cd37de}} 
         push    hl                ;{{d352:e5}} 
         ld      hl,Current_SOUND_parameter_block_;{{d353:2199ad}} 
         call    SOUND_QUEUE       ;{{d356:cdaabc}}  firmware function: sound queue
@@ -4213,6 +4488,9 @@ eval_expr_and_check_less_than_B:  ;{{Addr=$d369 Code Calls/jump count: 7 Data us
 
 ;;========================================================================
 ;; command RELEASE
+;RELEASE <sound channels>
+;Release sound channel(s) from a hold state
+;Channel is a bitwise value. 0, 1, 2 equal channels A,B,C
 
 command_RELEASE:                  ;{{Addr=$d370 Code Calls/jump count: 0 Data use count: 1}}
         ld      b,$08             ;{{d370:0608}} 
@@ -4224,6 +4502,17 @@ command_RELEASE:                  ;{{Addr=$d370 Code Calls/jump count: 0 Data us
 
 ;;========================================================
 ;; function SQ
+;SQ(<channel>)
+;Test the state of a sound queue
+;Channel can be 1,2 or 4 for channel A,B or C
+;Returns a bitwise value:
+;Bits
+;0..2:  Number of free entries in the queue
+;3..5:  Rendezvous state of the head of the queue
+;6:     Set if the head of the queue is Held
+;7:     Set if the channel is currently active
+;The last three items are mutually exclusive.
+;Disables any ON SQ interrupts
 
 function_SQ:                      ;{{Addr=$d37b Code Calls/jump count: 0 Data use count: 1}}
         call    function_CINT     ;{{d37b:cdb6fe}} 
@@ -4257,6 +4546,18 @@ raise_improper_argument_error_D:  ;{{Addr=$d39b Code Calls/jump count: 7 Data us
 
 ;;========================================================================
 ;; command ENV
+;ENV <envelope number>[,<list of: <envelope section>>]
+;Where <envelope section> is <step count>,<step count>,<pause time>
+;                           or <hardware envelope>,<envelope period>
+;There can be up to five envelope sections
+;Envelope number is     1..15
+;Step count is          0..127. If zero then set an absolute volume
+;Step size is           -128..+127. If <step count> is zero this is the absolute volume setting
+;Pause time is          0..255 in 1/100ths of a second where 0=256
+;Hardware envelope is   value for register 13
+;Envelope period is     value for registers 11 and 12
+
+;Creates a volume envelope
 
 ;; get envelope number (must be between 0 and 15)
 command_ENV:                      ;{{Addr=$d39e Code Calls/jump count: 0 Data use count: 1}}
@@ -4299,6 +4600,17 @@ _callback_for_env_10:             ;{{Addr=$d3cd Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command ENT
+;ENT <envelope number>[,<list of: <envelope section>>]
+;Where <envelope section> is <step count>,<step size>,<pause time>
+;                         or =<tone period>,<pause time>
+;There can be up to 5 envelope sections
+;Envelope number is 1..15
+;Step count is      0..239
+;Step size is       -128..+127
+;Pause time is      0..255 in 1/100ths of a second where 0=256
+;Tone period is     0..4095
+
+;Creates a tone envelope
 
 command_ENT:                      ;{{Addr=$d3d4 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_and_validate_less_than_128;{{d3d4:cd93d3}}  get number
@@ -4395,7 +4707,7 @@ _read_parameters_for_env_and_ent_1:;{{Addr=$d428 Code Calls/jump count: 1 Data u
         pop     de                ;{{d446:d1}} 
         djnz    _read_parameters_for_env_and_ent_1;{{d447:10df}}  (-$21)
 _read_parameters_for_env_and_ent_25:;{{Addr=$d449 Code Calls/jump count: 1 Data use count: 0}}
-        jp      syntax_error_if_not_02;{{d449:c337de}} 
+        jp      error_if_not_end_of_statement_or_eoln;{{d449:c337de}} 
 
 ;;=eval and validate tone period
 eval_and_validate_tone_period:    ;{{Addr=$d44c Code Calls/jump count: 2 Data use count: 0}}
@@ -4414,6 +4726,17 @@ eval_and_validate_tone_period:    ;{{Addr=$d44c Code Calls/jump count: 2 Data us
 ;;< INKEY, JOY, KEY (DEF). Also SPEED (WRITE/KEY/INK)
 ;;========================================================
 ;; function INKEY
+;INKEY(<key number>)
+;Tests the state of a key and whether [SHIFT] and/or [CTRL] are also down.
+;Valid key numbers are 0..79
+;Returns:
+;Value  Key     [SHIFT] [CTRL]
+; -1    Up      Unknown Unknown
+;  0    Down    Up      Up
+; 32    Down    Down    Up
+;128    Down    Up      Down
+;160    Down    Down    Down
+
 function_INKEY:                   ;{{Addr=$d456 Code Calls/jump count: 0 Data use count: 1}}
         call    function_CINT     ;{{d456:cdb6fe}} 
         ld      de,$0050          ;{{d459:115000}} 
@@ -4430,6 +4753,17 @@ _function_inkey_10:               ;{{Addr=$d46d Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function JOY
+;JOY(<joystick number>)
+;Reads joystick status.
+;Joystick numbers are 0..1
+;Result is bitwise as follows:
+;Bit 0: Up
+;    1: Down
+;    2: Left
+;    3: Right
+;    4: Fire 2
+;    5: Fire 1
+
 function_JOY:                     ;{{Addr=$d470 Code Calls/jump count: 0 Data use count: 1}}
         call    KM_GET_JOYSTICK   ;{{d470:cd24bb}}  firmware function: km get joystick
         ex      de,hl             ;{{d473:eb}} 
@@ -4451,6 +4785,9 @@ raise_improper_argument:          ;{{Addr=$d483 Code Calls/jump count: 2 Data us
 
 ;;========================================================================
 ;; command KEY
+;KEY <expansion token number>,<string expression>
+;Sets up a keyboard expansion
+;expansion token numbers are 0..31
 
 command_KEY:                      ;{{Addr=$d486 Code Calls/jump count: 0 Data use count: 1}}
         cp      $8d               ;{{d486:fe8d}}  DEF token
@@ -4472,6 +4809,18 @@ command_KEY:                      ;{{Addr=$d486 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; KEY DEF
+;KEY DEF <key number>,<repeat>[,<normal>[,<shifted>[,<control>]]]
+;Defines a key value
+;key number is 0..79
+;repeat is 1 to enable repeat and 0 to disable repeat
+;Other parameters are 0..255 to define the value generated by the key as follows:
+;0..31      Control codes
+;32..127    Ordinary keys, usually ASCII
+;128..159   Expansion tokens which can be defined by the KEY command
+;160..223   Ordinary characters
+;224..254   Special values used for [ESC], edit and copy cursor keys
+;255        Ignored
+
 KEY_DEF:                          ;{{Addr=$d4a0 Code Calls/jump count: 1 Data use count: 0}}
         call    get_next_token_skipping_space;{{d4a0:cd2cde}}  get next token skipping space
         ld      b,$50             ;{{d4a3:0650}} 
@@ -4509,6 +4858,19 @@ _key_def_21:                      ;{{Addr=$d4cb Code Calls/jump count: 2 Data us
 
 ;;========================================================================
 ;; command SPEED WRITE, SPEED KEY, SPEED INK
+;SPEED INK <period>,<period>
+;Changes the rate at which flashing inks update.
+;In 1/50ths second in Europe, 1/60ths in the USA (i.e. matches the frame rate)
+
+;SPEED KEY <start delay>,<repeat period>
+;Sets the start delay before a key repeats and the speed at which it repeats.
+;All times in 1/50ths of a second
+
+;SPEED WRITE <integer expression>
+;Sets the cassette write speed.
+;0 = 1000 bits per second
+;1 = 2000 bits per second
+;Read speed is auto adjusted
 
 command_SPEED_WRITE_SPEED_KEY_SPEED_INK:;{{Addr=$d4db Code Calls/jump count: 0 Data use count: 1}}
         cp      $d9               ;{{d4db:fed9}}  token for "WRITE"
@@ -4560,6 +4922,8 @@ _do_speed_write_10:               ;{{Addr=$d518 Code Calls/jump count: 1 Data us
 ;;< Including ^ and random numbers
 ;;========================================================================
 ;; variable PI
+;PI
+;Returns the closest available representation of PI - 3.1415926534683
 
 variable_PI:                      ;{{Addr=$d51d Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{d51d:e5}} 
@@ -4571,12 +4935,17 @@ variable_PI:                      ;{{Addr=$d51d Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command DEG
+;DEG
+;Set degrees mode
+
 command_DEG:                      ;{{Addr=$d529 Code Calls/jump count: 0 Data use count: 1}}
         ld      a,$ff             ;{{d529:3eff}} 
         jr      _command_rad_1    ;{{d52b:1801}}  (+$01)
 
 ;;========================================================================
 ;; command RAD
+;RAD
+;Set radians mode
 
 command_RAD:                      ;{{Addr=$d52d Code Calls/jump count: 0 Data use count: 1}}
         xor     a                 ;{{d52d:af}} 
@@ -4585,6 +4954,8 @@ _command_rad_1:                   ;{{Addr=$d52e Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function SQR
+;SQR(<numeric expression>)
+;Returns the square root of the value
 
 function_SQR:                     ;{{Addr=$d531 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_SQR       ;{{d531:019dbd}} 
@@ -4627,12 +4998,19 @@ read_real_param:                  ;{{Addr=$d559 Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function EXP
+;EXP(<numeric expression>)
+;Exponential. Calculates e to the given power.
+;Values over 88 will overflow and raise an error.
+;Values much less than -88.7 will underflow and return 0
+
 function_EXP:                     ;{{Addr=$d560 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_EXP       ;{{d560:01a9bd}} 
         jr      read_real_param_and_validate;{{d563:18e7}}  (-$19)
 
 ;;========================================================
 ;; function LOG10
+;LOG10(<numeric expression>)
+;Returns the base 10 logarithm of the value, which must be greater than zero
 
 function_LOG10:                   ;{{Addr=$d565 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_LOG_10    ;{{d565:01a6bd}} 
@@ -4640,12 +5018,17 @@ function_LOG10:                   ;{{Addr=$d565 Code Calls/jump count: 0 Data us
 
 ;;========================================================
 ;; function LOG
+;LOG(<numeric expression>)
+;Returns the natural logarithm of the expression, which must be greater than 0.
+
 function_LOG:                     ;{{Addr=$d56a Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_LOG       ;{{d56a:01a3bd}} 
         jr      read_real_param_and_validate;{{d56d:18dd}}  (-$23)
 
 ;;========================================================
 ;; function SIN
+;SIN(<numeric expression>)
+;Returns sine of expression
 
 function_SIN:                     ;{{Addr=$d56f Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_SINE      ;{{d56f:01acbd}} 
@@ -4653,20 +5036,28 @@ function_SIN:                     ;{{Addr=$d56f Code Calls/jump count: 0 Data us
 
 ;;========================================================
 ;; function COS
+;COS(<numeric expression>)
+;Calculates the cosine of the given value
+
 function_COS:                     ;{{Addr=$d574 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_COSINE    ;{{d574:01afbd}} 
         jr      read_real_param_and_validate;{{d577:18d3}}  (-$2d)
 
 ;;========================================================
 ;; function TAN
+;TAN(<numeric expression>)
+;Returns the tangent of the expression.
 
 function_TAN:                     ;{{Addr=$d579 Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_TANGENT   ;{{d579:01b2bd}} 
         jr      read_real_param_and_validate;{{d57c:18ce}}  (-$32)
 
 ;;========================================================
-;; funciton ATN
-funciton_ATN:                     ;{{Addr=$d57e Code Calls/jump count: 0 Data use count: 1}}
+;; function ATN
+;ATN(<numeric expression>)
+;Returns the arctangent of the supplied value
+
+function_ATN:                     ;{{Addr=$d57e Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,REAL_ARCTANGENT;{{d57e:01b5bd}} 
         jr      read_real_param_and_validate;{{d581:18c9}}  (-$37)
 
@@ -4676,6 +5067,10 @@ random_number_seed_message:       ;{{Addr=$d583 Data Calls/jump count: 0 Data us
         defb "Random number seed ? ",0
 ;;========================================================================
 ;; command RANDOMIZE
+;RANDOMIZE [<numeric expression>]
+;Sets the initial value for the random number generator
+;If no value is given prompts the user for one.
+
 command_RANDOMIZE:                ;{{Addr=$d599 Code Calls/jump count: 0 Data use count: 1}}
         jr      z,random_seed_prompt;{{d599:2806}}  (+$06) Do we have inline parameter, if not prompt for input
         call    eval_expression   ;{{d59b:cd62cf}}  if so read it
@@ -4691,7 +5086,7 @@ random_seed_loop:                 ;{{Addr=$d5a2 Code Calls/jump count: 2 Data us
         call    output_ASCIIZ_string;{{d5a5:cd8bc3}} ; display 0 terminated string
         call    prob_read_buffer_and_or_break;{{d5a8:cdecca}}  Key input text
         call    output_new_line   ;{{d5ab:cd98c3}} ; new text line
-        call    possibly_validate_input_buffer_is_a_number;{{d5ae:cd6fed}}  Validate/convert to a number
+        call    convert_string_to_number;{{d5ae:cd6fed}}  Validate/convert to a number
         jr      nc,random_seed_loop;{{d5b1:30ef}}  (-$11) Loop if invalid
         call    skip_space_tab_or_line_feed;{{d5b3:cd4dde}}  skip space, lf or tab
         or      a                 ;{{d5b6:b7}} 
@@ -4706,6 +5101,12 @@ dorandomize:                      ;{{Addr=$d5b9 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; variable RND
+;RND[(<numeric expression>)]
+;Returns a random number <= value < 1
+;With no argument or a value >= 0 returns a new random number
+;With a value = 0 returns a copy of the last random number
+;With a value < 0 starts a new sequence based on that value and
+;returns the first value in that sequence
 
 variable_RND:                     ;{{Addr=$d5c1 Code Calls/jump count: 0 Data use count: 1}}
         ld      a,(hl)            ;{{d5c1:7e}} Do we have a parameter?
@@ -4745,8 +5146,8 @@ rnd_generate:                     ;{{Addr=$d5e1 Code Calls/jump count: 1 Data us
 ;;< (Lots more work to do here)
 ;;===================================
 
-;;=delete program
-delete_program:                   ;{{Addr=$d5ea Code Calls/jump count: 2 Data use count: 0}}
+;;=clear all variables
+clear_all_variables:              ;{{Addr=$d5ea Code Calls/jump count: 2 Data use count: 0}}
         call    prob_reset_variable_linked_list_pointers;{{d5ea:cdfad5}} 
         ld      hl,(address_after_end_of_program);{{d5ed:2a66ae}} 
         ld      (address_of_start_of_Variables_and_DEF_FN),hl;{{d5f0:2268ae}} 
@@ -4779,7 +5180,7 @@ zero_A_bytes_at_HL:               ;{{Addr=$d607 Code Calls/jump count: 2 Data us
 ;;=clear DEFFN list and reset variable types and pointers
 clear_DEFFN_list_and_reset_variable_types_and_pointers:;{{Addr=$d60e Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,$0000          ;{{d60e:210000}} ##LIT##
-        ld      (DEFFN_linked_list_head),hl;{{d611:22ebad}} 
+        ld      (DEF_FN_linked_list_head),hl;{{d611:22ebad}} 
         jp      reset_variable_types_and_pointers;{{d614:c34dea}} 
 
 ;;===================================
@@ -4863,6 +5264,10 @@ _def_letters_bc_to_type_e_8:      ;{{Addr=$d649 Code Calls/jump count: 1 Data us
 
 ;;======================================================
 ;; command DEFSTR
+;DEFSTR <list of: <letter range>>
+;where <letter range> is <letter> or <letter>-<letter>
+;Defines the default type for variables starting with the given letter(s)
+;Letter ranges are inclusive
 
 command_DEFSTR:                   ;{{Addr=$d650 Code Calls/jump count: 0 Data use count: 1}}
         ld      e,$03             ;{{d650:1e03}} String type
@@ -4870,6 +5275,8 @@ command_DEFSTR:                   ;{{Addr=$d650 Code Calls/jump count: 0 Data us
 
 ;;=============================================================================
 ;; command DEFINT
+;DEFINT <list of: <letter range>>
+;As DEFSTR
 
 command_DEFINT:                   ;{{Addr=$d654 Code Calls/jump count: 0 Data use count: 1}}
         ld      e,$02             ;{{d654:1e02}} Int type
@@ -4877,6 +5284,9 @@ command_DEFINT:                   ;{{Addr=$d654 Code Calls/jump count: 0 Data us
 
 ;;=============================================================================
 ;; command DEFREAL
+;DEFREAL <list of: <letter range>>
+;As DEFSTR
+
 command_DEFREAL:                  ;{{Addr=$d658 Code Calls/jump count: 0 Data use count: 1}}
         ld      e,$05             ;{{d658:1e05}} Real type
 
@@ -4884,7 +5294,7 @@ command_DEFREAL:                  ;{{Addr=$d658 Code Calls/jump count: 0 Data us
 ;;=do DEFtype
 do_DEFtype:                       ;{{Addr=$d65a Code Calls/jump count: 3 Data use count: 0}}
         ld      a,(hl)            ;{{d65a:7e}} 
-        call    test_if_letter    ;{{d65b:cd92ff}}  is a alphabetical letter?
+        call    test_if_upcase_letter;{{d65b:cd92ff}}  is a alphabetical letter?
         jr      nc,raise_syntax_error_B;{{d65e:301e}}  (+$1e)
         ld      c,a               ;{{d660:4f}} 
         ld      b,a               ;{{d661:47}} 
@@ -4892,7 +5302,7 @@ do_DEFtype:                       ;{{Addr=$d65a Code Calls/jump count: 3 Data us
         cp      $2d               ;{{d665:fe2d}}  '-' - range of values
         jr      nz,_do_deftype_13 ;{{d667:200c}}  (+$0c)
         call    get_next_token_skipping_space;{{d669:cd2cde}}  get next token skipping space
-        call    test_if_letter    ;{{d66c:cd92ff}}  is a alphabetical letter?
+        call    test_if_upcase_letter;{{d66c:cd92ff}}  is a alphabetical letter?
         jr      nc,raise_syntax_error_B;{{d66f:300d}}  (+$0d)
         ld      c,a               ;{{d671:4f}} 
         call    get_next_token_skipping_space;{{d672:cd2cde}}  get next token skipping space
@@ -4925,6 +5335,8 @@ BAR_command_or_implicit_LET:      ;{{Addr=$d689 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command LET
+;LET <variable>=<expression>
+;Assign a value to a variable
 
 command_LET:                      ;{{Addr=$d68e Code Calls/jump count: 0 Data use count: 1}}
         call    parse_and_find_or_create_a_var;{{d68e:cdbfd6}} Find (or alloc) the variables
@@ -4949,12 +5361,16 @@ copy_accumulator_to_atHL:         ;{{Addr=$d6a8 Code Calls/jump count: 1 Data us
         call    is_accumulator_a_string;{{d6a8:cd66ff}} 
         jp      nz,copy_numeric_accumulator_to_atHL;{{d6ab:c283ff}} It's a number
         push    hl                ;{{d6ae:e5}} Otherwise it's a string
-        call    _copy_accumulator_to_strings_area_4;{{d6af:cd94fb}} Store string to strings area
+        call    prob_copy_to_strings_area_if_not_const_in_program_or_ROM;{{d6af:cd94fb}} Store string to strings area
         pop     de                ;{{d6b2:d1}} 
         jp      copy_value_atHL_to_atDE_accumulator_type;{{d6b3:c387ff}} 
 
 ;;========================================================================
 ;; command DIM
+;DIM <list of: <subscripted variable>>
+;Where <subscripted variable> is <variable name>(<dimension list>)
+;and <dimension list> is <list of: <integer expression>>
+;Declare array dimensions
 
 command_DIM:                      ;{{Addr=$d6b6 Code Calls/jump count: 1 Data use count: 1}}
         call    do_DIM_item       ;{{d6b6:cde0d7}} 
@@ -5036,7 +5452,7 @@ get_accum_data_type_in_A_B_and_C: ;{{Addr=$d709 Code Calls/jump count: 3 Data us
 ;;prob just skip over variable
 prob_just_skip_over_variable:     ;{{Addr=$d70f Code Calls/jump count: 1 Data use count: 0}}
         call    parse_var_type_and_name;{{d70f:cd31d9}} 
-        call    skip_over_batched_braces;{{d712:cd7ae9}} 
+        call    skip_over_matched_braces;{{d712:cd7ae9}} 
         jr      get_accum_data_type_in_A_B_and_C;{{d715:18f2}}  (-$0e)
 
 ;;==================================
@@ -5165,7 +5581,7 @@ prob_alloc_space_for_new_var:     ;{{Addr=$d77b Code Calls/jump count: 2 Data us
         push    af                ;{{d782:f5}} 
         ld      hl,(address_of_start_of_Arrays_area_);{{d783:2a6aae}} 
         ex      de,hl             ;{{d786:eb}} 
-        call    unknown_alloc_and_move_memory_up;{{d787:cdb8f6}} 
+        call    move_lower_memory_up;{{d787:cdb8f6}} 
         call    prob_grow_variables_space_ptrs_by_BC;{{d78a:cd1af6}} 
         pop     af                ;{{d78d:f1}} 
         call    copy_cached_string_and_store_data_type;{{d78e:cdb8d7}} 
@@ -5418,11 +5834,13 @@ _read_array_dimensions_21:        ;{{Addr=$d8aa Code Calls/jump count: 1 Data us
         ret                       ;{{d8b2:c9}} 
 
 ;;=create and alloc space for array
+;A=dimensions flag: $00=we're creating the array from a DIM statement and the dimensions are on the execution stack
+;                   $ff=we're creating a 'default' 10 item array due to the array being used,
 ;B=number of dimensions
-;Sizes of each dimension are pushed on the execution stack
+;If A=$00 then the array bounds (dimensions) are pushed on the execution stack
 create_and_alloc_space_for_array: ;{{Addr=$d8b3 Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{d8b3:e5}} 
-        ld      (RAM_ae0d),a      ;{{d8b4:320dae}} 
+        ld      (array_creation_flag_),a;{{d8b4:320dae}} 
         push    bc                ;{{d8b7:c5}} 
         ld      a,b               ;{{d8b8:78}} 
         add     a,a               ;{{d8b9:87}} 
@@ -5431,7 +5849,7 @@ create_and_alloc_space_for_array: ;{{Addr=$d8b3 Code Calls/jump count: 2 Data us
         push    af                ;{{d8bf:f5}} 
         ld      hl,(address_of_start_of_free_space_);{{d8c0:2a6cae}} 
         ex      de,hl             ;{{d8c3:eb}} 
-        call    unknown_alloc_and_move_memory_up;{{d8c4:cdb8f6}} Move data up out of the way
+        call    move_lower_memory_up;{{d8c4:cdb8f6}} Move data up out of the way
         pop     af                ;{{d8c7:f1}} 
         call    copy_cached_string_and_store_data_type;{{d8c8:cdb8d7}} Copy/store array name and type
         ld      h,b               ;{{d8cb:60}} 
@@ -5450,7 +5868,7 @@ create_and_alloc_space_for_array: ;{{Addr=$d8b3 Code Calls/jump count: 2 Data us
 
 _create_and_alloc_space_for_array_25:;{{Addr=$d8da Code Calls/jump count: 1 Data use count: 0}}
         push    de                ;{{d8da:d5}} Loop for each dimension
-        ld      a,(RAM_ae0d)      ;{{d8db:3a0dae}} 
+        ld      a,(array_creation_flag_);{{d8db:3a0dae}} 
         or      a                 ;{{d8de:b7}} 
         ld      de,$000a          ;{{d8df:110a00}} 
         ex      de,hl             ;{{d8e2:eb}} 
@@ -5473,7 +5891,7 @@ _create_and_alloc_space_for_array_25:;{{Addr=$d8da Code Calls/jump count: 1 Data
         ld      c,e               ;{{d8f8:4b}} 
         ld      d,h               ;{{d8f9:54}} 
         ld      e,l               ;{{d8fa:5d}} 
-        call    _unknown_alloc_and_move_memory_up_1;{{d8fb:cdbbf6}} 
+        call    _move_lower_memory_up_1;{{d8fb:cdbbf6}} 
         ld      (address_of_start_of_free_space_),hl;{{d8fe:226cae}} 
 
         push    bc                ;{{d901:c5}} Clear BC bytes of memory - cleanup? zero allocated space?
@@ -5704,6 +6122,8 @@ _update_array_list_heads_4:       ;{{Addr=$d9d3 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command ERASE
+;ERASE <list of: <variable name>>
+;Erases array(s)
 
 command_ERASE:                    ;{{Addr=$d9f0 Code Calls/jump count: 0 Data use count: 1}}
         call    reset_variable_types_and_pointers;{{d9f0:cd4dea}} 
@@ -5825,6 +6245,12 @@ push_FN_parameter_on_execution_stack:;{{Addr=$da6a Code Calls/jump count: 1 Data
 
 ;;=iterate all string variables
 ;iterates through all string variables and calls the code in DE for each one.
+
+;Iterator is called with:
+;DE=addr of /last/ byte of string descriptor
+;BC=string address
+;A=string length
+
 iterate_all_string_variables:     ;{{Addr=$da93 Code Calls/jump count: 3 Data use count: 0}}
         ld      hl,(FN_param_start);{{da93:2a10ae}} start with any FNs, if present
 
@@ -5949,6 +6375,10 @@ read_string_data_and_call_callback:;{{Addr=$db02 Code Calls/jump count: 2 Data u
 ;;< (LINE) INPUT, RESTORE, READ (not DATA)
 ;;========================================================================
 ;; command LINE INPUT
+;LINE INPUT [#<stream expression>,][;][<quoted string>;]<string variable>
+;LINE INPUT [#<stream expression>,][;][<quoted string>,]<string variable>
+;As the INPUT command but reads the entire line into a string variable.
+;If the line is longer than 255 characters reads 255 characters.
 
 command_LINE_INPUT:               ;{{Addr=$db13 Code Calls/jump count: 0 Data use count: 1}}
         call    next_token_if_equals_inline_data_byte;{{db13:cd25de}} 
@@ -5980,6 +6410,30 @@ input_screen_to_buffer:           ;{{Addr=$db37 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command INPUT
+;INPUT [#<stream expression>,][;][<quoted string>;]<list of: <variable>>
+;INPUT [#<stream expression>,][;][<quoted string>,]<list of: <variable>>
+;If stream expression is omitted, defaults to #0
+
+;For keyboard streams, #0..#8:
+;Quoted string is a prompt to display. If the first form (with a semicolon) is used a 
+;question mark is output after it. If the second form (with a comma), no question mark.
+;If no quote string is given a question mark prompt is used.
+;After issuing the prompt a line is read. This is parsed as: <list of: <item>> where
+;<item> may be: <numeric value> or <quoted string> or <unquoted string>
+;These items are parsed and assigned to variables given in the command. Whitespace between 
+;<items> is removed.
+;If the optional semicolon is omitted BASIC starts a new line, if present then the cursor 
+;is left after the last character entered.
+
+;For file stream, #9:
+;No prompt is generated. If given it will be ignored.
+;BASIC attempts to read items from the file and match them to variables:
+;<numeric value> terminated by whitespace, comma, carriage return or end of file.
+;<quoted string> in double quotes, can also be terminated by end of file. A following whitespace, 
+;comma or carriage return is ignored.
+;<unquoted string> terminated by comma, carriage return or whitespace.
+;In all cases leading whitespace is ignored.
+;Strings terminate after max 255 characters.
 
 command_INPUT:                    ;{{Addr=$db43 Code Calls/jump count: 0 Data use count: 1}}
         call    swap_both_streams_exec_TOS_and_swap_back;{{db43:cdd4c1}} 
@@ -6117,7 +6571,7 @@ input_parse_item:                 ;{{Addr=$dbf7 Code Calls/jump count: 2 Data us
 input_parse_number:               ;{{Addr=$dc04 Code Calls/jump count: 1 Data use count: 0}}
         call    get_input_stream  ;{{dc04:cdc4c1}} 
         call    nc,input_from_file_ignore_leading_whitespace;{{dc07:d42cdc}} 
-        call    possibly_validate_input_buffer_is_a_number;{{dc0a:cd6fed}} 
+        call    convert_string_to_number;{{dc0a:cd6fed}} 
 _input_parse_number_3:            ;{{Addr=$dc0d Code Calls/jump count: 1 Data use count: 0}}
         push    af                ;{{dc0d:f5}} 
 
@@ -6289,11 +6743,14 @@ is_A_space_tab_cr:                ;{{Addr=$dcbf Code Calls/jump count: 3 Data us
 
 ;;========================================================================
 ;; command RESTORE
+;RESTORE [<line number>]
+;Restores the DATA pointer
+
 command_RESTORE:                  ;{{Addr=$dcc8 Code Calls/jump count: 0 Data use count: 1}}
         jr      z,reset_READ_pointer;{{dcc8:280a}}  (+$0a)
         call    eval_line_number_or_error;{{dcca:cd48cf}} 
         push    hl                ;{{dccd:e5}} 
-        call    find_address_of_line_or_error;{{dcce:cd5ce8}} 
+        call    find_line_or_error;{{dcce:cd5ce8}} 
         dec     hl                ;{{dcd1:2b}} 
         jr      set_READ_pointer  ;{{dcd2:1831}}  (+$31)
 
@@ -6305,6 +6762,9 @@ reset_READ_pointer:               ;{{Addr=$dcd4 Code Calls/jump count: 2 Data us
 
 ;;========================================================================
 ;; command READ
+;READ <list of: <variable>>
+;Reads from DATA statements
+
 command_READ:                     ;{{Addr=$dcda Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{dcda:e5}} 
         ld      hl,(READ_pointer) ;{{dcdb:2a17ae}} 
@@ -6370,8 +6830,8 @@ _update_read_pointer_15:          ;{{Addr=$dd22 Code Calls/jump count: 1 Data us
 ;;<< INTEGER MATHS
 ;;< (used both internally and by functions)
 ;;=====================================
-;;unknown maths fixup
-unknown_maths_fixup:              ;{{Addr=$dd2a Code Calls/jump count: 1 Data use count: 0}}
+;;prep regs for int to string
+prep_regs_for_int_to_string:      ;{{Addr=$dd2a Code Calls/jump count: 1 Data use count: 0}}
         ld      b,h               ;{{dd2a:44}} 
         call    negate_HL_if_negative_and_test_if_INT;{{dd2b:cdeadd}} 
         jr      set_E_zero_C_to_2_int_type;{{dd2e:1802}}  (+$02)
@@ -6387,10 +6847,10 @@ set_E_zero_C_to_2_int_type:       ;{{Addr=$dd32 Code Calls/jump count: 1 Data us
 
 ;;=unknown maths fixup
 ;Bit 7 of B = invert value in HL
-unknown_maths_fixup_B:            ;{{Addr=$dd37 Code Calls/jump count: 5 Data use count: 0}}
+unknown_maths_fixup:              ;{{Addr=$dd37 Code Calls/jump count: 5 Data use count: 0}}
         ld      a,h               ;{{dd37:7c}} 
         or      a                 ;{{dd38:b7}} 
-        jp      m,unknown_maths_fixup_C;{{dd39:fa42dd}} 
+        jp      m,unknown_maths_fixup_B;{{dd39:fa42dd}} 
         or      b                 ;{{dd3c:b0}} 
         jp      m,negate_HL_and_test_if_INT;{{dd3d:faeddd}} 
         scf                       ;{{dd40:37}} 
@@ -6398,7 +6858,7 @@ unknown_maths_fixup_B:            ;{{Addr=$dd37 Code Calls/jump count: 5 Data us
 
 ;;--------------------------------------------------------------
 ;;=unknown maths fixup
-unknown_maths_fixup_C:            ;{{Addr=$dd42 Code Calls/jump count: 1 Data use count: 0}}
+unknown_maths_fixup_B:            ;{{Addr=$dd42 Code Calls/jump count: 1 Data use count: 0}}
         xor     $80               ;{{dd42:ee80}} Toggle bit 7
         or      l                 ;{{dd44:b5}} 
         ret     nz                ;{{dd45:c0}} 
@@ -6436,7 +6896,7 @@ INT_subtraction_with_overflow_test:;{{Addr=$dd52 Code Calls/jump count: 1 Data u
 INT_multiply_with_overflow_test:  ;{{Addr=$dd5b Code Calls/jump count: 1 Data use count: 0}}
         call    make_both_operands_positive;{{dd5b:cd67dd}} 
         call    do_16x16_multiply_with_overflow;{{dd5e:cd72dd}} 
-        jp      nc,unknown_maths_fixup_B;{{dd61:d237dd}} negate result if operands where different signs (B bit 7 set) and ??
+        jp      nc,unknown_maths_fixup;{{dd61:d237dd}} negate result if operands where different signs (B bit 7 set) and ??
         or      $ff               ;{{dd64:f6ff}} 
         ret                       ;{{dd66:c9}} 
 
@@ -6504,7 +6964,7 @@ _do_16x16_multiply_with_overflow_30:;{{Addr=$dd97 Code Calls/jump count: 1 Data 
 INT_division_with_overflow_test:  ;{{Addr=$dd9c Code Calls/jump count: 1 Data use count: 0}}
         call    _int_modulo_5     ;{{dd9c:cdabdd}} 
 _int_division_with_overflow_test_1:;{{Addr=$dd9f Code Calls/jump count: 1 Data use count: 0}}
-        jp      c,unknown_maths_fixup_B;{{dd9f:da37dd}} 
+        jp      c,unknown_maths_fixup;{{dd9f:da37dd}} 
         ret                       ;{{dda2:c9}} 
 
 ;;=INT modulo
@@ -6646,6 +7106,14 @@ _prob_compare_de_to_hl_9:         ;{{Addr=$de0d Code Calls/jump count: 1 Data us
 ;;< Includes token handling utilities, TRON, TROFF, 
 ;;< and the command/statement look up table.
 ;;============================================
+;This block of routines raise a Syntax Error if the next character/token is not
+;the one specified.
+;Also, skips over any trailing spaces (ASCII $20) and:
+;If the following character (after the one to test) is:
+;end-of-line ($00):      returns Carry clear, Zero set
+;end-of-statament ($01): returns Carry clear, Zero clear
+;(otherwise):            returns Carry set, Zero clear
+
 ;; next token if comma
 next_token_if_comma:              ;{{Addr=$de15 Code Calls/jump count: 23 Data use count: 0}}
         ld      a,$2c             ;{{de15:3e2c}}  ','
@@ -6685,7 +7153,11 @@ next_token_if_value_in_A:         ;{{Addr=$de29 Code Calls/jump count: 4 Data us
         jr      nz,raise_syntax_error_D;{{de2a:200f}}  (+$0f)
 
 ;;=get next token skipping space
-;; skip spaces
+;;Skips spaces (ASCII $20) and returns the next non-space character/token
+;If that character is:
+;end-on-line ($00):      returns Carry clear, Zero set
+;end-of-statement ($01): returns Carry clear, Zero clear
+;(other):                returns Carry set, Zero clear
 get_next_token_skipping_space:    ;{{Addr=$de2c Code Calls/jump count: 53 Data use count: 1}}
         inc     hl                ;{{de2c:23}} 
         ld      a,(hl)            ;{{de2d:7e}} 
@@ -6698,17 +7170,18 @@ get_next_token_skipping_space:    ;{{Addr=$de2c Code Calls/jump count: 53 Data u
         or      a                 ;{{de35:b7}} 
         ret                       ;{{de36:c9}} 
 
-;;+----------------------------------------------------------
-;;syntax error if not $02
-syntax_error_if_not_02:           ;{{Addr=$de37 Code Calls/jump count: 16 Data use count: 0}}
+;;+===========================================================
+;;error if not end of statement or eoln
+error_if_not_end_of_statement_or_eoln:;{{Addr=$de37 Code Calls/jump count: 16 Data use count: 0}}
         ld      a,(hl)            ;{{de37:7e}} 
-        cp      $02               ;{{de38:fe02}} 
+        cp      $02               ;{{de38:fe02}} $00=end of line, $01=end of statement
         ret     c                 ;{{de3a:d8}} 
 
 ;;=raise syntax error
 raise_syntax_error_D:             ;{{Addr=$de3b Code Calls/jump count: 1 Data use count: 0}}
         jr      raise_syntax_error_E;{{de3b:186a}}  (+$6a)
 
+;;+===========================================================
 ;;=is next $02
 ;Carry set if EOLN or end of statement
 is_next_02:                       ;{{Addr=$de3d Code Calls/jump count: 9 Data use count: 0}}
@@ -6716,7 +7189,12 @@ is_next_02:                       ;{{Addr=$de3d Code Calls/jump count: 9 Data us
         cp      $02               ;{{de3e:fe02}} 
         ret                       ;{{de40:c9}} 
 
+;;+===========================================================
 ;;=next token if prev is comma
+
+;Skips spaces and reads the first token following
+;If the that token is a comma, skips any following whitespace and returns the next token and Carry set
+;  Otherwise, returns Carry clear
 next_token_if_prev_is_comma:      ;{{Addr=$de41 Code Calls/jump count: 44 Data use count: 0}}
         dec     hl                ;{{de41:2b}} 
         call    get_next_token_skipping_space;{{de42:cd2cde}}  get next token skipping space
@@ -6749,7 +7227,7 @@ execute_current_statement:        ;{{Addr=$de5d Code Calls/jump count: 2 Data us
         ld      hl,(address_of_byte_before_current_statement);{{de5d:2a1bae}} 
 
 ;;=execute statement atHL
-;HL points to first token, NOT line number
+;HL points to byte before first token
 execute_statement_atHL:           ;{{Addr=$de60 Code Calls/jump count: 7 Data use count: 0}}
         ld      (address_of_byte_before_current_statement),hl;{{de60:221bae}} HL=current execution address
         call    KL_POLL_SYNCHRONOUS;{{de63:cd21b9}} handle pending events
@@ -6763,13 +7241,13 @@ execute_statement_atHL:           ;{{Addr=$de60 Code Calls/jump count: 7 Data us
         jr      nc,raise_syntax_error_E;{{de74:3031}}  (+$31)
         inc     hl                ;{{de76:23}} 
 
-;;=execute end of line
-execute_end_of_line:              ;{{Addr=$de77 Code Calls/jump count: 4 Data use count: 0}}
-        ld      a,(hl)            ;{{de77:7e}} Next line number?
+;;=execute line atHL
+execute_line_atHL:                ;{{Addr=$de77 Code Calls/jump count: 4 Data use count: 0}}
+        ld      a,(hl)            ;{{de77:7e}} Line length zero = end of program
         inc     hl                ;{{de78:23}} 
         or      (hl)              ;{{de79:b6}} 
         inc     hl                ;{{de7a:23}} 
-        jr      z,end_execution   ;{{de7b:280f}}  (+$0f) line number zero = end of code marker
+        jr      z,end_execution   ;{{de7b:280f}}  (+$0f) line length zero = end of code marker
 
         ld      (address_of_line_number_LB_of_line_of_cur),hl;{{de7d:221dae}}  Start of current line
         inc     hl                ;{{de80:23}} 
@@ -6850,12 +7328,18 @@ get_line_number_atHL:             ;{{Addr=$deb8 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command TRON
+;TRON
+;Turns on execution tracing (the listing of line numbers to the console)
+
 command_TRON:                     ;{{Addr=$dec1 Code Calls/jump count: 0 Data use count: 1}}
         ld      a,$ff             ;{{dec1:3eff}} 
         jr      _command_troff_1  ;{{dec3:1801}}  (+$01)
 
 ;;========================================================================
 ;; command TROFF
+;TROFF
+;Turns off execution tracing. See TRON
+
 command_TROFF:                    ;{{Addr=$dec5 Code Calls/jump count: 1 Data use count: 1}}
         xor     a                 ;{{dec5:af}} 
 _command_troff_1:                 ;{{Addr=$dec6 Code Calls/jump count: 1 Data use count: 0}}
@@ -6936,7 +7420,7 @@ command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data us
         defw command_NEXT         ; NEXT  ##LABEL##
         defw command_NEW          ; NEW  ##LABEL##
         defw command_ON_ON_ERROR_GOTO; ON   ##LABEL## (and ON ERROR GOTO [line])
-        defw command_ON_BREAK_ON_BREAK_CONT_ON_BREAK_STOP; ON BREAK  ##LABEL##
+        defw command_ON_BREAK_GOSUB_ON_BREAK_CONT_ON_BREAK_STOP; ON BREAK  ##LABEL##
         defw command_ON_ERROR_GOTO_0; ON ERROR GOTO 0 ##LABEL##
         defw command_ON_SQ        ; ON SQ  ##LABEL##
         defw command_OPENIN       ; OPENIN  ##LABEL##
@@ -6964,7 +7448,7 @@ command_to_code_address_LUT:      ;{{Addr=$dee0 Data Calls/jump count: 0 Data us
         defw command_SOUND        ; SOUND  ##LABEL##
         defw command_SPEED_WRITE_SPEED_KEY_SPEED_INK; SPEED  ##LABEL##
         defw command_STOP         ; STOP  ##LABEL##
-        defw command_SYMBOL       ; SYMBOL  ##LABEL##
+        defw command_SYMBOL_SYMBOL_AFTER; SYMBOL  ##LABEL##
         defw command_TAG          ; TAG  ##LABEL##
         defw command_TAGOFF       ; TAGOFF  ##LABEL##
         defw command_TROFF        ; TROFF  ##LABEL##
@@ -7027,10 +7511,10 @@ tokenise_item:                    ;{{Addr=$dfc8 Code Calls/jump count: 1 Data us
         or      a                 ;{{dfc9:b7}} 
         ret     z                 ;{{dfca:c8}} end of buffer
 
-        call    test_if_letter    ;{{dfcb:cd92ff}}  is a alphabetical letter?
+        call    test_if_upcase_letter;{{dfcb:cd92ff}}  is a alphabetical letter?
         jr      c,tokenise_letters;{{dfce:381c}}  (+$1c)
         call    test_if_period_or_digit;{{dfd0:cda0ff}} 
-        jp      c,tokenise_a_number;{{dfd3:dae2e0}} 
+        jp      c,tokenise_period_or_digit;{{dfd3:dae2e0}} 
         cp      "&"               ;{{dfd6:fe26}} '&' = hex or binary prefix
         jp      z,tokenise_hex_or_binary_number;{{dfd8:ca36e1}} 
         inc     hl                ;{{dfdb:23}} 
@@ -7055,7 +7539,7 @@ tokenise_letters:                 ;{{Addr=$dfec Code Calls/jump count: 1 Data us
         ret     c                 ;{{dfef:d8}} carry set if it's already been written
                                   ;othwise it's a token >= &80
         cp      $c5               ;{{dff0:fec5}} REM
-        jp      z,copy_until_end_of_buffer;{{dff2:cac3e1}} 
+        jp      z,copy_comment_to_buffer;{{dff2:cac3e1}} 
         push    hl                ;{{dff5:e5}} 
         ld      hl,tokenisation_table_A;{{dff6:2112e0}} DATA and DEFxxxx
         call    check_if_byte_exists_in_table;{{dff9:cdcaff}} ; check if byte exists in table 
@@ -7126,7 +7610,7 @@ _token_is_in_tokenisation_table_a_12:;{{Addr=$e02c Code Calls/jump count: 1 Data
 ;;clear tokenisation state flag
 clear_tokenisation_state_flag:    ;{{Addr=$e035 Code Calls/jump count: 2 Data use count: 0}}
         xor     a                 ;{{e035:af}} 
-        ld      (tokenisation_state_flag),a;{{e036:3220ae}} 
+        ld      (tokenise_state_flag),a;{{e036:3220ae}} 
         ret                       ;{{e039:c9}} 
 
 ;;===================================================
@@ -7160,7 +7644,7 @@ _tokenise_identifiers_18:         ;{{Addr=$e05b Code Calls/jump count: 1 Data us
         pop     af                ;{{e05b:f1}} 
         ld      a,(de)            ;{{e05c:1a}} get prev token
         or      a                 ;{{e05d:b7}} tokens >= &80 = statements and miscellaneous
-        jp      m,test_for_specially_encoded_keywords;{{e05e:faafe0}} do tests and return the token for caller to process
+        jp      m,test_for_keywords_taking_line_numbers;{{e05e:faafe0}} do tests and return the token for caller to process
         pop     de                ;{{e061:d1}} tokens <&80 = functions
         pop     bc                ;{{e062:c1}} 
         push    af                ;{{e063:f5}} 
@@ -7169,7 +7653,7 @@ _tokenise_identifiers_18:         ;{{Addr=$e05b Code Calls/jump count: 1 Data us
         pop     af                ;{{e069:f1}} 
         call    write_tokenised_byte_to_memory;{{e06a:cd08e0}} write function token
         xor     a                 ;{{e06d:af}} 
-        jr      set_tokenisation_status_flag;{{e06e:183a}}  (+$3a)
+        jr      set_tokenise_line_number_flag;{{e06e:183a}}  (+$3a)
 
 ;;=tokenise variable
 tokenise_variable:                ;{{Addr=$e070 Code Calls/jump count: 2 Data use count: 0}}
@@ -7215,26 +7699,27 @@ tokenise_variable_name_loop:      ;{{Addr=$e097 Code Calls/jump count: 1 Data us
         jr      tokenise_variable_name_loop;{{e0a2:18f3}}  (-$0d)
 
 _tokenise_variable_name_loop_7:   ;{{Addr=$e0a4 Code Calls/jump count: 1 Data use count: 0}}
-        call    set_bit7_of_prev_byte;{{e0a4:cdb5e1}} set bit 7 of last char of name
+        call    _tokenise_bar_command_9;{{e0a4:cdb5e1}} set bit 7 of last char of name
         pop     hl                ;{{e0a7:e1}} 
         ld      a,$ff             ;{{e0a8:3eff}} 
-;;=set tokenisation status flag
-set_tokenisation_status_flag:     ;{{Addr=$e0aa Code Calls/jump count: 1 Data use count: 0}}
-        ld      (tokenisation_state_flag),a;{{e0aa:3220ae}} 
+;;=set tokenise line number flag
+set_tokenise_line_number_flag:    ;{{Addr=$e0aa Code Calls/jump count: 1 Data use count: 0}}
+        ld      (tokenise_state_flag),a;{{e0aa:3220ae}} 
         scf                       ;{{e0ad:37}} 
         ret                       ;{{e0ae:c9}} 
 
 ;;==================================
-;; test for specially encoded keywords
-;sets tokenisation state flag (ae20) to &ff if token is one of these
-test_for_specially_encoded_keywords:;{{Addr=$e0af Code Calls/jump count: 1 Data use count: 0}}
+;; test for keywords taking line numbers
+;sets tokenise line number flag (ae20) to &ff if token is one of these.
+;If set numbers following will be tokenised as line numbers
+test_for_keywords_taking_line_numbers:;{{Addr=$e0af Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{e0af:e5}} 
         ld      c,a               ;{{e0b0:4f}} 
-        ld      hl,specially_encoded_keywords;{{e0b1:21c3e0}} 
+        ld      hl,keywords_taking_line_numbers;{{e0b1:21c3e0}} 
         call    check_if_byte_exists_in_table;{{e0b4:cdcaff}} ;check if byte exists in table
         sbc     a,a               ;{{e0b7:9f}} 
         and     $01               ;{{e0b8:e601}} 
-        ld      (tokenisation_state_flag),a;{{e0ba:3220ae}} 
+        ld      (tokenise_state_flag),a;{{e0ba:3220ae}} 
         ld      a,c               ;{{e0bd:79}} 
         pop     hl                ;{{e0be:e1}} 
         pop     de                ;{{e0bf:d1}} 
@@ -7243,9 +7728,9 @@ test_for_specially_encoded_keywords:;{{Addr=$e0af Code Calls/jump count: 1 Data 
         ret                       ;{{e0c2:c9}} 
 
 ;;================================================
-;; specially encoded keywords
-;; keywords which need special encoding(??)
-specially_encoded_keywords:       ;{{Addr=$e0c3 Data Calls/jump count: 0 Data use count: 1}}
+;; keywords taking line numbers
+;; keywords which can be followed by a line number
+keywords_taking_line_numbers:     ;{{Addr=$e0c3 Data Calls/jump count: 0 Data use count: 1}}
                                   
         defb $c7                  ;RESTORE
         defb $81                  ;AUTO
@@ -7281,64 +7766,72 @@ _convert_variable_type_suffix_7:  ;{{Addr=$e0dc Code Calls/jump count: 1 Data us
         scf                       ;{{e0e0:37}} 
         ret                       ;{{e0e1:c9}} 
 
-;**tk
 ;;==============================================
-;;tokenise a number
+;;tokenise period or digit
 
-tokenise_a_number:                ;{{Addr=$e0e2 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(tokenisation_state_flag);{{e0e2:3a20ae}} 
-        or      a                 ;{{e0e5:b7}} 
-        jr      z,_tokenise_a_number_12;{{e0e6:2810}}  (+$10)
+tokenise_period_or_digit:         ;{{Addr=$e0e2 Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,(tokenise_state_flag);{{e0e2:3a20ae}} 
+        or      a                 ;{{e0e5:b7}} Flag=$00=Tokenise as a number
+        jr      z,_tokenise_period_or_digit_12;{{e0e6:2810}}  (+$10) No
+
         ld      a,(hl)            ;{{e0e8:7e}} 
-        inc     hl                ;{{e0e9:23}} 
-        jp      m,write_tokenised_byte_to_memory;{{e0ea:fa08e0}} 
-        dec     hl                ;{{e0ed:2b}} 
-        push    de                ;{{e0ee:d5}} 
-        call    convert_number_a  ;{{e0ef:cdcfee}} 
-        jr      nc,_tokenise_a_number_37;{{e0f2:3032}}  (+$32)
-        ld      a,$1e             ;{{e0f4:3e1e}}  16-bit line number
-        jr      _tokenise_hex_or_binary_number_9;{{e0f6:184d}}  (+$4d)
+        inc     hl                ;{{e0e9:23}} Flag=$ff=Just written a variable, copy as literal(??)
+        jp      m,write_tokenised_byte_to_memory;{{e0ea:fa08e0}} Write token and return
 
-_tokenise_a_number_12:            ;{{Addr=$e0f8 Code Calls/jump count: 1 Data use count: 0}}
+        dec     hl                ;{{e0ed:2b}} Flag=$01=Tokenise a line number
+        push    de                ;{{e0ee:d5}} 
+        call    parse_line_number ;{{e0ef:cdcfee}} 
+        jr      nc,tokenise_copy_invalid_data;{{e0f2:3032}}  (+$32) Not a valid line number, copy as raw data
+        ld      a,$1e             ;{{e0f4:3e1e}}  16-bit line number
+        jr      tokenise_write_from_accumulator;{{e0f6:184d}}  (+$4d)
+
+_tokenise_period_or_digit_12:     ;{{Addr=$e0f8 Code Calls/jump count: 1 Data use count: 0}}
         push    de                ;{{e0f8:d5}} 
         push    bc                ;{{e0f9:c5}} 
-        call    _possibly_validate_input_buffer_is_a_number_12;{{e0fa:cd8aed}} 
+        call    convert_string_to_positive_number;{{e0fa:cd8aed}} 
         pop     bc                ;{{e0fd:c1}} 
-        jr      nc,_tokenise_a_number_37;{{e0fe:3026}}  (+$26)
+        jr      nc,tokenise_copy_invalid_data;{{e0fe:3026}}  (+$26)
         call    is_accumulator_a_string;{{e100:cd66ff}} 
-        ld      a,$1f             ;{{e103:3e1f}} 
-        jr      nc,_tokenise_hex_or_binary_number_9;{{e105:303e}}  (+$3e)
-        ld      de,(accumulator)  ;{{e107:ed5ba0b0}} 
-        ld      a,d               ;{{e10b:7a}} 
-        or      a                 ;{{e10c:b7}} 
-        ld      a,$1a             ;{{e10d:3e1a}} 
-        jr      nz,_tokenise_hex_or_binary_number_9;{{e10f:2034}}  (+$34)
-        ex      (sp),hl           ;{{e111:e3}} 
-        ex      de,hl             ;{{e112:eb}} 
-        ld      a,l               ;{{e113:7d}} 
-        cp      $0a               ;{{e114:fe0a}} 
-        jr      nc,_tokenise_a_number_32;{{e116:3004}}  (+$04)
-        add     a,$0e             ;{{e118:c60e}} 
-        jr      _tokenise_a_number_35;{{e11a:1806}}  (+$06)
+        ld      a,$1f             ;{{e103:3e1f}} Floating point number
+        jr      nc,tokenise_write_from_accumulator;{{e105:303e}}  (+$3e)
 
-_tokenise_a_number_32:            ;{{Addr=$e11c Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,$19             ;{{e11c:3e19}} 
+        ld      de,(accumulator)  ;{{e107:ed5ba0b0}} 
+        ld      a,d               ;{{e10b:7a}} Single byte value?
+        or      a                 ;{{e10c:b7}} 
+        ld      a,$1a             ;{{e10d:3e1a}} 16-bit value displayed in decimal
+        jr      nz,tokenise_write_from_accumulator;{{e10f:2034}}  (+$34)
+
+        ex      (sp),hl           ;{{e111:e3}} Get write buffer addr into HL...
+        ex      de,hl             ;{{e112:eb}} ...then DE; Value into HL
+        ld      a,l               ;{{e113:7d}} 
+        cp      $0a               ;{{e114:fe0a}} Number <= 10?
+        jr      nc,_tokenise_period_or_digit_32;{{e116:3004}}  (+$04)
+        add     a,$0e             ;{{e118:c60e}} Tokens $0e to $18 = numeric constants 0 to 10
+        jr      _tokenise_period_or_digit_35;{{e11a:1806}}  (+$06)
+
+_tokenise_period_or_digit_32:     ;{{Addr=$e11c Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,$19             ;{{e11c:3e19}} 8-bit value displayed in decimal
         call    write_tokenised_byte_to_memory;{{e11e:cd08e0}} 
         ld      a,l               ;{{e121:7d}} 
-_tokenise_a_number_35:            ;{{Addr=$e122 Code Calls/jump count: 1 Data use count: 0}}
+_tokenise_period_or_digit_35:     ;{{Addr=$e122 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{e122:e1}} 
         jp      write_tokenised_byte_to_memory;{{e123:c308e0}} 
 
-_tokenise_a_number_37:            ;{{Addr=$e126 Code Calls/jump count: 4 Data use count: 0}}
-        ld      a,(hl)            ;{{e126:7e}} 
+;;=tokenise copy invalid data
+;Used to copy invalid (untokenisable) code
+;HL=source address
+;TOS=destination address
+;DE=address of last byte to copy
+tokenise_copy_invalid_data:       ;{{Addr=$e126 Code Calls/jump count: 4 Data use count: 0}}
+        ld      a,(hl)            ;{{e126:7e}} HL=read buffer ptr
         inc     hl                ;{{e127:23}} 
-        ex      (sp),hl           ;{{e128:e3}} 
-        ex      de,hl             ;{{e129:eb}} 
-        call    write_tokenised_byte_to_memory;{{e12a:cd08e0}} 
-        ex      de,hl             ;{{e12d:eb}} 
-        ex      (sp),hl           ;{{e12e:e3}} 
+        ex      (sp),hl           ;{{e128:e3}} Get write buffer address...
+        ex      de,hl             ;{{e129:eb}} ...into DE...
+        call    write_tokenised_byte_to_memory;{{e12a:cd08e0}} ...and write token to buffer
+        ex      de,hl             ;{{e12d:eb}} New buffer ptr back to HL...
+        ex      (sp),hl           ;{{e12e:e3}} ...And back to TOS.
         call    compare_HL_DE     ;{{e12f:cdd8ff}}  HL=DE?
-        jr      nz,_tokenise_a_number_37;{{e132:20f2}}  (-$0e)
+        jr      nz,tokenise_copy_invalid_data;{{e132:20f2}}  (-$0e)
         pop     de                ;{{e134:d1}} 
         ret                       ;{{e135:c9}} 
 
@@ -7347,34 +7840,38 @@ _tokenise_a_number_37:            ;{{Addr=$e126 Code Calls/jump count: 4 Data us
 tokenise_hex_or_binary_number:    ;{{Addr=$e136 Code Calls/jump count: 1 Data use count: 0}}
         push    de                ;{{e136:d5}} 
         push    bc                ;{{e137:c5}} 
-        call    _possibly_validate_input_buffer_is_a_number_12;{{e138:cd8aed}} 
+        call    convert_string_to_positive_number;{{e138:cd8aed}} 
         pop     bc                ;{{e13b:c1}} 
-        jr      nc,_tokenise_a_number_37;{{e13c:30e8}}  (-$18)
+        jr      nc,tokenise_copy_invalid_data;{{e13c:30e8}}  (-$18)
         cp      $02               ;{{e13e:fe02}} 
-        ld      a,$1b             ;{{e140:3e1b}} 
-        jr      z,_tokenise_hex_or_binary_number_9;{{e142:2801}}  (+$01)
-        inc     a                 ;{{e144:3c}} 
+        ld      a,$1b             ;{{e140:3e1b}} 16-bit constant in displayed in binary format
+        jr      z,tokenise_write_from_accumulator;{{e142:2801}}  (+$01)
+        inc     a                 ;{{e144:3c}} $1c=16-bit constant displayed in hex format
 
-_tokenise_hex_or_binary_number_9: ;{{Addr=$e145 Code Calls/jump count: 4 Data use count: 0}}
+;;=tokenise write from accumulator
+;A=token (prefix)
+;Value is in accumulator
+tokenise_write_from_accumulator:  ;{{Addr=$e145 Code Calls/jump count: 4 Data use count: 0}}
         pop     de                ;{{e145:d1}} 
         call    write_tokenised_byte_to_memory;{{e146:cd08e0}} 
         push    hl                ;{{e149:e5}} 
         ld      hl,accumulator    ;{{e14a:21a0b0}} 
         call    get_accumulator_data_type;{{e14d:cd4bff}} 
-_tokenise_hex_or_binary_number_14:;{{Addr=$e150 Code Calls/jump count: 1 Data use count: 0}}
+_tokenise_write_from_accumulator_5:;{{Addr=$e150 Code Calls/jump count: 1 Data use count: 0}}
         push    af                ;{{e150:f5}} 
         ld      a,(hl)            ;{{e151:7e}} 
         inc     hl                ;{{e152:23}} 
         call    write_tokenised_byte_to_memory;{{e153:cd08e0}} 
         pop     af                ;{{e156:f1}} 
         dec     a                 ;{{e157:3d}} 
-        jr      nz,_tokenise_hex_or_binary_number_14;{{e158:20f6}}  (-$0a)
+        jr      nz,_tokenise_write_from_accumulator_5;{{e158:20f6}}  (-$0a)
         pop     hl                ;{{e15a:e1}} 
         ret                       ;{{e15b:c9}} 
 
 ;;=====================================
 ;; tokenise any other ascii char
 ;; Any ASCII char between $33 and $127 which is not a letter, number, period or '&'
+;I.e. strings, bar commands, ? print statement, maths and comparison etc operators, and ' comments
 
 tokenise_any_other_ascii_char:    ;{{Addr=$e15c Code Calls/jump count: 1 Data use count: 0}}
         cp      $22               ;{{e15c:fe22}}  '"'
@@ -7383,21 +7880,22 @@ tokenise_any_other_ascii_char:    ;{{Addr=$e15c Code Calls/jump count: 1 Data us
         jr      z,tokenise_bar_command;{{e162:283f}}  (+$3f)
         push    bc                ;{{e164:c5}} 
         push    de                ;{{e165:d5}} 
-        xor     $3f               ;{{e166:ee3f}} 
-        ld      b,$bf             ;{{e168:06bf}} 
+        xor     $3f               ;{{e166:ee3f}}  "?" char
+        ld      b,$bf             ;{{e168:06bf}}  PRINT token
         jr      z,_tokenise_any_other_ascii_char_18;{{e16a:2810}}  (+$10)
+
         dec     hl                ;{{e16c:2b}} 
-        ld      de,symbols_table  ;{{e16d:1136e7}} 
+        ld      de,symbols_table  ;{{e16d:1136e7}}  Symbols (i.e maths operators, comparisons)
         call    keyword_to_token_within_single_table;{{e170:cdebe3}} 
         ld      a,(de)            ;{{e173:1a}} 
-        jr      c,_tokenise_any_other_ascii_char_16;{{e174:3802}}  (+$02)
-        ld      a,(hl)            ;{{e176:7e}} 
+        jr      c,_tokenise_any_other_ascii_char_16;{{e174:3802}}  (+$02) 
+        ld      a,(hl)            ;{{e176:7e}} Not found in symbol table?
         inc     hl                ;{{e177:23}} 
 _tokenise_any_other_ascii_char_16:;{{Addr=$e178 Code Calls/jump count: 1 Data use count: 0}}
         ld      b,a               ;{{e178:47}} 
         call    _tokenise_any_other_ascii_char_25;{{e179:cd89e1}} 
 _tokenise_any_other_ascii_char_18:;{{Addr=$e17c Code Calls/jump count: 1 Data use count: 0}}
-        ld      (tokenisation_state_flag),a;{{e17c:3220ae}} 
+        ld      (tokenise_state_flag),a;{{e17c:3220ae}} 
         ld      a,b               ;{{e17f:78}} 
         pop     de                ;{{e180:d1}} 
         pop     bc                ;{{e181:c1}} 
@@ -7405,14 +7903,19 @@ _tokenise_any_other_ascii_char_18:;{{Addr=$e17c Code Calls/jump count: 1 Data us
         jr      z,tokenise_single_quote_comment;{{e184:2836}}  (+$36)
         jp      write_tokenised_byte_to_memory;{{e186:c308e0}} 
 
+;Get new state flag value
+;Converts A as follows:
+;If A=1 (":" symbol) or $23, returns A=0
+;otherwise if flag=$ff returns A=0,
+;otherwise returns flag.
 _tokenise_any_other_ascii_char_25:;{{Addr=$e189 Code Calls/jump count: 1 Data use count: 0}}
         dec     a                 ;{{e189:3d}} 
         ret     z                 ;{{e18a:c8}} 
 
-        xor     $22               ;{{e18b:ee22}}  '"'
+        xor     $22               ;{{e18b:ee22}} $23 = "#". Testing for stream number?
         ret     z                 ;{{e18d:c8}} 
 
-        ld      a,(tokenisation_state_flag);{{e18e:3a20ae}} 
+        ld      a,(tokenise_state_flag);{{e18e:3a20ae}} 
         inc     a                 ;{{e191:3c}} 
         ret     z                 ;{{e192:c8}} 
 
@@ -7439,18 +7942,18 @@ tokenise_string:                  ;{{Addr=$e195 Code Calls/jump count: 3 Data us
 tokenise_bar_command:             ;{{Addr=$e1a3 Code Calls/jump count: 1 Data use count: 0}}
         call    write_tokenised_byte_to_memory;{{e1a3:cd08e0}} 
         xor     a                 ;{{e1a6:af}} 
-        ld      (tokenisation_state_flag),a;{{e1a7:3220ae}} 
+        ld      (tokenise_state_flag),a;{{e1a7:3220ae}} 
+
 _tokenise_bar_command_3:          ;{{Addr=$e1aa Code Calls/jump count: 1 Data use count: 0}}
-        call    write_tokenised_byte_to_memory;{{e1aa:cd08e0}} 
+        call    write_tokenised_byte_to_memory;{{e1aa:cd08e0}} Copy bar command name
         ld      a,(hl)            ;{{e1ad:7e}} 
         inc     hl                ;{{e1ae:23}} 
         call    test_if_letter_period_or_digit;{{e1af:cd9cff}} 
         jr      c,_tokenise_bar_command_3;{{e1b2:38f6}}  (-$0a)
         dec     hl                ;{{e1b4:2b}} 
 
-;;=set bit7 of prev byte
-set_bit7_of_prev_byte:            ;{{Addr=$e1b5 Code Calls/jump count: 1 Data use count: 0}}
-        dec     de                ;{{e1b5:1b}} 
+_tokenise_bar_command_9:          ;{{Addr=$e1b5 Code Calls/jump count: 1 Data use count: 0}}
+        dec     de                ;{{e1b5:1b}} Set bit 7 of last char of name
         ld      a,(de)            ;{{e1b6:1a}} 
         or      $80               ;{{e1b7:f680}} 
         ld      (de),a            ;{{e1b9:12}} 
@@ -7460,16 +7963,18 @@ set_bit7_of_prev_byte:            ;{{Addr=$e1b5 Code Calls/jump count: 1 Data us
 ;;====================================
 ;; tokenise single quote comment
 tokenise_single_quote_comment:    ;{{Addr=$e1bc Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,$01             ;{{e1bc:3e01}} 
+        ld      a,$01             ;{{e1bc:3e01}} End of statement (:). Always written before tick comment
         call    write_tokenised_byte_to_memory;{{e1be:cd08e0}} 
         ld      a,$c0             ;{{e1c1:3ec0}} "'"
-;;=copy until end of buffer
-copy_until_end_of_buffer:         ;{{Addr=$e1c3 Code Calls/jump count: 2 Data use count: 0}}
+
+;;=copy comment to buffer
+copy_comment_to_buffer:           ;{{Addr=$e1c3 Code Calls/jump count: 2 Data use count: 0}}
         call    write_tokenised_byte_to_memory;{{e1c3:cd08e0}} 
         ld      a,(hl)            ;{{e1c6:7e}} 
         inc     hl                ;{{e1c7:23}} 
         or      a                 ;{{e1c8:b7}} 
-        jr      nz,copy_until_end_of_buffer;{{e1c9:20f8}}  (-$08)
+        jr      nz,copy_comment_to_buffer;{{e1c9:20f8}}  (-$08)
+
         dec     hl                ;{{e1cb:2b}} 
         ret                       ;{{e1cc:c9}} 
 
@@ -7480,12 +7985,15 @@ copy_until_end_of_buffer:         ;{{Addr=$e1c3 Code Calls/jump count: 2 Data us
 ;;<< LIST AND DETOKENISING BACK TO ASCII
 ;;========================================================================
 ;; command LIST
+;LIST [<line number range>][,#<stream expression>]
+;Lists the program to the given stream, default #0
+
 command_LIST:                     ;{{Addr=$e1cd Code Calls/jump count: 0 Data use count: 1}}
         call    eval_line_number_range_params;{{e1cd:cd0fcf}} 
         push    bc                ;{{e1d0:c5}} 
         push    de                ;{{e1d1:d5}} 
         call    eval_and_select_txt_stream;{{e1d2:cdcac1}} 
-        call    syntax_error_if_not_02;{{e1d5:cd37de}} 
+        call    error_if_not_end_of_statement_or_eoln;{{e1d5:cd37de}} 
         call    zero_current_line_address;{{e1d8:cdaade}} 
         pop     de                ;{{e1db:d1}} 
         pop     bc                ;{{e1dc:c1}} 
@@ -7501,84 +8009,91 @@ do_LIST:                          ;{{Addr=$e1e3 Code Calls/jump count: 2 Data us
         push    de                ;{{e1e3:d5}} 
         ld      d,b               ;{{e1e4:50}} 
         ld      e,c               ;{{e1e5:59}} 
-        call    find_address_of_line;{{e1e6:cd64e8}} 
-        pop     de                ;{{e1e9:d1}} 
-_do_list_5:                       ;{{Addr=$e1ea Code Calls/jump count: 1 Data use count: 0}}
-        ld      c,(hl)            ;{{e1ea:4e}} 
+        call    find_line         ;{{e1e6:cd64e8}} Find address of start line (HL)
+        pop     de                ;{{e1e9:d1}} end line number
+
+;;=list line loop
+list_line_loop:                   ;{{Addr=$e1ea Code Calls/jump count: 1 Data use count: 0}}
+        ld      c,(hl)            ;{{e1ea:4e}} BC=line length
         inc     hl                ;{{e1eb:23}} 
         ld      b,(hl)            ;{{e1ec:46}} 
         dec     hl                ;{{e1ed:2b}} 
         ld      a,b               ;{{e1ee:78}} 
         or      c                 ;{{e1ef:b1}} 
-        ret     z                 ;{{e1f0:c8}} 
+        ret     z                 ;{{e1f0:c8}} End of program
 
         call    test_for_break_key;{{e1f1:cd72c4}}  key
-        push    hl                ;{{e1f4:e5}} 
-        add     hl,bc             ;{{e1f5:09}} 
-        ex      (sp),hl           ;{{e1f6:e3}} 
-        push    de                ;{{e1f7:d5}} 
-        push    hl                ;{{e1f8:e5}} 
+        push    hl                ;{{e1f4:e5}} Start of line
+        add     hl,bc             ;{{e1f5:09}} Start of next line
+        ex      (sp),hl           ;{{e1f6:e3}} Retrieve start of line/start of next line
+        push    de                ;{{e1f7:d5}} End line number
+        push    hl                ;{{e1f8:e5}} Start of line
         inc     hl                ;{{e1f9:23}} 
         inc     hl                ;{{e1fa:23}} 
-        ld      e,(hl)            ;{{e1fb:5e}} 
+        ld      e,(hl)            ;{{e1fb:5e}} Get line number in DE
         inc     hl                ;{{e1fc:23}} 
         ld      d,(hl)            ;{{e1fd:56}} 
-        pop     hl                ;{{e1fe:e1}} 
-        ex      (sp),hl           ;{{e1ff:e3}} 
+        pop     hl                ;{{e1fe:e1}} Start of line
+        ex      (sp),hl           ;{{e1ff:e3}} Get end line number
         call    compare_HL_DE     ;{{e200:cdd8ff}}  HL=DE? Test for > final line number?
-        ex      (sp),hl           ;{{e203:e3}} 
-        jr      c,_do_list_37     ;{{e204:3812}}  (+$12)
+        ex      (sp),hl           ;{{e203:e3}} Get start of line
+        jr      c,_list_line_loop_32;{{e204:3812}}  (+$12) Stop listing
+
         call    detokenise_line_atHL_to_buffer;{{e206:cd54e2}} 
         ld      hl,BASIC_input_area_for_lines_;{{e209:218aac}} 
-_do_list_30:                      ;{{Addr=$e20c Code Calls/jump count: 1 Data use count: 0}}
-        call    output_buffer_to_stream;{{e20c:cd1de2}} 
+
+_list_line_loop_25:               ;{{Addr=$e20c Code Calls/jump count: 1 Data use count: 0}}
+        call    output_char_to_stream;{{e20c:cd1de2}} Copy buffer to stream
         inc     hl                ;{{e20f:23}} 
         ld      a,(hl)            ;{{e210:7e}} 
         or      a                 ;{{e211:b7}} 
-        jr      nz,_do_list_30    ;{{e212:20f8}}  (-$08)
-        call    output_new_line   ;{{e214:cd98c3}} ; new text line
-        or      a                 ;{{e217:b7}} 
-_do_list_37:                      ;{{Addr=$e218 Code Calls/jump count: 1 Data use count: 0}}
-        pop     de                ;{{e218:d1}} 
-        pop     hl                ;{{e219:e1}} 
-        jr      nc,_do_list_5     ;{{e21a:30ce}}  (-$32) Loop for next line
+        jr      nz,_list_line_loop_25;{{e212:20f8}}  (-$08)
+
+        call    output_new_line   ;{{e214:cd98c3}}  new text line
+        or      a                 ;{{e217:b7}} Clear carry
+
+_list_line_loop_32:               ;{{Addr=$e218 Code Calls/jump count: 1 Data use count: 0}}
+        pop     de                ;{{e218:d1}} Get end line number
+        pop     hl                ;{{e219:e1}} Get start of next line
+        jr      nc,list_line_loop ;{{e21a:30ce}}  (-$32) Loop for next line
         ret                       ;{{e21c:c9}} 
 
-;;=output buffer to stream
-output_buffer_to_stream:          ;{{Addr=$e21d Code Calls/jump count: 1 Data use count: 0}}
+;;=output char to stream
+output_char_to_stream:            ;{{Addr=$e21d Code Calls/jump count: 1 Data use count: 0}}
         call    get_output_stream ;{{e21d:cdbec1}} 
         ld      a,(hl)            ;{{e220:7e}} 
-        jr      c,_output_buffer_to_stream_8;{{e221:380a}}  (+$0a)
+        jr      c,_output_char_to_stream_8;{{e221:380a}}  (+$0a)
         call    output_raw_char   ;{{e223:cdb8c3}} 
-        cp      $0a               ;{{e226:fe0a}} 
+        cp      $0a               ;{{e226:fe0a}} Convert LF to LF+CR
         ret     nz                ;{{e228:c0}} 
 
         ld      a,$0d             ;{{e229:3e0d}} 
-        jr      _output_buffer_to_stream_12;{{e22b:1808}}  (+$08)
+        jr      _output_char_to_stream_12;{{e22b:1808}}  (+$08)
 
-_output_buffer_to_stream_8:       ;{{Addr=$e22d Code Calls/jump count: 1 Data use count: 0}}
-        cp      $20               ;{{e22d:fe20}} 
+_output_char_to_stream_8:         ;{{Addr=$e22d Code Calls/jump count: 1 Data use count: 0}}
+        cp      $20               ;{{e22d:fe20}} Prefix unprintable characters with control code 1 (output literal)
         ld      a,$01             ;{{e22f:3e01}} 
         call    c,output_raw_char ;{{e231:dcb8c3}} 
         ld      a,(hl)            ;{{e234:7e}} 
-_output_buffer_to_stream_12:      ;{{Addr=$e235 Code Calls/jump count: 1 Data use count: 0}}
+_output_char_to_stream_12:        ;{{Addr=$e235 Code Calls/jump count: 1 Data use count: 0}}
         jp      output_raw_char   ;{{e235:c3b8c3}} 
 
 ;;=detokenise line from line number
 ;Line number in HL
 ;If line number not found creates an empty buffer with the line number
 detokenise_line_from_line_number: ;{{Addr=$e238 Code Calls/jump count: 1 Data use count: 0}}
-        call    find_address_of_line;{{e238:cd64e8}} 
+        call    find_line         ;{{e238:cd64e8}} 
         jr      c,detokenise_line_atHL_to_buffer;{{e23b:3817}}  (+$17) Line found?
                                   ;Else create empty buffer with line number
 ;;=detokenise prepare buffer
 detokenise_prepare_buffer:        ;{{Addr=$e23d Code Calls/jump count: 1 Data use count: 0}}
         ex      de,hl             ;{{e23d:eb}} 
-        call    convert_int_to_string;{{e23e:cd4aef}} 
+        call    convert_int_in_HL_to_string;{{e23e:cd4aef}} 
         ld      de,$0100          ;{{e241:110001}} D=buffer length, E='append space' flag.
         ld      bc,BASIC_input_area_for_lines_;{{e244:018aac}} Buffer address
+
 _detokenise_prepare_buffer_4:     ;{{Addr=$e247 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(hl)            ;{{e247:7e}} Copy D bytes from (HL) to (BC) - line number?
+        ld      a,(hl)            ;{{e247:7e}} Copy line number from (HL) to (BC) (until $00 value). D=buffer free space
         inc     hl                ;{{e248:23}} 
         ld      (bc),a            ;{{e249:02}} 
         inc     bc                ;{{e24a:03}} 
@@ -7673,19 +8188,19 @@ detokenise_number:                ;{{Addr=$e2aa Code Calls/jump count: 1 Data us
 ;;=detokenise variable reference
 detokenise_variable_reference:    ;{{Addr=$e2b3 Code Calls/jump count: 2 Data use count: 0}}
         call    detokenise_append_space_if_needed;{{e2b3:cde6e2}} 
-        ld      a,(hl)            ;{{e2b6:7e}} 
+        ld      a,(hl)            ;{{e2b6:7e}} Variable type
         push    af                ;{{e2b7:f5}} 
         inc     hl                ;{{e2b8:23}} step over variable type and data pointer
         inc     hl                ;{{e2b9:23}} 
         inc     hl                ;{{e2ba:23}} 
-        call    detokenise_copy_bit7_terminated_string;{{e2bb:cddbe2}} 
-        pop     af                ;{{e2be:f1}} 
+        call    detokenise_copy_bit7_terminated_string;{{e2bb:cddbe2}} Variable name
+        pop     af                ;{{e2be:f1}} Get variable type
         ld      e,$01             ;{{e2bf:1e01}} 
-        cp      $0b               ;{{e2c1:fe0b}} 
+        cp      $0b               ;{{e2c1:fe0b}} Types >= $0b have no explicit type identifier (%, !, $) in source
         ret     nc                ;{{e2c3:d0}} 
 
         ld      e,$00             ;{{e2c4:1e00}} 
-        xor     $27               ;{{e2c6:ee27}} 
+        xor     $27               ;{{e2c6:ee27}} Convert type code to type identifier
         and     $fd               ;{{e2c8:e6fd}} 
 
 ;;=detokenise append char literal
@@ -7757,9 +8272,9 @@ detokenise_keyword:               ;{{Addr=$e2f8 Code Calls/jump count: 1 Data us
 ;; =detokenise else and comment
 _detokenise_keyword_2:            ;{{Addr=$e2fc Code Calls/jump count: 2 Data use count: 0}}
         inc     hl                ;{{e2fc:23}} 
-        cp      $ff               ;{{e2fd:feff}} 
+        cp      $ff               ;{{e2fd:feff}} Extended keyword table
         jr      nz,_detokenise_keyword_7;{{e2ff:2002}}  (+$02)
-        ld      a,(hl)            ;{{e301:7e}} 
+        ld      a,(hl)            ;{{e301:7e}} Get token for extended keywords
         inc     hl                ;{{e302:23}} 
 _detokenise_keyword_7:            ;{{Addr=$e303 Code Calls/jump count: 1 Data use count: 0}}
         push    af                ;{{e303:f5}} 
@@ -7817,7 +8332,7 @@ detokenise_numeric_literal:       ;{{Addr=$e32f Code Calls/jump count: 1 Data us
 
         cp      $1b               ;{{e33a:fe1b}}  16-bit integer binary value
         jr      z,detokenise_binary_number;{{e33c:2832}} 
-        cp      $1c               ;{{e33e:fe1c}}  16-bt integer hexadecimal value
+        cp      $1c               ;{{e33e:fe1c}}  16-bit integer hexadecimal value
         jr      z,detokenise_hex_number;{{e340:2839}} 
         cp      $1e               ;{{e342:fe1e}}  16-bit integer BASIC line number
         jr      z,detokenise_line_number;{{e344:2823}} 
@@ -7826,15 +8341,14 @@ detokenise_numeric_literal:       ;{{Addr=$e32f Code Calls/jump count: 1 Data us
         cp      $1a               ;{{e34a:fe1a}}  16-bit integer decimal value
         jr      z,detokenise_16bit_decimal;{{e34c:280b}} 
 
-;;------------------------
-;;=detokenise 8-bit value
 
+;8-bit value
         dec     hl                ;{{e34e:2b}} 
-        ld      d,$00             ;{{e34f:1600}} 
+        ld      d,$00             ;{{e34f:1600}} Zero high byte
         cp      $19               ;{{e351:fe19}}  8-bit integer decimal value
         jr      z,detokenise_16bit_decimal;{{e353:2804}}  (+$04)
         dec     hl                ;{{e355:2b}} 
-        sub     $0e               ;{{e356:d60e}} 
+        sub     $0e               ;{{e356:d60e}} Tokens $0e to $18 encode literals 0 to 10
         ld      e,a               ;{{e358:5f}} 
 
 ;;=detokenise 16bit decimal
@@ -7842,7 +8356,7 @@ detokenise_16bit_decimal:         ;{{Addr=$e359 Code Calls/jump count: 2 Data us
         ex      (sp),hl           ;{{e359:e3}} 
         ex      de,hl             ;{{e35a:eb}} 
         call    store_HL_in_accumulator_as_INT;{{e35b:cd35ff}} 
-        jr      _detokenise_floating_point_4;{{e35e:183a}}  (+$3a)
+        jr      detokenise_accumulator;{{e35e:183a}}  (+$3a)
 
 ;;=detokenise line number ptr
 detokenise_line_number_ptr:       ;{{Addr=$e360 Code Calls/jump count: 1 Data use count: 0}}
@@ -7859,37 +8373,37 @@ detokenise_line_number_ptr:       ;{{Addr=$e360 Code Calls/jump count: 1 Data us
 detokenise_line_number:           ;{{Addr=$e369 Code Calls/jump count: 1 Data use count: 0}}
         ex      (sp),hl           ;{{e369:e3}} 
         ex      de,hl             ;{{e36a:eb}} 
-        call    convert_int_to_string;{{e36b:cd4aef}} 
+        call    convert_int_in_HL_to_string;{{e36b:cd4aef}} 
         jr      detokenise_copy_asciiz;{{e36e:182d}}  (+$2d)
 
 ;;=detokenise binary number
 detokenise_binary_number:         ;{{Addr=$e370 Code Calls/jump count: 1 Data use count: 0}}
         ex      (sp),hl           ;{{e370:e3}} 
         ld      a,$58             ;{{e371:3e58}}  "X" - binary number prefix
-        scf                       ;{{e373:37}} 
+        scf                       ;{{e373:37}} Set carry to display the above char
         push    af                ;{{e374:f5}} 
         push    bc                ;{{e375:c5}} 
-        ld      bc,$0101          ;{{e376:010101}} 
+        ld      bc,$0101          ;{{e376:010101}} One but per digit and digit mask
         jr      detokenise_based_number;{{e379:1807}}  (+$07)
 
 ;;=detokenise hex number
 detokenise_hex_number:            ;{{Addr=$e37b Code Calls/jump count: 1 Data use count: 0}}
         ex      (sp),hl           ;{{e37b:e3}} 
-        or      a                 ;{{e37c:b7}} 
+        or      a                 ;{{e37c:b7}} Clear carry - only display '&' prefix
         push    af                ;{{e37d:f5}} 
         push    bc                ;{{e37e:c5}} 
-        ld      bc,$040f          ;{{e37f:010f04}} 
+        ld      bc,$040f          ;{{e37f:010f04}} Four digits per pixel and digit mask
 
 ;;=detokenise based number
 ;BC=format. See convert_based_number_to_string
 detokenise_based_number:          ;{{Addr=$e382 Code Calls/jump count: 1 Data use count: 0}}
         ex      de,hl             ;{{e382:eb}} 
-        xor     a                 ;{{e383:af}} 
+        xor     a                 ;{{e383:af}} No padding
         call    convert_based_number_to_string;{{e384:cddff1}} 
         pop     bc                ;{{e387:c1}} 
         ld      a,$26             ;{{e388:3e26}} "&"
         call    detokenise_append_char_literal;{{e38a:cdcae2}} 
-        pop     af                ;{{e38d:f1}} 
+        pop     af                ;{{e38d:f1}} Retrieve carry flag and, if set, second prefix char
         call    c,detokenise_append_char_literal;{{e38e:dccae2}} Append binary number prefix
         jr      detokenise_copy_asciiz;{{e391:180a}}  (+$0a)
 
@@ -7903,8 +8417,9 @@ detokenise_floating_point:        ;{{Addr=$e393 Code Calls/jump count: 1 Data us
         ex      de,hl             ;{{e399:eb}} 
 
 ;;------------------------------------------------
-_detokenise_floating_point_4:     ;{{Addr=$e39a Code Calls/jump count: 1 Data use count: 0}}
-        call    convert_float_atHL_to_string;{{e39a:cd5aef}} 
+;;=detokenise accumulator
+detokenise_accumulator:           ;{{Addr=$e39a Code Calls/jump count: 1 Data use count: 0}}
+        call    convert_accumulator_to_string;{{e39a:cd5aef}} 
 
 ;;=detokenise copy asciiz
 detokenise_copy_asciiz:           ;{{Addr=$e39d Code Calls/jump count: 3 Data use count: 0}}
@@ -8416,51 +8931,56 @@ symbols_table:                    ;{{Addr=$e736 Data Calls/jump count: 0 Data us
 ;;< DELETE, RENUM, DATA, REM, ', ELSE and
 ;;< a bunch of related utility stuff
 ;;=====================================================
-;;poss clear program area
-poss_clear_program_area:          ;{{Addr=$e761 Code Calls/jump count: 1 Data use count: 0}}
+;;clear program
+clear_program:                    ;{{Addr=$e761 Code Calls/jump count: 1 Data use count: 0}}
         xor     a                 ;{{e761:af}} 
         ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{e762:2a64ae}} 
-        ld      (hl),a            ;{{e765:77}} 
+        ld      (hl),a            ;{{e765:77}} Write zeros to line length and number. aka no program
         inc     hl                ;{{e766:23}} 
         ld      (hl),a            ;{{e767:77}} 
         inc     hl                ;{{e768:23}} 
         ld      (hl),a            ;{{e769:77}} 
         inc     hl                ;{{e76a:23}} 
         ld      (address_after_end_of_program),hl;{{e76b:2266ae}} 
-        jr      _convert_all_line_addresses_to_line_numbers_11;{{e76e:1811}}  (+$11)
+        jr      clear_line_address_vs_line_number_flag;{{e76e:1811}}  (+$11)
 
+;;=============================================================================
 ;;=convert all line addresses to line numbers
-;Scoots over every line to convert the line numbers to line addresses
+;Line numbers are stored as line numbers during editing,
+;then converted to addresses as they are encountered during execution.
+;This routine converts them back to numbers (ready for edit mode)
 convert_all_line_addresses_to_line_numbers:;{{Addr=$e770 Code Calls/jump count: 4 Data use count: 0}}
         ld      a,(line_address_vs_line_number_flag);{{e770:3a21ae}} 
         or      a                 ;{{e773:b7}} 
-        ret     z                 ;{{e774:c8}} Abort if we already have line numbers
+        ret     z                 ;{{e774:c8}} Abort if we already have line addresses
 
         push    bc                ;{{e775:c5}} 
         push    de                ;{{e776:d5}} 
         push    hl                ;{{e777:e5}} 
-        ld      bc,convert_line_addresses_to_line_numbers;{{e778:0186e7}}  convert line address to line number ##LABEL##
-        call    iterator__call_BC_for_each_line;{{e77b:cdb9e9}} Iterator - calls code at BC for every line/statement
+        ld      bc,convert_line_addresses_to_line_numbers;{{e778:0186e7}}  convert line addresses to line number ##LABEL##
+        call    statement_iterator;{{e77b:cdb9e9}} Iterator - calls code at BC for every statement
         pop     hl                ;{{e77e:e1}} 
         pop     de                ;{{e77f:d1}} 
         pop     bc                ;{{e780:c1}} 
-_convert_all_line_addresses_to_line_numbers_11:;{{Addr=$e781 Code Calls/jump count: 1 Data use count: 0}}
+
+;;=clear line address vs line number flag
+clear_line_address_vs_line_number_flag:;{{Addr=$e781 Code Calls/jump count: 1 Data use count: 0}}
         xor     a                 ;{{e781:af}} 
         ld      (line_address_vs_line_number_flag),a;{{e782:3221ae}} Set flag
         ret                       ;{{e785:c9}} 
 
 ;;=================================================
 ;; convert line addresses to line numbers
-;Converts line addresses (pointers) within a statement to line numbers
+;Converts any line addresses (pointers) within a statement to line numbers
 convert_line_addresses_to_line_numbers:;{{Addr=$e786 Code Calls/jump count: 2 Data use count: 1}}
         call    skip_next_tokenised_item;{{e786:cdfde9}} 
         cp      $02               ;{{e789:fe02}} 
-        ret     c                 ;{{e78b:d8}} 
+        ret     c                 ;{{e78b:d8}} Return at end of line or end of statement
 
-        cp      $1d               ;{{e78c:fe1d}}  16-bit line address pointer
+        cp      $1d               ;{{e78c:fe1d}}  16-bit line address pointer token
         jr      nz,convert_line_addresses_to_line_numbers;{{e78e:20f6}} 
 
-        ld      d,(hl)            ;{{e790:56}}  get address
+        ld      d,(hl)            ;{{e790:56}}  get line address (target of GOTO, GOSUB etc)
         dec     hl                ;{{e791:2b}} 
         ld      e,(hl)            ;{{e792:5e}} 
         dec     hl                ;{{e793:2b}} 
@@ -8469,67 +8989,79 @@ convert_line_addresses_to_line_numbers:;{{Addr=$e786 Code Calls/jump count: 2 Da
         inc     hl                ;{{e796:23}} 
         inc     hl                ;{{e797:23}} 
         inc     hl                ;{{e798:23}} 
-        ld      e,(hl)            ;{{e799:5e}}  line number
+        ld      e,(hl)            ;{{e799:5e}}  get line number
         inc     hl                ;{{e79a:23}} 
         ld      d,(hl)            ;{{e79b:56}} 
         pop     hl                ;{{e79c:e1}} 
-        ld      (hl),$1e          ;{{e79d:361e}}  16-bit line number
+        ld      (hl),$1e          ;{{e79d:361e}}  16-bit line number token
         inc     hl                ;{{e79f:23}} 
-        ld      (hl),e            ;{{e7a0:73}} 
+        ld      (hl),e            ;{{e7a0:73}} Write line number back into code
         inc     hl                ;{{e7a1:23}} 
         ld      (hl),d            ;{{e7a2:72}} 
         jr      convert_line_addresses_to_line_numbers;{{e7a3:18e1}} 
 
 ;;-----------------------------------------------------------------
-_convert_line_addresses_to_line_numbers_24:;{{Addr=$e7a5 Code Calls/jump count: 2 Data use count: 0}}
-        ld      a,(hl)            ;{{e7a5:7e}} 
+;;=prob tokenise and insert line
+;Tokenises the line in the edit buffer and inserts into the program
+;at the appropriate position. The rest of the program is shifted up 
+;(or down if the new line is shorter) as needed.
+;Also handles deleting a line if only a line number is in the buffer.
+prob_tokenise_and_insert_line:    ;{{Addr=$e7a5 Code Calls/jump count: 2 Data use count: 0}}
+        ld      a,(hl)            ;{{e7a5:7e}} Step over if leading space
         cp      $20               ;{{e7a6:fe20}} 
-        jr      nz,_convert_line_addresses_to_line_numbers_28;{{e7a8:2001}}  (+$01)
+        jr      nz,_prob_tokenise_and_insert_line_4;{{e7a8:2001}}  (+$01)
         inc     hl                ;{{e7aa:23}} 
-_convert_line_addresses_to_line_numbers_28:;{{Addr=$e7ab Code Calls/jump count: 1 Data use count: 0}}
+
+_prob_tokenise_and_insert_line_4: ;{{Addr=$e7ab Code Calls/jump count: 1 Data use count: 0}}
         call    convert_all_line_addresses_to_line_numbers;{{e7ab:cd70e7}}  line address to line number
         call    tokenise_a_BASIC_line;{{e7ae:cda4df}} 
         push    hl                ;{{e7b1:e5}} 
         call    skip_space_tab_or_line_feed;{{e7b2:cd4dde}}  skip space, lf or tab
-        or      a                 ;{{e7b5:b7}} 
-        jr      z,_convert_line_addresses_to_line_numbers_63;{{e7b6:2828}}  (+$28)
+        or      a                 ;{{e7b5:b7}} Empty line? if so, delete
+        jr      z,do_delete_line  ;{{e7b6:2828}}  (+$28)
         push    bc                ;{{e7b8:c5}} 
         push    de                ;{{e7b9:d5}} 
-        ld      hl,$0004          ;{{e7ba:210400}} 
-        add     hl,bc             ;{{e7bd:09}} 
+        ld      hl,$0004          ;{{e7ba:210400}} Add four bytes for line length and line number...
+        add     hl,bc             ;{{e7bd:09}} ...to raw tokenised line length
         push    hl                ;{{e7be:e5}} 
         push    hl                ;{{e7bf:e5}} 
-        call    find_address_of_line;{{e7c0:cd64e8}} 
+        call    find_line         ;{{e7c0:cd64e8}} 
         push    hl                ;{{e7c3:e5}} 
-        call    c,_convert_line_addresses_to_line_numbers_65;{{e7c4:dce4e7}} 
+        call    c,prob_move_program_data_down;{{e7c4:dce4e7}} 
         pop     de                ;{{e7c7:d1}} 
         pop     bc                ;{{e7c8:c1}} 
-        call    unknown_alloc_and_move_memory_up;{{e7c9:cdb8f6}} 
+        call    move_lower_memory_up;{{e7c9:cdb8f6}} 
         call    prob_grow_all_program_space_pointers_by_BC;{{e7cc:cd07f6}} 
         ex      de,hl             ;{{e7cf:eb}} 
         pop     de                ;{{e7d0:d1}} 
-        ld      (hl),e            ;{{e7d1:73}} 
+        ld      (hl),e            ;{{e7d1:73}} Write line length?
         inc     hl                ;{{e7d2:23}} 
         ld      (hl),d            ;{{e7d3:72}} 
         inc     hl                ;{{e7d4:23}} 
         pop     de                ;{{e7d5:d1}} 
-        ld      (hl),e            ;{{e7d6:73}} 
+        ld      (hl),e            ;{{e7d6:73}} Write line number?
         inc     hl                ;{{e7d7:23}} 
         ld      (hl),d            ;{{e7d8:72}} 
         inc     hl                ;{{e7d9:23}} 
         pop     bc                ;{{e7da:c1}} 
         ex      de,hl             ;{{e7db:eb}} 
         pop     hl                ;{{e7dc:e1}} 
-        ldir                      ;{{e7dd:edb0}} 
+        ldir                      ;{{e7dd:edb0}} Copy line from buffer
         ret                       ;{{e7df:c9}} 
 
-_convert_line_addresses_to_line_numbers_63:;{{Addr=$e7e0 Code Calls/jump count: 1 Data use count: 0}}
+;;=do delete line
+;(internal routine)
+do_delete_line:                   ;{{Addr=$e7e0 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{e7e0:e1}} 
-        call    find_address_of_line_or_error;{{e7e1:cd5ce8}} 
-_convert_line_addresses_to_line_numbers_65:;{{Addr=$e7e4 Code Calls/jump count: 2 Data use count: 0}}
-        ld      a,b               ;{{e7e4:78}} 
+        call    find_line_or_error;{{e7e1:cd5ce8}} 
+
+;---------------------------------------------
+;;=prob move program data down
+;E.g. after deleting a line, or when an edited line is shorter
+prob_move_program_data_down:      ;{{Addr=$e7e4 Code Calls/jump count: 2 Data use count: 0}}
+        ld      a,b               ;{{e7e4:78}} BC=bytes to delete
         or      c                 ;{{e7e5:b1}} 
-        ret     z                 ;{{e7e6:c8}} 
+        ret     z                 ;{{e7e6:c8}} Abort if zero
 
         ex      de,hl             ;{{e7e7:eb}} 
         call    move_lower_memory_down;{{e7e8:cde5f6}} 
@@ -8537,81 +9069,84 @@ _convert_line_addresses_to_line_numbers_65:;{{Addr=$e7e4 Code Calls/jump count: 
 
 ;;========================================================================
 ;; command DELETE
+;DELETE <line number range>
+;Deletes the lines in the given range
 
 command_DELETE:                   ;{{Addr=$e7ee Code Calls/jump count: 0 Data use count: 1}}
-        call    do_DELETE_find_first_line;{{e7ee:cd00e8}} 
-        call    syntax_error_if_not_02;{{e7f1:cd37de}} 
-        call    _function_instr_70;{{e7f4:cd4dfb}} 
-        call    do_DELETE_find_last_line;{{e7f7:cd1ae8}} 
-        call    _reset_basic_33   ;{{e7fa:cd8fc1}} 
+        call    do_DELETE_find_byte_range;{{e7ee:cd00e8}} 
+        call    error_if_not_end_of_statement_or_eoln;{{e7f1:cd37de}} 
+        call    copy_all_strings_vars_to_strings_area_if_not_in_strings_area;{{e7f4:cd4dfb}} 
+        call    do_DELETE_delete_lines;{{e7f7:cd1ae8}} 
+        call    reset_exec_data   ;{{e7fa:cd8fc1}} 
         jp      REPL_Read_Eval_Print_Loop;{{e7fd:c358c0}} 
 
-;;+do DELETE find first line
-do_DELETE_find_first_line:        ;{{Addr=$e800 Code Calls/jump count: 2 Data use count: 0}}
+;;+do DELETE find byte range
+do_DELETE_find_byte_range:        ;{{Addr=$e800 Code Calls/jump count: 2 Data use count: 0}}
         call    eval_line_number_range_params;{{e800:cd0fcf}} 
         push    hl                ;{{e803:e5}} 
         push    bc                ;{{e804:c5}} 
-        call    find_first_line_at_or_after_line_number;{{e805:cd82e8}} 
+        call    find_line_at_or_after_line_number;{{e805:cd82e8}} Find addr of first line to delete?
         pop     de                ;{{e808:d1}} 
         push    hl                ;{{e809:e5}} 
-        call    find_address_of_line;{{e80a:cd64e8}} 
-        ld      (unknown_DELETE_temp_1),hl;{{e80d:2222ae}} 
+        call    find_line         ;{{e80a:cd64e8}} Find addr of end of last line to delete?
+        ld      (DELETE_range_start),hl;{{e80d:2222ae}} Save start address
         ex      de,hl             ;{{e810:eb}} 
         pop     hl                ;{{e811:e1}} 
         or      a                 ;{{e812:b7}} 
-        sbc     hl,de             ;{{e813:ed52}} 
-        ld      (unknown_DELETE_temp_2),hl;{{e815:2224ae}} 
+        sbc     hl,de             ;{{e813:ed52}} Start - end = byte count
+        ld      (DELETE_range_length),hl;{{e815:2224ae}} Save byte count
         pop     hl                ;{{e818:e1}} 
         ret                       ;{{e819:c9}} 
 
-;;+do DELETE find last line
-do_DELETE_find_last_line:         ;{{Addr=$e81a Code Calls/jump count: 2 Data use count: 0}}
-        call    convert_all_line_addresses_to_line_numbers;{{e81a:cd70e7}}  line address to line number
-        ld      bc,(unknown_DELETE_temp_2);{{e81d:ed4b24ae}} 
-        ld      hl,(unknown_DELETE_temp_1);{{e821:2a22ae}} 
-        jp      _convert_line_addresses_to_line_numbers_65;{{e824:c3e4e7}} 
+;;+do DELETE delete lines
+do_DELETE_delete_lines:           ;{{Addr=$e81a Code Calls/jump count: 2 Data use count: 0}}
+        call    convert_all_line_addresses_to_line_numbers;{{e81a:cd70e7}} 
+        ld      bc,(DELETE_range_length);{{e81d:ed4b24ae}} Retrieve byte count
+        ld      hl,(DELETE_range_start);{{e821:2a22ae}} Retrieve start address
+        jp      prob_move_program_data_down;{{e824:c3e4e7}} 
 
+;;=============================================================================
 ;;=eval and convert line number to line address
-;HL pounts to either a line number ($1e) or line address ($1d) token
+;HL points to either a line number ($1e) or line address ($1d) token
 ;If it's a line address, just return it.
 ;If it's a line number then convert it to a line address, store
 ;it back in the code and return it.
 eval_and_convert_line_number_to_line_address:;{{Addr=$e827 Code Calls/jump count: 7 Data use count: 0}}
         inc     hl                ;{{e827:23}} 
-        ld      e,(hl)            ;{{e828:5e}} 
+        ld      e,(hl)            ;{{e828:5e}} Read line number or address
         inc     hl                ;{{e829:23}} 
         ld      d,(hl)            ;{{e82a:56}} 
-        cp      $1d               ;{{e82b:fe1d}}  16-bit line address pointer
-        jr      z,_eval_and_convert_line_number_to_line_address_31;{{e82d:282a}}  (+$2a) already a pointer so skip to end
-        cp      $1e               ;{{e82f:fe1e}}  16-bit line number
+        cp      $1d               ;{{e82b:fe1d}}  16-bit line address pointer token
+        jr      z,_eval_and_convert_line_number_to_line_address_31;{{e82d:282a}}  (+$2a) if already an address so skip to end
+        cp      $1e               ;{{e82f:fe1e}}  16-bit line number token
         jp      nz,Error_Syntax_Error;{{e831:c249cb}}  Error: Syntax Error
 
         push    hl                ;{{e834:e5}} 
-        call    get_current_line_number;{{e835:cdb5de}} Compare target line number to current??
+        call    get_current_line_number;{{e835:cdb5de}} Compare target line number to current?
         call    c,compare_HL_DE   ;{{e838:dcd8ff}}  HL=DE? Carry = we have current line
-        jr      nc,_eval_and_convert_line_number_to_line_address_18;{{e83b:300a}}  (+$0a)
+        jr      nc,_eval_and_convert_line_number_to_line_address_18;{{e83b:300a}}  (+$0a), if target <= current line skip next bit
 
-        pop     hl                ;{{e83d:e1}} If target line after current then scan to next line and scan from there?
+        pop     hl                ;{{e83d:e1}} If target line after current then scan to next line and scan from there
         push    hl                ;{{e83e:e5}} 
         inc     hl                ;{{e83f:23}} 
-        call    skip_to_end_of_line;{{e840:cdade9}} ; ELSE - scans to next statement ignoring nested IFs??
+        call    skip_to_end_of_line;{{e840:cdade9}} ; Start scanning at next line
         inc     hl                ;{{e843:23}} 
-        call    find_address_of_line_from_current;{{e844:cd68e8}} 
+        call    find_line_from_current;{{e844:cd68e8}} 
 
 _eval_and_convert_line_number_to_line_address_18:;{{Addr=$e847 Code Calls/jump count: 1 Data use count: 0}}
-        call    nc,find_address_of_line_or_error;{{e847:d45ce8}} Scan from the start
+        call    nc,find_line_or_error;{{e847:d45ce8}} If NC then line number <= current so scan from the start
         dec     hl                ;{{e84a:2b}} 
         ex      de,hl             ;{{e84b:eb}} 
-        pop     hl                ;{{e84c:e1}} 
-        dec     hl                ;{{e84d:2b}} 
+        pop     hl                ;{{e84c:e1}} Retrieve execution address (last byte of line number/address)
+        dec     hl                ;{{e84d:2b}} Point to token
         dec     hl                ;{{e84e:2b}} 
 
                                   ;write line address and suitable token
         ld      a,$1d             ;{{e84f:3e1d}}  16-bit line address pointer
         ld      (line_address_vs_line_number_flag),a;{{e851:3221ae}} 
-        ld      (hl),a            ;{{e854:77}} 
+        ld      (hl),a            ;{{e854:77}} Write token
         inc     hl                ;{{e855:23}} 
-        ld      (hl),e            ;{{e856:73}} 
+        ld      (hl),e            ;{{e856:73}} Write address
         inc     hl                ;{{e857:23}} 
         ld      (hl),d            ;{{e858:72}} 
 
@@ -8619,199 +9154,230 @@ _eval_and_convert_line_number_to_line_address_31:;{{Addr=$e859 Code Calls/jump c
         jp      get_next_token_skipping_space;{{e859:c32cde}}  get next token skipping space
 
 ;;==================================
-;;find address of line or error
-find_address_of_line_or_error:    ;{{Addr=$e85c Code Calls/jump count: 6 Data use count: 0}}
-        call    find_address_of_line;{{e85c:cd64e8}} 
+;;find line or error
+find_line_or_error:               ;{{Addr=$e85c Code Calls/jump count: 6 Data use count: 0}}
+        call    find_line         ;{{e85c:cd64e8}} 
         ret     c                 ;{{e85f:d8}} 
 
         call    byte_following_call_is_error_code;{{e860:cd45cb}} 
         defb $08                  ;Inline error code: "Line does not exist"
 
 ;;====================================
-;;find address of line
-;;BC=line number
-find_address_of_line:             ;{{Addr=$e864 Code Calls/jump count: 9 Data use count: 0}}
+;;find line
+;;DE=line number
+find_line:                        ;{{Addr=$e864 Code Calls/jump count: 9 Data use count: 0}}
         ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{e864:2a64ae}} 
         inc     hl                ;{{e867:23}} 
-;;=find address of line from current
+;;=find line from current
 ;Scan forward starting at current
-find_address_of_line_from_current:;{{Addr=$e868 Code Calls/jump count: 2 Data use count: 0}}
-        ld      c,(hl)            ;{{e868:4e}} 
+;If line found, returns C, Z
+;If next line >= requested, returns NC, NZ
+;If end of program found before line (last line number < requested line), returns NC, Z
+find_line_from_current:           ;{{Addr=$e868 Code Calls/jump count: 2 Data use count: 0}}
+        ld      c,(hl)            ;{{e868:4e}} BC=line length
         inc     hl                ;{{e869:23}} 
         ld      b,(hl)            ;{{e86a:46}} 
         dec     hl                ;{{e86b:2b}} 
-        ld      a,b               ;{{e86c:78}} 
+        ld      a,b               ;{{e86c:78}} End of program?
         or      c                 ;{{e86d:b1}} 
         ret     z                 ;{{e86e:c8}} 
 
         push    hl                ;{{e86f:e5}} 
-        inc     hl                ;{{e870:23}} 
+        inc     hl                ;{{e870:23}} Step over length
         inc     hl                ;{{e871:23}} 
-        ld      a,(hl)            ;{{e872:7e}} 
+        ld      a,(hl)            ;{{e872:7e}} HL=line number
         inc     hl                ;{{e873:23}} 
         ld      h,(hl)            ;{{e874:66}} 
         ld      l,a               ;{{e875:6f}} 
         ex      de,hl             ;{{e876:eb}} 
-        call    compare_HL_DE     ;{{e877:cdd8ff}}  HL=DE?
+        call    compare_HL_DE     ;{{e877:cdd8ff}}  Compare line number to requested
         ex      de,hl             ;{{e87a:eb}} 
-        pop     hl                ;{{e87b:e1}} 
+        pop     hl                ;{{e87b:e1}} Retrieve start of line
         ccf                       ;{{e87c:3f}} 
-        ret     nc                ;{{e87d:d0}} 
+        ret     nc                ;{{e87d:d0}} Line number > requested?
 
-        ret     z                 ;{{e87e:c8}} 
+        ret     z                 ;{{e87e:c8}} Line number = requested?
 
-        add     hl,bc             ;{{e87f:09}} 
-        jr      find_address_of_line_from_current;{{e880:18e6}}  (-$1a)
+        add     hl,bc             ;{{e87f:09}} Add line length to line address (ie. get next line)
+        jr      find_line_from_current;{{e880:18e6}}  (-$1a)
 
 ;;======================================
-;;find first line at or after line number
+;;find line at or after line number
 ;;BC=line number
-find_first_line_at_or_after_line_number:;{{Addr=$e882 Code Calls/jump count: 1 Data use count: 0}}
+find_line_at_or_after_line_number:;{{Addr=$e882 Code Calls/jump count: 1 Data use count: 0}}
         ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{e882:2a64ae}} 
         inc     hl                ;{{e885:23}} 
-_find_first_line_at_or_after_line_number_2:;{{Addr=$e886 Code Calls/jump count: 1 Data use count: 0}}
+;Loop
+_find_line_at_or_after_line_number_2:;{{Addr=$e886 Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{e886:e5}} 
-        ld      c,(hl)            ;{{e887:4e}} 
+        ld      c,(hl)            ;{{e887:4e}} BC=Line length
         inc     hl                ;{{e888:23}} 
         ld      b,(hl)            ;{{e889:46}} 
         inc     hl                ;{{e88a:23}} 
-        ld      a,b               ;{{e88b:78}} 
+        ld      a,b               ;{{e88b:78}} End of program?
         or      c                 ;{{e88c:b1}} 
         scf                       ;{{e88d:37}} 
-        jr      z,_find_first_line_at_or_after_line_number_18;{{e88e:2809}}  (+$09)
-        ld      a,(hl)            ;{{e890:7e}} 
+        jr      z,_find_line_at_or_after_line_number_18;{{e88e:2809}}  (+$09)
+
+        ld      a,(hl)            ;{{e890:7e}} HL=line number
         inc     hl                ;{{e891:23}} 
         ld      h,(hl)            ;{{e892:66}} 
         ld      l,a               ;{{e893:6f}} 
         ex      de,hl             ;{{e894:eb}} 
-        call    compare_HL_DE     ;{{e895:cdd8ff}}  HL=DE?
+        call    compare_HL_DE     ;{{e895:cdd8ff}}  Compare line number to requested
         ex      de,hl             ;{{e898:eb}} 
-_find_first_line_at_or_after_line_number_18:;{{Addr=$e899 Code Calls/jump count: 1 Data use count: 0}}
+
+_find_line_at_or_after_line_number_18:;{{Addr=$e899 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{e899:e1}} 
         ret     c                 ;{{e89a:d8}} 
 
-        add     hl,bc             ;{{e89b:09}} 
-        jr      _find_first_line_at_or_after_line_number_2;{{e89c:18e8}}  (-$18)
+        add     hl,bc             ;{{e89b:09}} Add line length to line address
+        jr      _find_line_at_or_after_line_number_2;{{e89c:18e8}}  (-$18) Loop
 
 ;;========================================================================
 ;; command RENUM
+;RENUM [<new line number>][,[<old line number>][,<increment>]]
+;Renumbers part or all of a program and any references to line numbers
 
 command_RENUM:                    ;{{Addr=$e89e Code Calls/jump count: 0 Data use count: 1}}
-        ld      de,$000a          ;{{e89e:110a00}} 
-        call    nz,_command_renum_82;{{e8a1:c41ae9}} 
+        ld      de,$000a          ;{{e89e:110a00}} Default first new line number
+        call    nz,eval_renum_parameter;{{e8a1:c41ae9}} Eval first new line number, if given
         push    de                ;{{e8a4:d5}} 
-        ld      de,RESET_ENTRY    ;{{e8a5:110000}} 
+        ld      de,$0000          ;{{e8a5:110000}} Default first old line number ###LIT### 
         call    next_token_if_prev_is_comma;{{e8a8:cd41de}} 
-        call    c,_command_renum_82;{{e8ab:dc1ae9}} 
+        call    c,eval_renum_parameter;{{e8ab:dc1ae9}} Eval first old line number, if given
         push    de                ;{{e8ae:d5}} 
-        ld      de,$000a          ;{{e8af:110a00}} 
+        ld      de,$000a          ;{{e8af:110a00}} Default step
         call    next_token_if_prev_is_comma;{{e8b2:cd41de}} 
-        call    c,eval_line_number_or_error;{{e8b5:dc48cf}} 
-        call    syntax_error_if_not_02;{{e8b8:cd37de}} 
-        pop     hl                ;{{e8bb:e1}} 
-        ex      de,hl             ;{{e8bc:eb}} 
-        ex      (sp),hl           ;{{e8bd:e3}} 
-        ex      de,hl             ;{{e8be:eb}} 
-        push    de                ;{{e8bf:d5}} 
-        push    hl                ;{{e8c0:e5}} 
-        call    find_address_of_line;{{e8c1:cd64e8}}  find address of line
-        pop     de                ;{{e8c4:d1}} 
-        push    hl                ;{{e8c5:e5}} 
-        call    find_address_of_line;{{e8c6:cd64e8}}  find address of line
-        ex      de,hl             ;{{e8c9:eb}} 
-        pop     hl                ;{{e8ca:e1}} 
-        call    compare_HL_DE     ;{{e8cb:cdd8ff}}  HL=DE?
-        jr      c,_command_renum_51;{{e8ce:381d}}  (+$1d)
-        ex      de,hl             ;{{e8d0:eb}} 
-        pop     de                ;{{e8d1:d1}} 
-        pop     bc                ;{{e8d2:c1}} 
-        push    de                ;{{e8d3:d5}} 
-        push    hl                ;{{e8d4:e5}} 
-_command_renum_30:                ;{{Addr=$e8d5 Code Calls/jump count: 1 Data use count: 0}}
-        push    bc                ;{{e8d5:c5}} 
-        ld      c,(hl)            ;{{e8d6:4e}} 
+        call    c,eval_line_number_or_error;{{e8b5:dc48cf}} Eval step, if given
+        call    error_if_not_end_of_statement_or_eoln;{{e8b8:cd37de}} 
+
+        pop     hl                ;{{e8bb:e1}} HL=old line
+        ex      de,hl             ;{{e8bc:eb}} HL=step, DE=old line
+        ex      (sp),hl           ;{{e8bd:e3}} HL=new line, TOS=step
+        ex      de,hl             ;{{e8be:eb}} HL=old line, DE=new line
+        push    de                ;{{e8bf:d5}} Push new line number
+        push    hl                ;{{e8c0:e5}} Push old line number
+        call    find_line         ;{{e8c1:cd64e8}}  find address of first new line
+        pop     de                ;{{e8c4:d1}} Retrieve old line number
+        push    hl                ;{{e8c5:e5}} Save new line address
+        call    find_line         ;{{e8c6:cd64e8}}  find address of first old line
+        ex      de,hl             ;{{e8c9:eb}} DE=address of first old line
+        pop     hl                ;{{e8ca:e1}} HL=address of first new line
+        call    compare_HL_DE     ;{{e8cb:cdd8ff}} 
+        jr      c,raise_improper_argument_error_E;{{e8ce:381d}}  (+$1d) Error if renumbering would re-order lines
+
+        ex      de,hl             ;{{e8d0:eb}} HL=addr of first old
+        pop     de                ;{{e8d1:d1}} DE=first new line number
+        pop     bc                ;{{e8d2:c1}} BC=step
+        push    de                ;{{e8d3:d5}} first new line number
+        push    hl                ;{{e8d4:e5}} addr of first line
+
+;;=renum scan loop
+;Steps over the lines to be renumbered, this verifies the line numbers won't overflow
+;before writing any changes
+;DE=new line number
+;HL=line address
+renum_scan_loop:                  ;{{Addr=$e8d5 Code Calls/jump count: 1 Data use count: 0}}
+        push    bc                ;{{e8d5:c5}} step
+        ld      c,(hl)            ;{{e8d6:4e}} BC=line length
         inc     hl                ;{{e8d7:23}} 
         ld      b,(hl)            ;{{e8d8:46}} 
-        ld      a,b               ;{{e8d9:78}} 
+        ld      a,b               ;{{e8d9:78}} End of program?
         or      c                 ;{{e8da:b1}} 
-        jr      z,_command_renum_52;{{e8db:2813}}  (+$13)
-        dec     hl                ;{{e8dd:2b}} 
-        add     hl,bc             ;{{e8de:09}} 
-        ld      a,(hl)            ;{{e8df:7e}} 
+        jr      z,do_renum        ;{{e8db:2813}}  (+$13)
+        dec     hl                ;{{e8dd:2b}} HL=line addr
+
+        add     hl,bc             ;{{e8de:09}} HL=line addr + line length
+        ld      a,(hl)            ;{{e8df:7e}} End of program?
         inc     hl                ;{{e8e0:23}} 
         or      (hl)              ;{{e8e1:b6}} 
-        jr      z,_command_renum_52;{{e8e2:280c}}  (+$0c)
+        jr      z,do_renum        ;{{e8e2:280c}}  (+$0c)
         dec     hl                ;{{e8e4:2b}} 
-        pop     bc                ;{{e8e5:c1}} 
-        push    hl                ;{{e8e6:e5}} 
-        ex      de,hl             ;{{e8e7:eb}} 
-        add     hl,bc             ;{{e8e8:09}} 
-        ex      de,hl             ;{{e8e9:eb}} 
-        pop     hl                ;{{e8ea:e1}} 
-        jr      nc,_command_renum_30;{{e8eb:30e8}}  (-$18)
-_command_renum_51:                ;{{Addr=$e8ed Code Calls/jump count: 1 Data use count: 0}}
+
+        pop     bc                ;{{e8e5:c1}} Step
+        push    hl                ;{{e8e6:e5}} Current
+        ex      de,hl             ;{{e8e7:eb}} HL=new line number
+        add     hl,bc             ;{{e8e8:09}} Next line number
+        ex      de,hl             ;{{e8e9:eb}} DE=next line number
+        pop     hl                ;{{e8ea:e1}} Current
+        jr      nc,renum_scan_loop;{{e8eb:30e8}}  (-$18) Loop if no overflow on next line number
+
+;;=raise Improper Argument error
+raise_improper_argument_error_E:  ;{{Addr=$e8ed Code Calls/jump count: 1 Data use count: 0}}
         jp      Error_Improper_Argument;{{e8ed:c34dcb}}  Error: Improper Argument
 
-_command_renum_52:                ;{{Addr=$e8f0 Code Calls/jump count: 2 Data use count: 0}}
-        ld      bc,convert_line_numbers_to_line_addresses_callback;{{e8f0:0120e9}}  line number to line address  ##LABEL##
-        call    iterator__call_BC_for_each_line;{{e8f3:cdb9e9}} 
-        pop     bc                ;{{e8f6:c1}} 
-        pop     hl                ;{{e8f7:e1}} 
-        pop     de                ;{{e8f8:d1}} 
-_command_renum_57:                ;{{Addr=$e8f9 Code Calls/jump count: 1 Data use count: 0}}
-        push    bc                ;{{e8f9:c5}} 
-        push    hl                ;{{e8fa:e5}} 
-        ld      c,(hl)            ;{{e8fb:4e}} 
+;;=do renum
+;Do the renumbering, having verified there won't be any errors
+do_renum:                         ;{{Addr=$e8f0 Code Calls/jump count: 2 Data use count: 0}}
+        ld      bc,convert_line_numbers_to_line_addresses_callback;{{e8f0:0120e9}}  convert all line number tokens to line address tokens ##LABEL##
+                                  ;this ensures any GOTOs, GOSUBs etc will still point to the correct place
+        call    statement_iterator;{{e8f3:cdb9e9}} 
+
+        pop     bc                ;{{e8f6:c1}} Step
+        pop     hl                ;{{e8f7:e1}} Addr of first line
+        pop     de                ;{{e8f8:d1}} First new line number
+
+;;=do renum loop
+do_renum_loop:                    ;{{Addr=$e8f9 Code Calls/jump count: 1 Data use count: 0}}
+        push    bc                ;{{e8f9:c5}} Step
+        push    hl                ;{{e8fa:e5}} Addr of line
+        ld      c,(hl)            ;{{e8fb:4e}} BC=line length
         inc     hl                ;{{e8fc:23}} 
         ld      b,(hl)            ;{{e8fd:46}} 
         inc     hl                ;{{e8fe:23}} 
-        ld      a,b               ;{{e8ff:78}} 
+        ld      a,b               ;{{e8ff:78}} End of program?
         or      c                 ;{{e900:b1}} 
-        jr      z,_command_renum_77;{{e901:280c}}  (+$0c)
-        ld      (hl),e            ;{{e903:73}} 
+        jr      z,renum_done      ;{{e901:280c}}  (+$0c)
+
+        ld      (hl),e            ;{{e903:73}} Write new line number
         inc     hl                ;{{e904:23}} 
         ld      (hl),d            ;{{e905:72}} 
         inc     hl                ;{{e906:23}} 
-        pop     hl                ;{{e907:e1}} 
-        add     hl,bc             ;{{e908:09}} 
-        pop     bc                ;{{e909:c1}} 
-        ex      de,hl             ;{{e90a:eb}} 
-        add     hl,bc             ;{{e90b:09}} 
-        ex      de,hl             ;{{e90c:eb}} 
-        jr      _command_renum_57 ;{{e90d:18ea}}  (-$16)
 
-_command_renum_77:                ;{{Addr=$e90f Code Calls/jump count: 1 Data use count: 0}}
-        pop     hl                ;{{e90f:e1}} 
+        pop     hl                ;{{e907:e1}} Addr of line
+        add     hl,bc             ;{{e908:09}} Add line length
+        pop     bc                ;{{e909:c1}} Step
+        ex      de,hl             ;{{e90a:eb}} DE=line addr, HL=new line number
+        add     hl,bc             ;{{e90b:09}} Next line number
+        ex      de,hl             ;{{e90c:eb}} HL=line addr, DE=new line number
+        jr      do_renum_loop     ;{{e90d:18ea}}  (-$16) Loop
+
+;;=renum done
+renum_done:                       ;{{Addr=$e90f Code Calls/jump count: 1 Data use count: 0}}
+        pop     hl                ;{{e90f:e1}} Cleanup stack
         pop     hl                ;{{e910:e1}} 
-        ld      bc,_convert_line_numbers_to_line_addresses_callback_24;{{e911:0144e9}} ##LABEL##
-        call    iterator__call_BC_for_each_line;{{e914:cdb9e9}} 
+        ld      bc,report_hanging_line_numbers;{{e911:0144e9}} RENUM can't cope with any references to lines which don't exist ##LABEL##
+        call    statement_iterator;{{e914:cdb9e9}} This call will find any report them as errors to the user
         jp      REPL_Read_Eval_Print_Loop;{{e917:c358c0}} 
 
-_command_renum_82:                ;{{Addr=$e91a Code Calls/jump count: 2 Data use count: 0}}
-        cp      $2c               ;{{e91a:fe2c}} 
+;;=eval renum parameter
+eval_renum_parameter:             ;{{Addr=$e91a Code Calls/jump count: 2 Data use count: 0}}
+        cp      $2c               ;{{e91a:fe2c}} ","
         call    nz,eval_line_number_or_error;{{e91c:c448cf}} 
         ret                       ;{{e91f:c9}} 
 
 ;;----------------------------------------------------------
 ;;=convert line numbers to line addresses callback
-;Converts line numbers within a statement to line addresses
+;Called via iterator__call_BC_for_each_statement
+;Converts any line numbers (i.e GOTO, GOSUB etc) within a statement to line addresses
 convert_line_numbers_to_line_addresses_callback:;{{Addr=$e920 Code Calls/jump count: 2 Data use count: 1}}
         call    skip_next_tokenised_item;{{e920:cdfde9}} 
         cp      $02               ;{{e923:fe02}} 
-        ret     c                 ;{{e925:d8}} 
+        ret     c                 ;{{e925:d8}} End of line/end of statement - done
 
 ;; convert line number to line address
 
-        cp      $1e               ;{{e926:fe1e}}  16-bit line number
-        jr      nz,convert_line_numbers_to_line_addresses_callback;{{e928:20f6}} 
+        cp      $1e               ;{{e926:fe1e}}  16-bit line number token
+        jr      nz,convert_line_numbers_to_line_addresses_callback;{{e928:20f6}} Loop across any tokens we're not interested in
 
 ;; 16-bit line number
         push    hl                ;{{e92a:e5}} 
-        ld      d,(hl)            ;{{e92b:56}} 
+        ld      d,(hl)            ;{{e92b:56}} DE=Line number
         dec     hl                ;{{e92c:2b}} 
         ld      e,(hl)            ;{{e92d:5e}} 
-        call    find_address_of_line;{{e92e:cd64e8}}  find address of line
-        jr      nc,_convert_line_numbers_to_line_addresses_callback_22;{{e931:300e}} 
+        call    find_line         ;{{e92e:cd64e8}}  find address of line
+        jr      nc,_convert_line_numbers_to_line_addresses_callback_22;{{e931:300e}} Not found - should never happen
         dec     hl                ;{{e933:2b}} 
         ex      de,hl             ;{{e934:eb}} 
         pop     hl                ;{{e935:e1}} 
@@ -8822,7 +9388,7 @@ convert_line_numbers_to_line_addresses_callback:;{{Addr=$e920 Code Calls/jump co
         dec     hl                ;{{e938:2b}} 
         ld      (hl),e            ;{{e939:73}} 
         dec     hl                ;{{e93a:2b}} 
-;; store 16-bit line address marker
+;; Convert token to 16-bit line address
         ld      a,$1d             ;{{e93b:3e1d}}  16 bit line address pointer
         ld      (hl),a            ;{{e93d:77}} 
 
@@ -8830,31 +9396,35 @@ convert_line_numbers_to_line_addresses_callback:;{{Addr=$e920 Code Calls/jump co
 
 _convert_line_numbers_to_line_addresses_callback_22:;{{Addr=$e941 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{e941:e1}} 
-        jr      convert_line_numbers_to_line_addresses_callback;{{e942:18dc}} 
+        jr      convert_line_numbers_to_line_addresses_callback;{{e942:18dc}} Loop 
 
 ;;-------------------------------------------------------
-;;poss validate line number targets??
-;Works on every line number found within a statement
-_convert_line_numbers_to_line_addresses_callback_24:;{{Addr=$e944 Code Calls/jump count: 2 Data use count: 1}}
+;;=report hanging line numbers
+;Called via iterator__call_BC_for_each_statement
+;Looks for any line number (i.e GOTO, GOSUB etc) and raises an error if it finds any
+;RENUMbering will fail if there are any references to line numbers which don't exist,
+;this routine finds any and reports them.
+report_hanging_line_numbers:      ;{{Addr=$e944 Code Calls/jump count: 2 Data use count: 1}}
         call    skip_next_tokenised_item;{{e944:cdfde9}} 
         cp      $02               ;{{e947:fe02}} 
-        ret     c                 ;{{e949:d8}} 
+        ret     c                 ;{{e949:d8}} End of line/end of statement - done
 
 ;; 16-bit line number?
-        cp      $1e               ;{{e94a:fe1e}} 
-        jr      nz,_convert_line_numbers_to_line_addresses_callback_24;{{e94c:20f6}}  (-$0a)
+        cp      $1e               ;{{e94a:fe1e}}  16-bit line number token
+        jr      nz,report_hanging_line_numbers;{{e94c:20f6}}  (-$0a) Loop across any tokens we're not interested in
 
         push    hl                ;{{e94e:e5}} 
-        ld      d,(hl)            ;{{e94f:56}} 
+        ld      d,(hl)            ;{{e94f:56}} DE=line number
         dec     hl                ;{{e950:2b}} 
         ld      e,(hl)            ;{{e951:5e}} 
-        call    get_current_line_number;{{e952:cdb5de}} 
-        call    undefined_line_n_in_n_error;{{e955:cde6cb}} 
+        call    get_current_line_number;{{e952:cdb5de}} Get current line number for error reporting?
+        call    undefined_line_n_in_n_error;{{e955:cde6cb}} Report the error
         pop     hl                ;{{e958:e1}} 
-        jr      _convert_line_numbers_to_line_addresses_callback_24;{{e959:18e9}}  (-$17)
+        jr      report_hanging_line_numbers;{{e959:18e9}}  (-$17) Loop
 
+;;=============================================================================
 ;;=skip to ELSE statement
-;Skip tokens with a line until the matching ELSE statement.
+;Skip tokens within a line until the matching ELSE statement.
 ;We also need to skip nested IF statements. This is done by
 ;storing the nesting depth in the B register.
 skip_to_ELSE_statement:           ;{{Addr=$e95b Code Calls/jump count: 1 Data use count: 0}}
@@ -8880,52 +9450,63 @@ _skip_to_else_statement_4:        ;{{Addr=$e962 Code Calls/jump count: 1 Data us
         inc     b                 ;{{e978:04}} 
         ret                       ;{{e979:c9}} 
 
-;;=skip over batched braces
-skip_over_batched_braces:         ;{{Addr=$e97a Code Calls/jump count: 1 Data use count: 0}}
+;;=============================================================================
+;;=skip over matched braces
+;Starting at a '[' or '(', skips to the matching ')' or ']'.
+;Note that array dimensions can use either character and start and end characters need 
+;not be of the same type!
+;Maintains a nesting depth in the B register
+skip_over_matched_braces:         ;{{Addr=$e97a Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(hl)            ;{{e97a:7e}} 
         cp      $5b               ;{{e97b:fe5b}}  '['
-        jr      z,_skip_over_batched_braces_5;{{e97d:2803}}  (+$03)
+        jr      z,_skip_over_matched_braces_5;{{e97d:2803}}  (+$03)
         cp      $28               ;{{e97f:fe28}}  '('
         ret     nz                ;{{e981:c0}} 
 
-_skip_over_batched_braces_5:      ;{{Addr=$e982 Code Calls/jump count: 1 Data use count: 0}}
-        ld      b,$00             ;{{e982:0600}} 
-_skip_over_batched_braces_6:      ;{{Addr=$e984 Code Calls/jump count: 2 Data use count: 0}}
+_skip_over_matched_braces_5:      ;{{Addr=$e982 Code Calls/jump count: 1 Data use count: 0}}
+        ld      b,$00             ;{{e982:0600}} Initialise nesting depth
+_skip_over_matched_braces_6:      ;{{Addr=$e984 Code Calls/jump count: 2 Data use count: 0}}
         inc     b                 ;{{e984:04}} 
-_skip_over_batched_braces_7:      ;{{Addr=$e985 Code Calls/jump count: 2 Data use count: 0}}
+_skip_over_matched_braces_7:      ;{{Addr=$e985 Code Calls/jump count: 2 Data use count: 0}}
         call    skip_next_tokenised_item;{{e985:cdfde9}} 
         cp      $5b               ;{{e988:fe5b}} '['
-        jr      z,_skip_over_batched_braces_6;{{e98a:28f8}}  (-$08)
+        jr      z,_skip_over_matched_braces_6;{{e98a:28f8}}  (-$08) Inc depth
         cp      $28               ;{{e98c:fe28}} '('
-        jr      z,_skip_over_batched_braces_6;{{e98e:28f4}}  (-$0c)
+        jr      z,_skip_over_matched_braces_6;{{e98e:28f4}}  (-$0c) Inc depth
         cp      $5d               ;{{e990:fe5d}} ']'
-        jr      z,_skip_over_batched_braces_19;{{e992:280b}}  (+$0b)
+        jr      z,_skip_over_matched_braces_19;{{e992:280b}}  (+$0b) Dec depth
         cp      $29               ;{{e994:fe29}} ')'
-        jr      z,_skip_over_batched_braces_19;{{e996:2807}}  (+$07)
-        cp      $02               ;{{e998:fe02}} 
-        jr      nc,_skip_over_batched_braces_7;{{e99a:30e9}}  (-$17)
-        jp      Error_Syntax_Error;{{e99c:c349cb}}  Error: Syntax Error
+        jr      z,_skip_over_matched_braces_19;{{e996:2807}}  (+$07) Dec depth
 
-_skip_over_batched_braces_19:     ;{{Addr=$e99f Code Calls/jump count: 2 Data use count: 0}}
-        djnz    _skip_over_batched_braces_7;{{e99f:10e4}}  (-$1c)
+        cp      $02               ;{{e998:fe02}} End of line/statement?
+        jr      nc,_skip_over_matched_braces_7;{{e99a:30e9}}  (-$17) No - loop
+
+        jp      Error_Syntax_Error;{{e99c:c349cb}}  Error: Syntax Error (unmatched braces)
+
+_skip_over_matched_braces_19:     ;{{Addr=$e99f Code Calls/jump count: 2 Data use count: 0}}
+        djnz    _skip_over_matched_braces_7;{{e99f:10e4}}  (-$1c) Dec depth and loop
         inc     hl                ;{{e9a1:23}} 
         ret                       ;{{e9a2:c9}} 
-
-
-
-
 
 ;;=============================================================================
 ;;skip to end of statement
 ;; command DATA
+;DATA <list of: <constant>>
+;Declares constant data
 skip_to_end_of_statement:         ;{{Addr=$e9a3 Code Calls/jump count: 4 Data use count: 1}}
-        ld      b,$01             ;{{e9a3:0601}} 
-        jr      skip_to_EOLN_or_token_B;{{e9a5:1808}}  (+$08)
+        ld      b,$01             ;{{e9a3:0601}} End of statement token
+        jr      skip_to_EOLN_or_token_in_B;{{e9a5:1808}}  (+$08)
 
 ;;========================================================================
 ;; command ' or REM
+;REM <rest of line>
+;' <rest of line>
+;Remark
+;Ignores eveything until the end of the line, including colons
+;The single quote version is invalid in a DATA statement
+
 command__or_REM:                  ;{{Addr=$e9a7 Code Calls/jump count: 2 Data use count: 2}}
-        ld      a,(hl)            ;{{e9a7:7e}} 
+        ld      a,(hl)            ;{{e9a7:7e}} Loop over everything until we hit an end of line ($00) value
         or      a                 ;{{e9a8:b7}} 
         ret     z                 ;{{e9a9:c8}} 
         inc     hl                ;{{e9aa:23}} 
@@ -8937,50 +9518,60 @@ command__or_REM:                  ;{{Addr=$e9a7 Code Calls/jump count: 2 Data us
 ;We arrive at an ELSE because we've just executed the preceding THEN code.
 
 skip_to_end_of_line:              ;{{Addr=$e9ad Code Calls/jump count: 1 Data use count: 1}}
-        ld      b,$00             ;{{e9ad:0600}} 
-;;=skip to EOLN or token B
-skip_to_EOLN_or_token_B:          ;{{Addr=$e9af Code Calls/jump count: 1 Data use count: 0}}
+        ld      b,$00             ;{{e9ad:0600}} End of line token
+
+;;=skip to EOLN or token in B
+skip_to_EOLN_or_token_in_B:       ;{{Addr=$e9af Code Calls/jump count: 1 Data use count: 0}}
         dec     hl                ;{{e9af:2b}} 
-_skip_to_eoln_or_token_b_1:       ;{{Addr=$e9b0 Code Calls/jump count: 1 Data use count: 0}}
+
+_skip_to_eoln_or_token_in_b_1:    ;{{Addr=$e9b0 Code Calls/jump count: 1 Data use count: 0}}
         call    skip_next_tokenised_item;{{e9b0:cdfde9}} 
         or      a                 ;{{e9b3:b7}} 
         ret     z                 ;{{e9b4:c8}} return at end of line
 
-        cp      b                 ;{{e9b5:b8}} check for koen
-        jr      nz,_skip_to_eoln_or_token_b_1;{{e9b6:20f8}}  (-$08) keep going if no match
+        cp      b                 ;{{e9b5:b8}} check for token
+        jr      nz,_skip_to_eoln_or_token_in_b_1;{{e9b6:20f8}}  (-$08) Loop if no match
         ret                       ;{{e9b8:c9}} 
 
-;;=iterator - call BC for each line
-;Iterates over every line/statement (not totally sure)
-;and calls the code in BC for each.
-;;Takes a code address to call in BC
-iterator__call_BC_for_each_line:  ;{{Addr=$e9b9 Code Calls/jump count: 4 Data use count: 0}}
-        call    get_current_line_address;{{e9b9:cdb1de}} 
+;;===================================================================
+;;=statement iterator
+;Iterates over every statement and calls the code in BC for each.
+;BC=address of subroutine to call.
+;The subroutine returns with HL pointing to the end-of-statement or end-of-line marker
+statement_iterator:               ;{{Addr=$e9b9 Code Calls/jump count: 4 Data use count: 0}}
+        call    get_current_line_address;{{e9b9:cdb1de}} Fetch and preserve current line
         push    hl                ;{{e9bc:e5}} 
-        ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{e9bd:2a64ae}} 
-_iterator__call_bc_for_each_line_3:;{{Addr=$e9c0 Code Calls/jump count: 1 Data use count: 0}}
+
+        ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{e9bd:2a64ae}} Address of first line
+
+;Loop for each line
+_statement_iterator_3:            ;{{Addr=$e9c0 Code Calls/jump count: 1 Data use count: 0}}
         inc     hl                ;{{e9c0:23}} 
-        ld      a,(hl)            ;{{e9c1:7e}} 
+        ld      a,(hl)            ;{{e9c1:7e}} Line length = 0?
         inc     hl                ;{{e9c2:23}} 
         or      (hl)              ;{{e9c3:b6}} 
-        jr      z,_iterator__call_bc_for_each_line_19;{{e9c4:2813}}  (+$13)
+        jr      z,_statement_iterator_19;{{e9c4:2813}}  (+$13) If so, we're done
         inc     hl                ;{{e9c6:23}} 
         call    set_current_line_address;{{e9c7:cdadde}} 
         inc     hl                ;{{e9ca:23}} 
-_iterator__call_bc_for_each_line_11:;{{Addr=$e9cb Code Calls/jump count: 1 Data use count: 0}}
+
+;Loop for each statement
+_statement_iterator_11:           ;{{Addr=$e9cb Code Calls/jump count: 1 Data use count: 0}}
         push    bc                ;{{e9cb:c5}} 
-        call    JP_BC             ;{{e9cc:cdfcff}}  JP (BC)
+        call    JP_BC             ;{{e9cc:cdfcff}}  JP (BC) - execute the code
         pop     bc                ;{{e9cf:c1}} 
         dec     hl                ;{{e9d0:2b}} 
-        call    skip_until_ELSE_THEN_or_next_statement;{{e9d1:cdefe9}} 
+        call    skip_until_ELSE_THEN_or_next_statement;{{e9d1:cdefe9}} Skip to next statment
         or      a                 ;{{e9d4:b7}} 
-        jr      nz,_iterator__call_bc_for_each_line_11;{{e9d5:20f4}}  (-$0c)
-        jr      _iterator__call_bc_for_each_line_3;{{e9d7:18e7}}  (-$19)
+        jr      nz,_statement_iterator_11;{{e9d5:20f4}}  (-$0c) Not end of line, next statement
 
-_iterator__call_bc_for_each_line_19:;{{Addr=$e9d9 Code Calls/jump count: 1 Data use count: 0}}
+        jr      _statement_iterator_3;{{e9d7:18e7}}  (-$19) Otherwise, next line
+
+_statement_iterator_19:           ;{{Addr=$e9d9 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{e9d9:e1}} 
         jp      set_current_line_address;{{e9da:c3adde}} 
 
+;;=================================================
 ;;=skip until ELSE, THEN or next statement or error
 ;Raises an error if we hit the end of program before any of the above
 ;C=error code
@@ -8992,7 +9583,7 @@ skip_until_ELSE_THEN_or_next_statement_or_error:;{{Addr=$e9dd Code Calls/jump co
         inc     hl                ;{{e9e2:23}} 
         ld      a,(hl)            ;{{e9e3:7e}} 
         inc     hl                ;{{e9e4:23}} 
-        or      (hl)              ;{{e9e5:b6}} Test for end of program marker (line number zero)
+        or      (hl)              ;{{e9e5:b6}} Test for end of program marker (line length zero)
         ld      a,c               ;{{e9e6:79}} Error code
         jp      z,raise_error     ;{{e9e7:ca55cb}} 
         inc     hl                ;{{e9ea:23}} 
@@ -9001,19 +9592,21 @@ skip_until_ELSE_THEN_or_next_statement_or_error:;{{Addr=$e9dd Code Calls/jump co
         inc     hl                ;{{e9ed:23}} 
         ret                       ;{{e9ee:c9}} 
 
+;;---------------------------------------------
 ;;=skip until ELSE, THEN or next statement
 skip_until_ELSE_THEN_or_next_statement:;{{Addr=$e9ef Code Calls/jump count: 3 Data use count: 0}}
         call    skip_next_tokenised_item;{{e9ef:cdfde9}} 
-        cp      $02               ;{{e9f2:fe02}} 
+        cp      $02               ;{{e9f2:fe02}} End of line/end of statement
         ret     c                 ;{{e9f4:d8}} 
 
         cp      $97               ;{{e9f5:fe97}} ELSE
         ret     z                 ;{{e9f7:c8}} 
 
         cp      $eb               ;{{e9f8:feeb}} THEN
-        jr      nz,skip_until_ELSE_THEN_or_next_statement;{{e9fa:20f3}}  (-$0d)
+        jr      nz,skip_until_ELSE_THEN_or_next_statement;{{e9fa:20f3}}  (-$0d) Loop
         ret                       ;{{e9fc:c9}} 
 
+;;==============================================
 ;;=skip next tokenised item
 ;Advances over the next tokenised item, 
 ;including stepping over strings, comments, bar commands etc.
@@ -9021,19 +9614,19 @@ skip_next_tokenised_item:         ;{{Addr=$e9fd Code Calls/jump count: 9 Data us
         call    get_next_token_skipping_space;{{e9fd:cd2cde}}  get next token skipping space
         ret     z                 ;{{ea00:c8}} 
 
-        cp      $0e               ;{{ea01:fe0e}} 
-        jr      c,skip_until_bit7_set;{{ea03:3825}}  (+$25)
+        cp      $0e               ;{{ea01:fe0e}} Tokens $02 to $0d are variables
+        jr      c,skip_over_variable;{{ea03:3825}}  (+$25)
         cp      $20               ;{{ea05:fe20}}  space
-        jr      c,skip_over_numbers;{{ea07:382b}}  
+        jr      c,skip_over_numbers;{{ea07:382b}}  Tokens $0e to $19 are number constants
         cp      $22               ;{{ea09:fe22}}  double quote
-        jr      z,skip_over_string;{{ea0b:2811}}  
+        jr      z,skip_over_string;{{ea0b:2811}} 
         cp      $7c               ;{{ea0d:fe7c}} '|'
         jr      z,skip_over_bar_command;{{ea0f:281b}}  (+$1b)
         cp      $c0               ;{{ea11:fec0}} "'" comment
         jr      z,skip_over_comment;{{ea13:2830}}  (+$30)
         cp      $c5               ;{{ea15:fec5}} REM
         jr      z,skip_over_comment;{{ea17:282c}}  (+$2c)
-        cp      $ff               ;{{ea19:feff}} 
+        cp      $ff               ;{{ea19:feff}}  Extended/function tokens
         ret     nz                ;{{ea1b:c0}} 
 
         inc     hl                ;{{ea1c:23}} 
@@ -9041,53 +9634,55 @@ skip_next_tokenised_item:         ;{{Addr=$e9fd Code Calls/jump count: 9 Data us
 
 ;;----------------------------------------------
 ;;=skip over string
-
+;Skip until $22 - double quote - or end of line
 skip_over_string:                 ;{{Addr=$ea1e Code Calls/jump count: 2 Data use count: 0}}
         inc     hl                ;{{ea1e:23}} 
         ld      a,(hl)            ;{{ea1f:7e}} 
         cp      $22               ;{{ea20:fe22}} '"'
-        ret     z                 ;{{ea22:c8}} 
-        or      a                 ;{{ea23:b7}} 
-        jr      nz,skip_over_string;{{ea24:20f8}}  (-$08)
+        ret     z                 ;{{ea22:c8}} Done
+        or      a                 ;{{ea23:b7}} End of line?
+        jr      nz,skip_over_string;{{ea24:20f8}}  (-$08) If not, loop
 
-        dec     hl                ;{{ea26:2b}} 
-        ld      a,$22             ;{{ea27:3e22}} '"'
+        dec     hl                ;{{ea26:2b}} Step back to last character of string
+        ld      a,$22             ;{{ea27:3e22}} '"' - Return the correct token
         ret                       ;{{ea29:c9}} 
 
 ;;----------------------------------------------
-;;=skip until bit7 set
-skip_until_bit7_set:              ;{{Addr=$ea2a Code Calls/jump count: 1 Data use count: 0}}
-        inc     hl                ;{{ea2a:23}} 
+;;=skip over variable
+skip_over_variable:               ;{{Addr=$ea2a Code Calls/jump count: 1 Data use count: 0}}
+        inc     hl                ;{{ea2a:23}} Step over variable (data) pointer
         inc     hl                ;{{ea2b:23}} 
+
 ;;=skip over bar command
 skip_over_bar_command:            ;{{Addr=$ea2c Code Calls/jump count: 1 Data use count: 0}}
         push    af                ;{{ea2c:f5}} 
+
 _skip_over_bar_command_1:         ;{{Addr=$ea2d Code Calls/jump count: 1 Data use count: 0}}
-        inc     hl                ;{{ea2d:23}} 
+        inc     hl                ;{{ea2d:23}} Skip over ASCII7 string - loop until bit 7 set
         ld      a,(hl)            ;{{ea2e:7e}} 
         rla                       ;{{ea2f:17}} 
         jr      nc,_skip_over_bar_command_1;{{ea30:30fb}}  (-$05)
+
         pop     af                ;{{ea32:f1}} 
         ret                       ;{{ea33:c9}} 
 
 ;;--------------------------------------------------
 ;;=skip over numbers
 skip_over_numbers:                ;{{Addr=$ea34 Code Calls/jump count: 1 Data use count: 0}}
-        cp      $18               ;{{ea34:fe18}} 
+        cp      $18               ;{{ea34:fe18}} Tokens $0e to $18 encode numbers 0..10
+                                  ;But shouldn't that be CP $19?
         ret     c                 ;{{ea36:d8}} 
 
-        cp      $19               ;{{ea37:fe19}}  8-bit integer decimal value
+        cp      $19               ;{{ea37:fe19}}  token for 8-bit integer decimal value
         jr      z,skip_1_byte_    ;{{ea39:2808}} 
-        cp      $1f               ;{{ea3b:fe1f}}  floating point value
+        cp      $1f               ;{{ea3b:fe1f}}  Tokens $1a to $1e are two-byte values. $1f is floating point value
         jr      c,skip_2_bytes_   ;{{ea3d:3803}} 
 
-;; skip 5 bytes
-; (length of floating point value representation)
+; skip 5 bytes (length of floating point value representation)
         inc     hl                ;{{ea3f:23}} 
         inc     hl                ;{{ea40:23}} 
         inc     hl                ;{{ea41:23}} 
 
-;;--------------------------------
 ;;=skip 2 bytes 
 ;(length of 16-bit values)
 ;; - 16 bit integer decimal value
@@ -9095,7 +9690,7 @@ skip_over_numbers:                ;{{Addr=$ea34 Code Calls/jump count: 1 Data us
 ;; - 16 bit integer hexidecimal value
 skip_2_bytes_:                    ;{{Addr=$ea42 Code Calls/jump count: 1 Data use count: 0}}
         inc     hl                ;{{ea42:23}} 
-;;--------------------------------
+
 ;;=skip 1 byte 
 ;(length of 8-bit values)
 skip_1_byte_:                     ;{{Addr=$ea43 Code Calls/jump count: 1 Data use count: 0}}
@@ -9112,16 +9707,18 @@ skip_over_comment:                ;{{Addr=$ea45 Code Calls/jump count: 2 Data us
         dec     hl                ;{{ea4b:2b}} 
         ret                       ;{{ea4c:c9}} 
 
+;;==============================================================
 ;;=reset variable types and pointers
 ;Could also be removing links to allocated strings, arrays etc.
-;Iterates over program and resets all variable type tokens to &0d (real)
-;and two bytes after word pointer after to &0000 (ptr to variable data)
+;Iterates over program and:
+; - resets all variable type tokens to &0d (real)
+; - clears the pointer to the variables data &0000
 reset_variable_types_and_pointers:;{{Addr=$ea4d Code Calls/jump count: 4 Data use count: 0}}
         push    bc                ;{{ea4d:c5}} 
         push    de                ;{{ea4e:d5}} 
         push    hl                ;{{ea4f:e5}} 
         ld      bc,callback_for_reset_variable_types_and_pointers;{{ea50:015aea}} ##LABEL##
-        call    iterator__call_BC_for_each_line;{{ea53:cdb9e9}} 
+        call    statement_iterator;{{ea53:cdb9e9}} 
         pop     hl                ;{{ea56:e1}} 
         pop     de                ;{{ea57:d1}} 
         pop     bc                ;{{ea58:c1}} 
@@ -9132,25 +9729,27 @@ callback_for_reset_variable_types_and_pointers:;{{Addr=$ea5a Code Calls/jump cou
         push    hl                ;{{ea5a:e5}} 
         call    skip_next_tokenised_item;{{ea5b:cdfde9}} 
         pop     de                ;{{ea5e:d1}} 
-        cp      $02               ;{{ea5f:fe02}} Tokens $02 ..$0d are for variables
+        cp      $02               ;{{ea5f:fe02}} 
         ret     c                 ;{{ea61:d8}} Exit at end of line or end (&00) of statement (&01)
 
-        cp      $0e               ;{{ea62:fe0e}} 
-        jr      nc,callback_for_reset_variable_types_and_pointers;{{ea64:30f4}}  (-$0c) Loop for values > &0e
+        cp      $0e               ;{{ea62:fe0e}} Tokens $02 ..$0d are for variables
+        jr      nc,callback_for_reset_variable_types_and_pointers;{{ea64:30f4}}  (-$0c) Loop for other tokens
 
         ex      de,hl             ;{{ea66:eb}} So, token is a variable
         call    get_next_token_skipping_space;{{ea67:cd2cde}}  get next token skipping space
         cp      $0d               ;{{ea6a:fe0d}} 
-        jr      c,_callback_for_reset_variable_types_and_pointers_12;{{ea6c:3802}}  (+$02) Skip changing token for $0d and higher
-        ld      (hl),$0d          ;{{ea6e:360d}} So we change tokens $02..$0c to $0d??
+        jr      c,_callback_for_reset_variable_types_and_pointers_12;{{ea6c:3802}}  (+$02) Skip if token is already $0d (real)
+        ld      (hl),$0d          ;{{ea6e:360d}} Otherwise change token to $0d (real)
+
 _callback_for_reset_variable_types_and_pointers_12:;{{Addr=$ea70 Code Calls/jump count: 1 Data use count: 0}}
         inc     hl                ;{{ea70:23}} 
-        xor     a                 ;{{ea71:af}} Then zero the two bytes after
-        ld      (hl),a            ;{{ea72:77}} 
+        xor     a                 ;{{ea71:af}} 
+        ld      (hl),a            ;{{ea72:77}} Next two bytes are the pointer to the data - reset them
         inc     hl                ;{{ea73:23}} 
         ld      (hl),a            ;{{ea74:77}} 
         ex      de,hl             ;{{ea75:eb}} 
         jr      callback_for_reset_variable_types_and_pointers;{{ea76:18e2}}  (-$1e) loop for more
+
 
 
 
@@ -9160,46 +9759,61 @@ _callback_for_reset_variable_types_and_pointers_12:;{{Addr=$ea70 Code Calls/jump
 ;;< RUN, LOAD, CHAIN, MERGE, SAVE
 ;;==========================================================================
 ;; command RUN
+;RUN <filename>
+;Loads and runs a file
+
+;RUN [<line number>]
+;Runs the current program from the specified line number
 
 command_RUN:                      ;{{Addr=$ea78 Code Calls/jump count: 0 Data use count: 1}}
         call    is_next_02        ;{{ea78:cd3dde}} 
         ld      de,(address_of_end_of_ROM_lower_reserved_are);{{ea7b:ed5b64ae}} 
-        jr      c,_command_run_15 ;{{ea7f:381d}}  (+$1d)
+        jr      c,RUN_from_line_number;{{ea7f:381d}}  (+$1d) No parameters
         cp      $1e               ;{{ea81:fe1e}}  16-bit line number
-        jr      z,_command_run_13 ;{{ea83:2815}}  (+$15)
-        cp      $1d               ;{{ea85:fe1d}} 
-        jr      z,_command_run_13 ;{{ea87:2811}}  (+$11)
-        call    LOAD_read_parameters;{{ea89:cdd1ea}} 
-        ld      hl,RUN_a_program_after_loading;{{ea8c:21f1ea}} ##LABEL##
+        jr      z,RUN_from_line_ptr;{{ea83:2815}}  (+$15)
+        cp      $1d               ;{{ea85:fe1d}} Line pointer
+        jr      z,RUN_from_line_ptr;{{ea87:2811}}  (+$11)
+
+        call    eval_filename_and_open_for_input;{{ea89:cdd1ea}} Otherwise we're running a file
+        ld      hl,callback_to_load_a_binary;{{ea8c:21f1ea}} If machine code program, call if via a firmware reset ###LABEL##
         jp      nc,MC_BOOT_PROGRAM;{{ea8f:d213bd}}  firmware function: mc boot program
 
-        call    validate_and_LOAD_BASIC;{{ea92:cd6dec}} 
-        ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{ea95:2a64ae}} 
-        jr      _command_run_21   ;{{ea98:1812}}  (+$12)
+        call    validate_and_LOAD_BASIC;{{ea92:cd6dec}} Load BASIC program...
+        ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{ea95:2a64ae}} ...get execution address...
+        jr      RUN_from_HL       ;{{ea98:1812}}  (+$12) ...and RUN it
 
 
-_command_run_13:                  ;{{Addr=$ea9a Code Calls/jump count: 2 Data use count: 0}}
+;;=RUN from line ptr
+RUN_from_line_ptr:                ;{{Addr=$ea9a Code Calls/jump count: 2 Data use count: 0}}
         call    eval_and_convert_line_number_to_line_address;{{ea9a:cd27e8}} 
         ret     nz                ;{{ea9d:c0}} 
-_command_run_15:                  ;{{Addr=$ea9e Code Calls/jump count: 1 Data use count: 0}}
+;;=RUN from line number
+RUN_from_line_number:             ;{{Addr=$ea9e Code Calls/jump count: 1 Data use count: 0}}
         push    de                ;{{ea9e:d5}} 
         call    close_input_and_output_streams;{{ea9f:cd00d3}}  close input and output streams
-        call    _reset_basic_22   ;{{eaa2:cd78c1}} 
-        call    _reset_basic_33   ;{{eaa5:cd8fc1}} 
-        call    _reset_basic_14   ;{{eaa8:cd62c1}} 
+        call    reset_variable_data;{{eaa2:cd78c1}} 
+        call    reset_exec_data   ;{{eaa5:cd8fc1}} 
+        call    reset_angle_mode_string_stack_and_fn_params;{{eaa8:cd62c1}} 
         pop     hl                ;{{eaab:e1}} 
-_command_run_21:                  ;{{Addr=$eaac Code Calls/jump count: 1 Data use count: 0}}
+;;=RUN from HL
+RUN_from_HL:                      ;{{Addr=$eaac Code Calls/jump count: 1 Data use count: 0}}
         ex      (sp),hl           ;{{eaac:e3}} 
         call    GRA_DEFAULT       ;{{eaad:cd43bd}} 
         pop     hl                ;{{eab0:e1}} 
         inc     hl                ;{{eab1:23}} 
-        jp      execute_end_of_line;{{eab2:c377de}} 
+        jp      execute_line_atHL ;{{eab2:c377de}} 
 
 ;;========================================================================
 ;; command LOAD
+;LOAD <filename>[,<address expression>]
+;Loads the given file. If the file is binary, it will be loaded to memory at the 
+;address is was written from unless address expression is given.
+;If the file name is empty, loads the first file found on cassette
+;If the first character of filename is ! it is removed and any messages suppressed.
+;Binary files can only be loaded outside the BASIC program area - i.e above HIMEM
 
 command_LOAD:                     ;{{Addr=$eab5 Code Calls/jump count: 0 Data use count: 1}}
-        call    LOAD_read_parameters;{{eab5:cdd1ea}} 
+        call    eval_filename_and_open_for_input;{{eab5:cdd1ea}} 
         jr      nc,do_LOAD_binary ;{{eab8:3006}}  (+$06)
         call    validate_and_LOAD_BASIC;{{eaba:cd6dec}} 
         jp      REPL_Read_Eval_Print_Loop;{{eabd:c358c0}} 
@@ -9207,38 +9821,40 @@ command_LOAD:                     ;{{Addr=$eab5 Code Calls/jump count: 0 Data us
 ;;=do LOAD binary
 do_LOAD_binary:                   ;{{Addr=$eac0 Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{eac0:e5}} 
-        call    _raise_memory_full_error_1;{{eac1:cdabf5}} 
-        ld      hl,(address_to_load_cassette_file_to);{{eac4:2a26ae}} 
+        call    prepare_memory_for_loading_binary;{{eac1:cdabf5}} 
+        ld      hl,(address_to_load_binary_file_to);{{eac4:2a26ae}} 
         call    CAS_IN_DIRECT     ;{{eac7:cd83bc}}  firmware function: cas in direct
         jp      z,raise_file_not_open_error_C;{{eaca:ca37cc}} 
         pop     hl                ;{{eacd:e1}} 
         jp      command_CLOSEIN   ;{{eace:c3edd2}}  CLOSEIN
 
-;;=LOAD read parameters
-LOAD_read_parameters:             ;{{Addr=$ead1 Code Calls/jump count: 2 Data use count: 0}}
+;;--------------------------------------------
+;;=eval filename and open for input
+eval_filename_and_open_for_input: ;{{Addr=$ead1 Code Calls/jump count: 2 Data use count: 0}}
         call    read_filename_and_open_for_input;{{ead1:cd54ec}} 
         and     $0e               ;{{ead4:e60e}} 
         xor     $02               ;{{ead6:ee02}} 
-        jr      z,LOAD_read_dest_addr;{{ead8:2808}}  (+$08)
-        call    syntax_error_if_not_02;{{eada:cd37de}} 
-        call    _reset_basic_19   ;{{eadd:cd6fc1}} 
+        jr      z,eval_binary_file_load_addr;{{ead8:2808}}  (+$08)
+        call    error_if_not_end_of_statement_or_eoln;{{eada:cd37de}} 
+        call    clear_program_and_variables_etc;{{eadd:cd6fc1}} 
         scf                       ;{{eae0:37}} 
         ret                       ;{{eae1:c9}} 
 
-;;=LOAD read dest addr
-LOAD_read_dest_addr:              ;{{Addr=$eae2 Code Calls/jump count: 1 Data use count: 0}}
-        call    next_token_if_prev_is_comma;{{eae2:cd41de}} 
-        call    c,eval_expr_as_uint;{{eae5:dcf5ce}} 
-        ld      (address_to_load_cassette_file_to),de;{{eae8:ed5326ae}} 
-        call    syntax_error_if_not_02;{{eaec:cd37de}} 
+;;=eval binary file load addr
+eval_binary_file_load_addr:       ;{{Addr=$eae2 Code Calls/jump count: 1 Data use count: 0}}
+        call    next_token_if_prev_is_comma;{{eae2:cd41de}} If we have another parameter...
+        call    c,eval_expr_as_uint;{{eae5:dcf5ce}} ...then it's the binary file load address. (If not retain the value from the file header)
+        ld      (address_to_load_binary_file_to),de;{{eae8:ed5326ae}} 
+        call    error_if_not_end_of_statement_or_eoln;{{eaec:cd37de}} 
         or      a                 ;{{eaef:b7}} 
         ret                       ;{{eaf0:c9}} 
 
 ;;==========================================================================
-;; RUN a program after loading
+;;=callback to load a binary
+;Called from MC_BOOT_PROGRAM when running a binary
 
-RUN_a_program_after_loading:      ;{{Addr=$eaf1 Code Calls/jump count: 0 Data use count: 1}}
-        ld      hl,(address_to_load_cassette_file_to);{{eaf1:2a26ae}}  load address
+callback_to_load_a_binary:        ;{{Addr=$eaf1 Code Calls/jump count: 0 Data use count: 1}}
+        ld      hl,(address_to_load_binary_file_to);{{eaf1:2a26ae}}  load address
         call    CAS_IN_DIRECT     ;{{eaf4:cd83bc}}  firmware function: cas in direct
         push    hl                ;{{eaf7:e5}}  execution address
         call    c,CAS_IN_CLOSE    ;{{eaf8:dc7abc}}  firmware function: cas in close
@@ -9247,66 +9863,94 @@ RUN_a_program_after_loading:      ;{{Addr=$eaf1 Code Calls/jump count: 0 Data us
 
 ;;==========================================================================
 ;; command CHAIN
+;CHAIN <filename>[,<line number expression>]
+;CHAIN MERGE <filename>[,[<line number expression>][,DELETE <line number range>]]
+;Load and runs the given file, starting at the given line number, and retaining all current variables.
+;If no line number is given execution starts at the first line.
+;CHAIN deletes the current program and runs the new one
+;CHAIN MERGE merges the new program with the existing one, optionally deleting 
+;any lines in the current program within the specified range.
+
 command_CHAIN:                    ;{{Addr=$eafd Code Calls/jump count: 0 Data use count: 1}}
-        xor     $ab               ;{{eafd:eeab}} 
-        ld      (unknown_CHAIN_flag_),a;{{eaff:3228ae}} 
-        call    z,get_next_token_skipping_space;{{eb02:cc2cde}}  get next token skipping space
+        xor     $ab               ;{{eafd:eeab}} Token for MERGE, e.e CHAIN MERGE. Not sure how we get here though.
+        ld      (CHAIN_MERGE_flag),a;{{eaff:3228ae}} $00=(CHAIN) MERGE, other = CHAIN?
+        call    z,get_next_token_skipping_space;{{eb02:cc2cde}}  step over MERGE token?
+
         call    read_filename_and_open_for_input;{{eb05:cd54ec}} 
-        ld      de,RESET_ENTRY    ;{{eb08:110000}} 
+
+        ld      de,$0000          ;{{eb08:110000}} DE=default line number ###LIT###
         call    next_token_if_prev_is_comma;{{eb0b:cd41de}} 
-        jr      nc,_command_chain_10;{{eb0e:3006}}  (+$06)
-        ld      a,(hl)            ;{{eb10:7e}} 
-        cp      $2c               ;{{eb11:fe2c}} 
-        call    nz,eval_expr_as_uint;{{eb13:c4f5ce}} 
+        jr      nc,_command_chain_10;{{eb0e:3006}}  (+$06) No parameter
+        ld      a,(hl)            ;{{eb10:7e}} If parameter is blank use default
+        cp      $2c               ;{{eb11:fe2c}} ","
+        call    nz,eval_expr_as_uint;{{eb13:c4f5ce}} Otherwise read line number
+
 _command_chain_10:                ;{{Addr=$eb16 Code Calls/jump count: 1 Data use count: 0}}
         push    de                ;{{eb16:d5}} 
         call    next_token_if_prev_is_comma;{{eb17:cd41de}} 
-        jr      nc,_command_chain_17;{{eb1a:3008}}  (+$08)
-        call    next_token_if_equals_inline_data_byte;{{eb1c:cd25de}} 
+        jr      nc,_command_chain_17;{{eb1a:3008}}  (+$08) No more parameters
+
+        call    next_token_if_equals_inline_data_byte;{{eb1c:cd25de}} Next parameter must start with DELETE
         defb $92                  ;Inline token to test for "DELETE"
-        call    do_DELETE_find_first_line;{{eb20:cd00e8}} 
+        call    do_DELETE_find_byte_range;{{eb20:cd00e8}} DELETE specified line number range
         scf                       ;{{eb23:37}} 
+
+;Parameters read, now do the CHAIN (MERGE)
 _command_chain_17:                ;{{Addr=$eb24 Code Calls/jump count: 1 Data use count: 0}}
         push    af                ;{{eb24:f5}} 
-        call    syntax_error_if_not_02;{{eb25:cd37de}} 
-        call    _function_instr_70;{{eb28:cd4dfb}} 
-        call    _function_fre_6   ;{{eb2b:cd64fc}} 
+;Do some memory clean-up
+        call    error_if_not_end_of_statement_or_eoln;{{eb25:cd37de}} 
+        call    copy_all_strings_vars_to_strings_area_if_not_in_strings_area;{{eb28:cd4dfb}} 
+        call    strings_area_garbage_collection;{{eb2b:cd64fc}} 
         call    clear_DEFFN_list_and_reset_variable_types_and_pointers;{{eb2e:cd0ed6}} 
         pop     af                ;{{eb31:f1}} 
-        call    c,do_DELETE_find_last_line;{{eb32:dc1ae8}} 
-        call    _command_chain_34 ;{{eb35:cd47eb}} 
+
+        call    c,do_DELETE_delete_lines;{{eb32:dc1ae8}} DELETE line range
+
+        call    do_CHAIN_and_CHAIN_MERGE_load;{{eb35:cd47eb}} Load and (if needed) MERGE the file
+
         pop     de                ;{{eb38:d1}} 
-        ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{eb39:2a64ae}} 
+        ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{eb39:2a64ae}} Execution address...
         ld      a,d               ;{{eb3c:7a}} 
         or      e                 ;{{eb3d:b3}} 
-        ret     z                 ;{{eb3e:c8}} 
+        ret     z                 ;{{eb3e:c8}} if running from start of program
 
-        call    zero_current_line_address;{{eb3f:cdaade}} 
-        call    find_address_of_line_or_error;{{eb42:cd5ce8}} 
+        call    zero_current_line_address;{{eb3f:cdaade}} otherwise continue from where we left off...
+        call    find_line_or_error;{{eb42:cd5ce8}} ...after verifying the line still exists
         dec     hl                ;{{eb45:2b}} 
         ret                       ;{{eb46:c9}} 
 
-_command_chain_34:                ;{{Addr=$eb47 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(unknown_CHAIN_flag_);{{eb47:3a28ae}} 
+;;=do CHAIN and CHAIN MERGE load
+do_CHAIN_and_CHAIN_MERGE_load:    ;{{Addr=$eb47 Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,(CHAIN_MERGE_flag);{{eb47:3a28ae}} 
         or      a                 ;{{eb4a:b7}} 
         jp      z,validate_and_MERGE;{{eb4b:ca62ec}} 
-        call    _reset_basic_31   ;{{eb4e:cd89c1}} 
+        call    reset_zone_and_clear_program;{{eb4e:cd89c1}} 
         jp      validate_and_LOAD_BASIC;{{eb51:c36dec}} 
 
 ;;========================================================================
 ;; command MERGE
+;MERGE <filename>
+;Merges a second program with the current one
 
 command_MERGE:                    ;{{Addr=$eb54 Code Calls/jump count: 0 Data use count: 1}}
         call    read_filename_and_open_for_input;{{eb54:cd54ec}} 
-        call    syntax_error_if_not_02;{{eb57:cd37de}} 
-        call    _reset_basic_22   ;{{eb5a:cd78c1}} 
+        call    error_if_not_end_of_statement_or_eoln;{{eb57:cd37de}} 
+        call    reset_variable_data;{{eb5a:cd78c1}} 
         call    validate_and_MERGE;{{eb5d:cd62ec}} 
         jp      REPL_Read_Eval_Print_Loop;{{eb60:c358c0}} 
 
 ;;========================================================================
 ;;do MERGE
+;The entire program is moved to the end of memory,
+;During merge lines will be moved down or read into the bottom of
+;memory after any lines already merged.
+;As the file is read line numbers are compared,
+;file line number < memory line number: insert file line
+;file line number > memory line number: move memory line down
+;file line number = memory line number: insert file line, skip over memory line
 do_MERGE:                         ;{{Addr=$eb63 Code Calls/jump count: 1 Data use count: 0}}
-        call    _reset_basic_33   ;{{eb63:cd8fc1}} 
+        call    reset_exec_data   ;{{eb63:cd8fc1}} 
         call    convert_all_line_addresses_to_line_numbers;{{eb66:cd70e7}}  line address to line number
         call    prob_move_vars_and_arrays_to_end_of_memory;{{eb69:cd29f6}} 
         ld      hl,(address_after_end_of_program);{{eb6c:2a66ae}} 
@@ -9317,106 +9961,124 @@ do_MERGE:                         ;{{Addr=$eb63 Code Calls/jump count: 1 Data us
         ex      de,hl             ;{{eb77:eb}} 
         call    BC_equal_HL_minus_DE;{{eb78:cde4ff}}  BC = HL-DE
         ex      de,hl             ;{{eb7b:eb}} 
-        call    get_end_of_free_space_or_start_of_variables;{{eb7c:cd07f7}} 
+        call    get_end_of_free_space;{{eb7c:cd07f7}} 
         ex      de,hl             ;{{eb7f:eb}} 
         dec     hl                ;{{eb80:2b}} 
         lddr                      ;{{eb81:edb8}} 
         inc     de                ;{{eb83:13}} 
         ex      de,hl             ;{{eb84:eb}} 
-_do_merge_17:                     ;{{Addr=$eb85 Code Calls/jump count: 1 Data use count: 0}}
-        call    _do_merge_142     ;{{eb85:cd4bec}} 
-        jr      nc,_do_merge_71   ;{{eb88:304a}}  (+$4a)
+
+;;=merge file line loop
+;Loop for each line in file
+merge_file_line_loop:             ;{{Addr=$eb85 Code Calls/jump count: 1 Data use count: 0}}
+        call    merge_read_word_to_DE;{{eb85:cd4bec}} Read file line length
+        jr      nc,merge_file_error;{{eb88:304a}}  (+$4a)
         or      e                 ;{{eb8a:b3}} 
-        jr      z,_do_merge_73    ;{{eb8b:284c}}  (+$4c)
+        jr      z,merge_error_cleanup;{{eb8b:284c}}  (+$4c) Line length = 0? EOF?
         push    de                ;{{eb8d:d5}} 
-        call    _do_merge_142     ;{{eb8e:cd4bec}} 
-        jr      nc,_do_merge_71   ;{{eb91:3041}}  (+$41)
-_do_merge_24:                     ;{{Addr=$eb93 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(hl)            ;{{eb93:7e}} 
+
+        call    merge_read_word_to_DE;{{eb8e:cd4bec}} Read file line number
+        jr      nc,merge_file_error;{{eb91:3041}}  (+$41)
+
+;;=merge move memory lines loop
+;Loop over lines in memory moving each down in turn until we find a 
+;line to insert or replace
+merge_move_memory_lines_loop:     ;{{Addr=$eb93 Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,(hl)            ;{{eb93:7e}} Memory line length zero = end of program
         inc     hl                ;{{eb94:23}} 
         or      (hl)              ;{{eb95:b6}} 
         dec     hl                ;{{eb96:2b}} 
-        jr      z,_do_merge_49    ;{{eb97:281b}}  (+$1b)
+        jr      z,merge_insert_line;{{eb97:281b}}  (+$1b)
         push    hl                ;{{eb99:e5}} 
         inc     hl                ;{{eb9a:23}} 
         inc     hl                ;{{eb9b:23}} 
-        ld      a,(hl)            ;{{eb9c:7e}} 
+        ld      a,(hl)            ;{{eb9c:7e}} HL=memory line number
         inc     hl                ;{{eb9d:23}} 
         ld      h,(hl)            ;{{eb9e:66}} 
         ld      l,a               ;{{eb9f:6f}} 
-        call    compare_HL_DE     ;{{eba0:cdd8ff}}  HL=DE?
+        call    compare_HL_DE     ;{{eba0:cdd8ff}}  HL=DE? Compare file line number to memory line number
         pop     hl                ;{{eba3:e1}} 
-        jr      z,_do_merge_42    ;{{eba4:2807}}  (+$07)
-        jr      nc,_do_merge_49   ;{{eba6:300c}}  (+$0c)
-        call    _do_merge_107     ;{{eba8:cd19ec}} 
-        jr      _do_merge_24      ;{{ebab:18e6}}  (-$1a)
+        jr      z,merge_replace_line;{{eba4:2807}}  (+$07)
+        jr      nc,merge_insert_line;{{eba6:300c}}  (+$0c)
+        call    merge_move_line   ;{{eba8:cd19ec}} 
+        jr      merge_move_memory_lines_loop;{{ebab:18e6}}  (-$1a)
 
-_do_merge_42:                     ;{{Addr=$ebad Code Calls/jump count: 1 Data use count: 0}}
+;;=merge replace line
+;Found a line with the same number so overwrite it
+merge_replace_line:               ;{{Addr=$ebad Code Calls/jump count: 1 Data use count: 0}}
         push    de                ;{{ebad:d5}} 
-        ld      e,(hl)            ;{{ebae:5e}} 
+        ld      e,(hl)            ;{{ebae:5e}} DE=memory line length
         inc     hl                ;{{ebaf:23}} 
         ld      d,(hl)            ;{{ebb0:56}} 
         dec     hl                ;{{ebb1:2b}} 
-        add     hl,de             ;{{ebb2:19}} 
+        add     hl,de             ;{{ebb2:19}} Add length to current pointer - i.e. addr of next line
         pop     de                ;{{ebb3:d1}} 
-_do_merge_49:                     ;{{Addr=$ebb4 Code Calls/jump count: 2 Data use count: 0}}
+;;=merge insert line
+merge_insert_line:                ;{{Addr=$ebb4 Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{ebb4:e5}} 
-        ld      hl,(address_after_end_of_program);{{ebb5:2a66ae}} 
+        ld      hl,(address_after_end_of_program);{{ebb5:2a66ae}} HL=addr to write to
         inc     hl                ;{{ebb8:23}} 
         inc     hl                ;{{ebb9:23}} 
-        ld      (hl),e            ;{{ebba:73}} 
+        ld      (hl),e            ;{{ebba:73}} Write file line number
         inc     hl                ;{{ebbb:23}} 
         ld      (hl),d            ;{{ebbc:72}} 
         ld      de,$001d          ;{{ebbd:111d00}} 
-        add     hl,de             ;{{ebc0:19}} 
-        ex      de,hl             ;{{ebc1:eb}} 
-        pop     hl                ;{{ebc2:e1}} 
-        ex      (sp),hl           ;{{ebc3:e3}} 
-        ex      de,hl             ;{{ebc4:eb}} 
-        add     hl,de             ;{{ebc5:19}} 
-        ex      de,hl             ;{{ebc6:eb}} 
-        ex      (sp),hl           ;{{ebc7:e3}} 
-        call    compare_HL_DE     ;{{ebc8:cdd8ff}}  HL=DE?
-        jr      c,_do_merge_88    ;{{ebcb:3825}}  (+$25)
-        ex      (sp),hl           ;{{ebcd:e3}} 
-        call    _do_merge_119     ;{{ebce:cd2cec}} 
+        add     hl,de             ;{{ebc0:19}} HL=curr + 1d
+        ex      de,hl             ;{{ebc1:eb}} DE=curr + 1d
+        pop     hl                ;{{ebc2:e1}} HL=memory curr
+        ex      (sp),hl           ;{{ebc3:e3}} TOS=memory curr, HL=mem line length
+        ex      de,hl             ;{{ebc4:eb}} DE=mem line length, HL=curr + 1d
+        add     hl,de             ;{{ebc5:19}} HL=curr + mem line length + 1d
+        ex      de,hl             ;{{ebc6:eb}} DE=curr + mem line length + 1d, HL=mem line length
+        ex      (sp),hl           ;{{ebc7:e3}} TOS=mem line length, HL=memory curr
+        call    compare_HL_DE     ;{{ebc8:cdd8ff}}  HL=DE? Is new end-of-line > start of memory line at top of memory
+        jr      c,merge_out_of_memory;{{ebcb:3825}}  (+$25) If so we're out of memory
+        ex      (sp),hl           ;{{ebcd:e3}} TOS=memory curr, HL=mem line length
+        call    merge_do_read_line;{{ebce:cd2cec}} 
         pop     hl                ;{{ebd1:e1}} 
-        jr      c,_do_merge_17    ;{{ebd2:38b1}}  (-$4f)
-_do_merge_71:                     ;{{Addr=$ebd4 Code Calls/jump count: 2 Data use count: 0}}
-        call    _do_merge_73      ;{{ebd4:cdd9eb}} 
-        jr      _do_merge_102     ;{{ebd7:1836}}  (+$36)
+        jr      c,merge_file_line_loop;{{ebd2:38b1}}  (-$4f) Loop if no errors
 
-_do_merge_73:                     ;{{Addr=$ebd9 Code Calls/jump count: 4 Data use count: 0}}
-        ld      a,(hl)            ;{{ebd9:7e}} 
+;;=merge file error
+merge_file_error:                 ;{{Addr=$ebd4 Code Calls/jump count: 2 Data use count: 0}}
+        call    merge_error_cleanup;{{ebd4:cdd9eb}} 
+        jr      raise_EOF_error   ;{{ebd7:1836}}  (+$36)
+
+;;=merge error cleanup
+;Move remaining lines down in memory
+merge_error_cleanup:              ;{{Addr=$ebd9 Code Calls/jump count: 4 Data use count: 0}}
+        ld      a,(hl)            ;{{ebd9:7e}} Test for end of program
         inc     hl                ;{{ebda:23}} 
         or      (hl)              ;{{ebdb:b6}} 
         dec     hl                ;{{ebdc:2b}} 
-        jr      z,_do_merge_80    ;{{ebdd:2805}}  (+$05)
-        call    _do_merge_107     ;{{ebdf:cd19ec}} 
-        jr      _do_merge_73      ;{{ebe2:18f5}}  (-$0b)
+        jr      z,_merge_error_cleanup_7;{{ebdd:2805}}  (+$05)
+        call    merge_move_line   ;{{ebdf:cd19ec}} 
+        jr      merge_error_cleanup;{{ebe2:18f5}}  (-$0b)
 
-_do_merge_80:                     ;{{Addr=$ebe4 Code Calls/jump count: 1 Data use count: 0}}
+_merge_error_cleanup_7:           ;{{Addr=$ebe4 Code Calls/jump count: 1 Data use count: 0}}
         ld      hl,(address_after_end_of_program);{{ebe4:2a66ae}} 
         xor     a                 ;{{ebe7:af}} 
-        ld      (hl),a            ;{{ebe8:77}} 
+        ld      (hl),a            ;{{ebe8:77}} Write end of program marker
         inc     hl                ;{{ebe9:23}} 
         ld      (hl),a            ;{{ebea:77}} 
         inc     hl                ;{{ebeb:23}} 
         ld      (address_after_end_of_program),hl;{{ebec:2266ae}} 
-        jp      _load_tokenised_23;{{ebef:c3b0ec}} 
+        jp      move_vars_and_arrays_down_and_close_input_file;{{ebef:c3b0ec}} 
 
-_do_merge_88:                     ;{{Addr=$ebf2 Code Calls/jump count: 1 Data use count: 0}}
-        call    _do_merge_73      ;{{ebf2:cdd9eb}} 
-_do_merge_89:                     ;{{Addr=$ebf5 Code Calls/jump count: 1 Data use count: 0}}
+;;=merge out of memory
+merge_out_of_memory:              ;{{Addr=$ebf2 Code Calls/jump count: 1 Data use count: 0}}
+        call    merge_error_cleanup;{{ebf2:cdd9eb}} 
+_merge_out_of_memory_1:           ;{{Addr=$ebf5 Code Calls/jump count: 1 Data use count: 0}}
         call    zero_current_line_address;{{ebf5:cdaade}} 
-        ld      a,$07             ;{{ebf8:3e07}} 
-        jr      _do_merge_103     ;{{ebfa:1815}}  (+$15)
+        ld      a,$07             ;{{ebf8:3e07}} Memory full error
+        jr      raise_error_B     ;{{ebfa:1815}}  (+$15)
 
-_do_merge_92:                     ;{{Addr=$ebfc Code Calls/jump count: 3 Data use count: 0}}
+;;=merge read char
+;Returns carry true if no error
+merge_read_char:                  ;{{Addr=$ebfc Code Calls/jump count: 3 Data use count: 0}}
         call    CAS_IN_CHAR       ;{{ebfc:cd80bc}}  firmware function: cas in char
         ret     c                 ;{{ebff:d8}} 
 
-        cp      $1a               ;{{ec00:fe1a}} 
+        cp      $1a               ;{{ec00:fe1a}} Disc error: CP/M end of file
         scf                       ;{{ec02:37}} 
         ret     z                 ;{{ec03:c8}} 
 
@@ -9424,63 +10086,76 @@ _do_merge_92:                     ;{{Addr=$ebfc Code Calls/jump count: 3 Data us
         ccf                       ;{{ec07:3f}} 
         ret                       ;{{ec08:c9}} 
 
-_do_merge_100:                    ;{{Addr=$ec09 Code Calls/jump count: 1 Data use count: 0}}
+;;=raise disc error
+raise_disc_error:                 ;{{Addr=$ec09 Code Calls/jump count: 1 Data use count: 0}}
         ld      (DERR__Disc_Error_No),a;{{ec09:3291ad}} 
-        call    _reset_basic_19   ;{{ec0c:cd6fc1}} 
-_do_merge_102:                    ;{{Addr=$ec0f Code Calls/jump count: 1 Data use count: 0}}
+        call    clear_program_and_variables_etc;{{ec0c:cd6fc1}} 
+;;=raise EOF error
+raise_EOF_error:                  ;{{Addr=$ec0f Code Calls/jump count: 1 Data use count: 0}}
         ld      a,$18             ;{{ec0f:3e18}} EOF met error
-_do_merge_103:                    ;{{Addr=$ec11 Code Calls/jump count: 1 Data use count: 0}}
+;;=raise error
+;Error code in A
+raise_error_B:                    ;{{Addr=$ec11 Code Calls/jump count: 1 Data use count: 0}}
         push    af                ;{{ec11:f5}} 
         call    close_input_and_output_streams;{{ec12:cd00d3}}  close input and output streams
         pop     af                ;{{ec15:f1}} 
         jp      raise_error       ;{{ec16:c355cb}} 
 
-_do_merge_107:                    ;{{Addr=$ec19 Code Calls/jump count: 2 Data use count: 0}}
+;;=merge move line
+;Move memory line to end of merged program
+merge_move_line:                  ;{{Addr=$ec19 Code Calls/jump count: 2 Data use count: 0}}
         push    bc                ;{{ec19:c5}} 
         push    de                ;{{ec1a:d5}} 
-        ld      c,(hl)            ;{{ec1b:4e}} 
+        ld      c,(hl)            ;{{ec1b:4e}} BC=line length
         inc     hl                ;{{ec1c:23}} 
         ld      b,(hl)            ;{{ec1d:46}} 
         dec     hl                ;{{ec1e:2b}} 
         ld      de,(address_after_end_of_program);{{ec1f:ed5b66ae}} 
-        ldir                      ;{{ec23:edb0}} 
+        ldir                      ;{{ec23:edb0}} Move line
         ld      (address_after_end_of_program),de;{{ec25:ed5366ae}} 
         pop     de                ;{{ec29:d1}} 
         pop     bc                ;{{ec2a:c1}} 
         ret                       ;{{ec2b:c9}} 
 
-_do_merge_119:                    ;{{Addr=$ec2c Code Calls/jump count: 1 Data use count: 0}}
-        ex      de,hl             ;{{ec2c:eb}} 
+;;=merge do read line
+;Line number has already been written by merg_insert_line
+merge_do_read_line:               ;{{Addr=$ec2c Code Calls/jump count: 1 Data use count: 0}}
+        ex      de,hl             ;{{ec2c:eb}} DE=mem line length
         ld      hl,(address_after_end_of_program);{{ec2d:2a66ae}} 
-        ld      (hl),e            ;{{ec30:73}} 
+        ld      (hl),e            ;{{ec30:73}} Write line length
         inc     hl                ;{{ec31:23}} 
         ld      (hl),d            ;{{ec32:72}} 
         inc     hl                ;{{ec33:23}} 
         inc     hl                ;{{ec34:23}} 
-        inc     hl                ;{{ec35:23}} 
+        inc     hl                ;{{ec35:23}} HL=write addr addr
         dec     de                ;{{ec36:1b}} 
         dec     de                ;{{ec37:1b}} 
         dec     de                ;{{ec38:1b}} 
-_do_merge_130:                    ;{{Addr=$ec39 Code Calls/jump count: 1 Data use count: 0}}
-        dec     de                ;{{ec39:1b}} 
+
+;;=merge read line loop
+merge_read_line_loop:             ;{{Addr=$ec39 Code Calls/jump count: 1 Data use count: 0}}
+        dec     de                ;{{ec39:1b}} DE=remaining bytes counter
         ld      a,d               ;{{ec3a:7a}} 
-        or      e                 ;{{ec3b:b3}} 
-        jr      z,_do_merge_139   ;{{ec3c:2808}}  (+$08)
-        call    _do_merge_92      ;{{ec3e:cdfceb}} 
+        or      e                 ;{{ec3b:b3}} Test if DE=0
+        jr      z,_merge_read_line_loop_9;{{ec3c:2808}}  (+$08)
+
+        call    merge_read_char   ;{{ec3e:cdfceb}} Copy byte from char to memory
         ld      (hl),a            ;{{ec41:77}} 
         inc     hl                ;{{ec42:23}} 
-        jr      c,_do_merge_130   ;{{ec43:38f4}}  (-$0c)
+        jr      c,merge_read_line_loop;{{ec43:38f4}}  (-$0c) Loop unless file error
+
         ret                       ;{{ec45:c9}} 
 
-_do_merge_139:                    ;{{Addr=$ec46 Code Calls/jump count: 1 Data use count: 0}}
-        ld      (address_after_end_of_program),hl;{{ec46:2266ae}} 
+_merge_read_line_loop_9:          ;{{Addr=$ec46 Code Calls/jump count: 1 Data use count: 0}}
+        ld      (address_after_end_of_program),hl;{{ec46:2266ae}} Line copied
         scf                       ;{{ec49:37}} 
         ret                       ;{{ec4a:c9}} 
 
-_do_merge_142:                    ;{{Addr=$ec4b Code Calls/jump count: 2 Data use count: 0}}
-        call    _do_merge_92      ;{{ec4b:cdfceb}} 
+;;=merge read word to DE
+merge_read_word_to_DE:            ;{{Addr=$ec4b Code Calls/jump count: 2 Data use count: 0}}
+        call    merge_read_char   ;{{ec4b:cdfceb}} 
         ld      e,a               ;{{ec4e:5f}} 
-        call    c,_do_merge_92    ;{{ec4f:dcfceb}} 
+        call    c,merge_read_char ;{{ec4f:dcfceb}} 
         ld      d,a               ;{{ec52:57}} 
         ret                       ;{{ec53:c9}} 
 
@@ -9488,102 +10163,127 @@ _do_merge_142:                    ;{{Addr=$ec4b Code Calls/jump count: 2 Data us
 read_filename_and_open_for_input: ;{{Addr=$ec54 Code Calls/jump count: 3 Data use count: 0}}
         call    close_input_and_output_streams;{{ec54:cd00d3}}  close input and output streams
         call    read_filename_and_open_in;{{ec57:cdbed2}} 
-        ld      (file_type_from_cassette_header),a;{{ec5a:3229ae}} 
-        ld      (file_length_from_cassette_header),bc;{{ec5d:ed432aae}} 
+        ld      (file_type_from_file_header),a;{{ec5a:3229ae}} 
+        ld      (file_length_from_file_header),bc;{{ec5d:ed432aae}} 
         ret                       ;{{ec61:c9}} 
 
 ;;=========
 ;;=validate and MERGE
 validate_and_MERGE:               ;{{Addr=$ec62 Code Calls/jump count: 2 Data use count: 0}}
-        ld      a,(file_type_from_cassette_header);{{ec62:3a29ae}} 
+        ld      a,(file_type_from_file_header);{{ec62:3a29ae}} 
         or      a                 ;{{ec65:b7}} 
         jp      z,do_MERGE        ;{{ec66:ca63eb}} Type 0 = tokenised, unprotected
-        cp      $16               ;{{ec69:fe16}} 
+        cp      $16               ;{{ec69:fe16}} ASCII file?
         jr      nz,raise_File_type_error;{{ec6b:200b}}  (+$0b)
+
 ;;=validate and LOAD BASIC
 validate_and_LOAD_BASIC:          ;{{Addr=$ec6d Code Calls/jump count: 3 Data use count: 0}}
-        ld      a,(file_type_from_cassette_header);{{ec6d:3a29ae}} 
-        cp      $16               ;{{ec70:fe16}} 
-        jr      z,load_ASCII      ;{{ec72:2842}}  (+$42)
+        ld      a,(file_type_from_file_header);{{ec6d:3a29ae}} 
+        cp      $16               ;{{ec70:fe16}} ASCII file?
+        jr      z,load_ASCII_file ;{{ec72:2842}}  (+$42)
         and     $fe               ;{{ec74:e6fe}} Bit 0 set = protected
-        jr      z,load_tokenised  ;{{ec76:2804}}  (+$04)
+        jr      z,load_tokenised_file;{{ec76:2804}}  (+$04)
+
 ;;=raise File type error
 raise_File_type_error:            ;{{Addr=$ec78 Code Calls/jump count: 1 Data use count: 0}}
         call    byte_following_call_is_error_code;{{ec78:cd45cb}} 
         defb $19                  ;Inline error code: File type error
 
-;;===
-;;=load tokenised
-load_tokenised:                   ;{{Addr=$ec7c Code Calls/jump count: 1 Data use count: 0}}
-        call    _reset_basic_33   ;{{ec7c:cd8fc1}} 
+;;=============================================
+;;=load tokenised file
+load_tokenised_file:              ;{{Addr=$ec7c Code Calls/jump count: 1 Data use count: 0}}
+        call    reset_exec_data   ;{{ec7c:cd8fc1}} 
         call    prob_move_vars_and_arrays_to_end_of_memory;{{ec7f:cd29f6}} 
-        ld      bc,(address_of_end_of_ROM_lower_reserved_are);{{ec82:ed4b64ae}} 
+
+;Validate we have enough free space
+        ld      bc,(address_of_end_of_ROM_lower_reserved_are);{{ec82:ed4b64ae}} BC=size of lower memory
         inc     bc                ;{{ec86:03}} 
-        call    get_end_of_free_space_or_start_of_variables;{{ec87:cd07f7}} 
-        ld      de,$ff80          ;{{ec8a:1180ff}} ##LIT##;WARNING: Code area used as literal
+        call    get_end_of_free_space;{{ec87:cd07f7}} HL=upper memory?
+        ld      de,$ff80          ;{{ec8a:1180ff}} DE=buffer space? ###LIT###;WARNING: Code area used as literal
         add     hl,de             ;{{ec8d:19}} 
         or      a                 ;{{ec8e:b7}} 
-        sbc     hl,bc             ;{{ec8f:ed42}} 
-        ld      de,(file_length_from_cassette_header);{{ec91:ed5b2aae}} 
+        sbc     hl,bc             ;{{ec8f:ed42}} HL=free space
+        ld      de,(file_length_from_file_header);{{ec91:ed5b2aae}} DE=file length
         call    nc,compare_HL_DE  ;{{ec95:d4d8ff}}  HL=DE?
-        jp      c,_do_merge_89    ;{{ec98:daf5eb}} 
-        ex      de,hl             ;{{ec9b:eb}} 
-        add     hl,bc             ;{{ec9c:09}} 
+        jp      c,_merge_out_of_memory_1;{{ec98:daf5eb}} Error if not enough memory
+
+        ex      de,hl             ;{{ec9b:eb}} DE=file length
+        add     hl,bc             ;{{ec9c:09}} HL=last available addr?
         ld      (address_after_end_of_program),hl;{{ec9d:2266ae}} 
-        ld      a,(file_type_from_cassette_header);{{eca0:3a29ae}} 
+
+        ld      a,(file_type_from_file_header);{{eca0:3a29ae}} 
         rra                       ;{{eca3:1f}} 
         sbc     a,a               ;{{eca4:9f}} 
         ld      (program_protection_flag_),a;{{eca5:322cae}} 
-        ld      h,b               ;{{eca8:60}} 
+
+        ld      h,b               ;{{eca8:60}} HL=start of program space
         ld      l,c               ;{{eca9:69}} 
-        call    CAS_IN_DIRECT     ;{{ecaa:cd83bc}}  firmware function: CAS IN DIRECT
-        jp      z,_do_merge_100   ;{{ecad:ca09ec}} 
-_load_tokenised_23:               ;{{Addr=$ecb0 Code Calls/jump count: 2 Data use count: 0}}
+        call    CAS_IN_DIRECT     ;{{ecaa:cd83bc}}  firmware function: CAS IN DIRECT - load file
+        jp      z,raise_disc_error;{{ecad:ca09ec}} 
+
+;;=move vars and arrays down and close input file
+move_vars_and_arrays_down_and_close_input_file:;{{Addr=$ecb0 Code Calls/jump count: 2 Data use count: 0}}
         call    prob_move_vars_and_arrays_back_from_end_of_memory;{{ecb0:cd3cf6}} 
         jp      command_CLOSEIN   ;{{ecb3:c3edd2}}  CLOSEIN
 
-;;=load ASCII
-load_ASCII:                       ;{{Addr=$ecb6 Code Calls/jump count: 1 Data use count: 0}}
-        call    _reset_basic_33   ;{{ecb6:cd8fc1}} 
+;;=load ASCII file
+load_ASCII_file:                  ;{{Addr=$ecb6 Code Calls/jump count: 1 Data use count: 0}}
+        call    reset_exec_data   ;{{ecb6:cd8fc1}} 
         call    zero_current_line_address;{{ecb9:cdaade}} 
         call    prob_move_vars_and_arrays_to_end_of_memory;{{ecbc:cd29f6}} 
-_load_ascii_3:                    ;{{Addr=$ecbf Code Calls/jump count: 1 Data use count: 0}}
-        call    read_line_from_cassette_or_disc;{{ecbf:cd0acb}} 
-        jr      nc,_load_tokenised_23;{{ecc2:30ec}}  (-$14)
-        call    skip_space_tab_or_line_feed;{{ecc4:cd4dde}}  skip space, lf or tab
-        or      a                 ;{{ecc7:b7}} 
-        call    nz,_load_ascii_9  ;{{ecc8:c4cdec}} 
-        jr      _load_ascii_3     ;{{eccb:18f2}}  (-$0e)
 
-_load_ascii_9:                    ;{{Addr=$eccd Code Calls/jump count: 1 Data use count: 0}}
-        call    convert_number_a  ;{{eccd:cdcfee}} 
-        jp      c,_convert_line_addresses_to_line_numbers_24;{{ecd0:daa5e7}} 
-        ld      a,$15             ;{{ecd3:3e15}} 
-        jr      z,_load_ascii_14  ;{{ecd5:2802}}  (+$02)
+;;=load ASCII line loop
+load_ASCII_line_loop:             ;{{Addr=$ecbf Code Calls/jump count: 1 Data use count: 0}}
+        call    read_line_from_cassette_or_disc;{{ecbf:cd0acb}} Read line into buffer
+        jr      nc,move_vars_and_arrays_down_and_close_input_file;{{ecc2:30ec}}  (-$14) Error or end of file
+        call    skip_space_tab_or_line_feed;{{ecc4:cd4dde}}  skip loading whitespace
+        or      a                 ;{{ecc7:b7}} Empty buffer?
+        call    nz,load_ASCII_tokenise_line;{{ecc8:c4cdec}} Tokise line (and append to program)
+        jr      load_ASCII_line_loop;{{eccb:18f2}}  (-$0e) Loop for more
+
+;;=load ASCII tokenise line
+load_ASCII_tokenise_line:         ;{{Addr=$eccd Code Calls/jump count: 1 Data use count: 0}}
+        call    parse_line_number ;{{eccd:cdcfee}} Convert line number?
+        jp      c,prob_tokenise_and_insert_line;{{ecd0:daa5e7}} 
+
+        ld      a,$15             ;{{ecd3:3e15}} Direct command found error
+        jr      z,_load_ascii_tokenise_line_5;{{ecd5:2802}}  (+$02) Line with no line number?
         ld      a,$06             ;{{ecd7:3e06}} Overflow error
-_load_ascii_14:                   ;{{Addr=$ecd9 Code Calls/jump count: 1 Data use count: 0}}
+_load_ascii_tokenise_line_5:      ;{{Addr=$ecd9 Code Calls/jump count: 1 Data use count: 0}}
         jp      raise_error       ;{{ecd9:c355cb}} 
 
 ;;========================================================================
 ;; command SAVE
+;SAVE <file name>[,<file type>[,<binary parameters>]]
+;Saves a file
+;File type:
+;   None:   Tokenised BASIC
+;   A:      ASCII BASIC
+;   P:      Protected BASIC
+;   B:      Binary file
+;Binary parameters (only for binary files):
+;<start address>,<length>[,<entry point>]
+;Entry point is used if the file is loaded with RUN
 
 command_SAVE:                     ;{{Addr=$ecdc Code Calls/jump count: 0 Data use count: 1}}
         call    close_input_and_output_streams;{{ecdc:cd00d3}} ; close input and output streams
-        call    command_OPENOUT   ;{{ecdf:cda8d2}} ; OPENOUT
-        ld      b,$00             ;{{ece2:0600}} 
-        call    next_token_if_prev_is_comma;{{ece4:cd41de}} 
-        jr      nc,save_BASIC_normal;{{ece7:3025}}  (+$25)
-        call    next_token_if_equals_inline_data_byte;{{ece9:cd25de}}  read string
+        call    command_OPENOUT   ;{{ecdf:cda8d2}} ; OPENOUT - reads filename parameter and opens the file
+        ld      b,$00             ;{{ece2:0600}} File type for unprotected tokenised BASIC
+        call    next_token_if_prev_is_comma;{{ece4:cd41de}} Is there a file type parameter?
+        jr      nc,save_BASIC_tokenised;{{ece7:3025}}  (+$25)
+
+        call    next_token_if_equals_inline_data_byte;{{ece9:cd25de}} read file type letter
         defb $0d                  ;inline token to test CR
         inc     hl                ;{{eced:23}} 
         inc     hl                ;{{ecee:23}} 
         ld      a,(hl)            ;{{ecef:7e}}  parameter (,A ,B ,P)
         and     $df               ;{{ecf0:e6df}} 
-        jp      p,Error_Syntax_Error;{{ecf2:f249cb}}  Error: Syntax Error
+        jp      p,Error_Syntax_Error;{{ecf2:f249cb}}  Error: Syntax Error - invalid file type parameter
+
         push    hl                ;{{ecf5:e5}} 
         ld      hl,save_parameters_list;{{ecf6:2100ed}} 
-        call    get_address_from_table;{{ecf9:cdb4ff}} 
-        ex      (sp),hl           ;{{ecfc:e3}} 
+        call    get_address_from_table;{{ecf9:cdb4ff}} Lookup parameter in table
+        ex      (sp),hl           ;{{ecfc:e3}} Put result (code address) onto TOS so next line RETurns into it
         jp      get_next_token_skipping_space;{{ecfd:c32cde}}  get next token skipping space
 
 ;;=save parameters list
@@ -9592,73 +10292,83 @@ save_parameters_list:             ;{{Addr=$ed00 Data Calls/jump count: 0 Data us
         defw Error_Syntax_Error   ; Error if not found: Syntax Error   ##LABEL##
 
         defb $c1                  ; ,A
-        defw ASCII_save           ;  ##LABEL##
+        defw save_ASCII           ;  ##LABEL##
         defb $c2                  ; ,B
-        defw Binary_save          ;  ##LABEL##
+        defw save_binary          ;  ##LABEL##
         defb $d0                  ; ,P
-        defw Protected_BASIC_save ;  ##LABEL##
+        defw save_BASIC_protected ;  ##LABEL##
 
 ;;---------------------------------------------------
 ;; SAVE ,P
-;;=Protected BASIC save
-Protected_BASIC_save:             ;{{Addr=$ed0c Code Calls/jump count: 0 Data use count: 1}}
-        ld      b,$01             ;{{ed0c:0601}} 
-;;=save BASIC normal
-save_BASIC_normal:                ;{{Addr=$ed0e Code Calls/jump count: 1 Data use count: 0}}
-        call    syntax_error_if_not_02;{{ed0e:cd37de}} 
+;;=save BASIC protected
+save_BASIC_protected:             ;{{Addr=$ed0c Code Calls/jump count: 0 Data use count: 1}}
+        ld      b,$01             ;{{ed0c:0601}} File type for protected tokenised BASIC
+
+;;=save BASIC tokenised
+save_BASIC_tokenised:             ;{{Addr=$ed0e Code Calls/jump count: 1 Data use count: 0}}
+        call    error_if_not_end_of_statement_or_eoln;{{ed0e:cd37de}} 
         push hl                   ;{{ed11:e5}} 
         push    bc                ;{{ed12:c5}} 
+;Prepare code for saving
         call    convert_all_line_addresses_to_line_numbers;{{ed13:cd70e7}}  line address to line number
         call    reset_variable_types_and_pointers;{{ed16:cd4dea}} 
-;; save basic?
+;Calc file (program) size
         ld      hl,(address_of_end_of_ROM_lower_reserved_are);{{ed19:2a64ae}} 
-        inc     hl                ;{{ed1c:23}} 
+        inc     hl                ;{{ed1c:23}} HL=first byte of program
         ex      de,hl             ;{{ed1d:eb}} 
-        ld      hl,(address_after_end_of_program);{{ed1e:2a66ae}} 
-        or      a                 ;{{ed21:b7}} 
-        sbc     hl,de             ;{{ed22:ed52}} 
+        ld      hl,(address_after_end_of_program);{{ed1e:2a66ae}} HL=end of program
+        or      a                 ;{{ed21:b7}} Clear carry
+        sbc     hl,de             ;{{ed22:ed52}} HL=length of program
         ex      de,hl             ;{{ed24:eb}} 
-        pop     af                ;{{ed25:f1}} 
-        ld      bc,RESET_ENTRY    ;{{ed26:010000}} 
-        jr      _binary_save_15   ;{{ed29:1820}}  (+$20)
+        pop     af                ;{{ed25:f1}} A=file type
+        ld      bc,$0000          ;{{ed26:010000}} Execution address (not valid for BASIC) ##LIT##
+        jr      do_binary_file_save;{{ed29:1820}}  (+$20)
 
 ;; SAVE ,B
-;;=Binary save
-Binary_save:                      ;{{Addr=$ed2b Code Calls/jump count: 0 Data use count: 1}}
+;;=save binary
+save_binary:                      ;{{Addr=$ed2b Code Calls/jump count: 0 Data use count: 1}}
         call    next_token_if_comma;{{ed2b:cd15de}}  check for comma			; start
-        call    eval_expr_as_uint ;{{ed2e:cdf5ce}} 
+        call    eval_expr_as_uint ;{{ed2e:cdf5ce}} Read start addr parameter
         push    de                ;{{ed31:d5}} 
         call    next_token_if_comma;{{ed32:cd15de}}  check for comma			; length
-        call    eval_expr_as_uint ;{{ed35:cdf5ce}} 
+        call    eval_expr_as_uint ;{{ed35:cdf5ce}} Read length parameter
         push    de                ;{{ed38:d5}} 
         call    next_token_if_prev_is_comma;{{ed39:cd41de}}  execution
-        ld      de,RESET_ENTRY    ;{{ed3c:110000}} 
-        call    c,eval_expr_as_uint;{{ed3f:dcf5ce}} 
+        ld      de,$0000          ;{{ed3c:110000}} Default execution address ##LIT##
+        call    c,eval_expr_as_uint;{{ed3f:dcf5ce}} Read execution address parameter, if present
         push    de                ;{{ed42:d5}} 
-        call    syntax_error_if_not_02;{{ed43:cd37de}} 
-        ld      a,$02             ;{{ed46:3e02}} ; binary
-        pop     bc                ;{{ed48:c1}} 
-        pop     de                ;{{ed49:d1}} 
-        ex      (sp),hl           ;{{ed4a:e3}} 
-_binary_save_15:                  ;{{Addr=$ed4b Code Calls/jump count: 1 Data use count: 0}}
-        call    CAS_OUT_DIRECT    ;{{ed4b:cd98bc}} ; firmware function: cas out direct
-        jp      nc,raise_file_not_open_error_C;{{ed4e:d237cc}} 
-        jr      _ascii_save_10    ;{{ed51:1817}}  (+$17)
+        call    error_if_not_end_of_statement_or_eoln;{{ed43:cd37de}} Error if more parameters
+
+        ld      a,$02             ;{{ed46:3e02}} ; File type binary
+        pop     bc                ;{{ed48:c1}} Execution address
+        pop     de                ;{{ed49:d1}} File length
+        ex      (sp),hl           ;{{ed4a:e3}} HL=start addr
+
+;;=do binary file save
+do_binary_file_save:              ;{{Addr=$ed4b Code Calls/jump count: 1 Data use count: 0}}
+        call    CAS_OUT_DIRECT    ;{{ed4b:cd98bc}} ; firmware function: cas out direct - write the file
+        jp      nc,raise_file_not_open_error_C;{{ed4e:d237cc}} abort if error
+        jr      save_close_file   ;{{ed51:1817}}  (+$17)
 
 ;; SAVE ,A
-;;=ASCII save
-ASCII_save:                       ;{{Addr=$ed53 Code Calls/jump count: 0 Data use count: 1}}
-        call    syntax_error_if_not_02;{{ed53:cd37de}} 
+;;=save ASCII
+save_ASCII:                       ;{{Addr=$ed53 Code Calls/jump count: 0 Data use count: 1}}
+        call    error_if_not_end_of_statement_or_eoln;{{ed53:cd37de}} 
         push    hl                ;{{ed56:e5}} 
-        ld      a,$09             ;{{ed57:3e09}} 
+        ld      a,$09             ;{{ed57:3e09}} Select file as output stream
         call    select_txt_stream ;{{ed59:cda6c1}} 
-        push    af                ;{{ed5c:f5}} 
+        push    af                ;{{ed5c:f5}} Save previous stream
+
         ld      bc,$0001          ;{{ed5d:010100}} starting line number
         ld      de,$ffff          ;{{ed60:11ffff}} ending line number ##LIT##;WARNING: Code area used as literal
-        call    do_LIST           ;{{ed63:cde3e1}} 
-        pop     af                ;{{ed66:f1}} 
+
+        call    do_LIST           ;{{ed63:cde3e1}} LIST (to file stream)
+
+        pop     af                ;{{ed66:f1}} Restore previous stream
         call    select_txt_stream ;{{ed67:cda6c1}} 
-_ascii_save_10:                   ;{{Addr=$ed6a Code Calls/jump count: 1 Data use count: 0}}
+
+;;=save close file
+save_close_file:                  ;{{Addr=$ed6a Code Calls/jump count: 1 Data use count: 0}}
         call    command_CLOSEOUT  ;{{ed6a:cdf5d2}}  CLOSEOUT
         pop     hl                ;{{ed6d:e1}} 
         ret                       ;{{ed6e:c9}} 
@@ -9666,44 +10376,49 @@ _ascii_save_10:                   ;{{Addr=$ed6a Code Calls/jump count: 1 Data us
 
 
 
-
 ;;***StringsToNumbers.asm
 ;;<< STRINGS TO NUMBERS
 ;;==============================
-;;possibly validate input buffer is a number
+;;convert string to number
+;Converts a string which can have a preceding + or - sign
 
-possibly_validate_input_buffer_is_a_number:;{{Addr=$ed6f Code Calls/jump count: 3 Data use count: 0}}
-        call    _possibly_validate_input_buffer_is_a_number_87;{{ed6f:cd0fee}} 
-        jr      nz,_possibly_validate_input_buffer_is_a_number_4;{{ed72:2005}}  (+$05)
+convert_string_to_number:         ;{{Addr=$ed6f Code Calls/jump count: 3 Data use count: 0}}
+        call    test_for_plus_or_minus_sign;{{ed6f:cd0fee}} 
+        jr      nz,_convert_string_to_number_4;{{ed72:2005}}  (+$05) No plus or minus sign
         call    skip_space_tab_or_line_feed;{{ed74:cd4dde}}  skip space, lf or tab
-        jr      _possibly_validate_input_buffer_is_a_number_31;{{ed77:182f}}  (+$2f)
+        jr      convert_decimal   ;{{ed77:182f}}  (+$2f)
 
-_possibly_validate_input_buffer_is_a_number_4:;{{Addr=$ed79 Code Calls/jump count: 1 Data use count: 0}}
-        cp      $26               ;{{ed79:fe26}} 
-        jr      z,_possibly_validate_input_buffer_is_a_number_22;{{ed7b:281c}}  (+$1c)
+_convert_string_to_number_4:      ;{{Addr=$ed79 Code Calls/jump count: 1 Data use count: 0}}
+        cp      $26               ;{{ed79:fe26}} '&' - Hex prefix
+        jr      z,convert_hex_or_binary_to_accumulator;{{ed7b:281c}}  (+$1c)
         call    test_if_period_or_digit;{{ed7d:cda0ff}} 
-        jr      c,_possibly_validate_input_buffer_is_a_number_31;{{ed80:3826}}  (+$26)
+        jr      c,convert_decimal ;{{ed80:3826}}  (+$26) Carry set if decimal digit or period
+
         call    set_accumulator_type_to_int;{{ed82:cd38ff}} 
         call    zero_accumulator  ;{{ed85:cd1bff}} 
         scf                       ;{{ed88:37}} 
         ret                       ;{{ed89:c9}} 
 
-_possibly_validate_input_buffer_is_a_number_12:;{{Addr=$ed8a Code Calls/jump count: 2 Data use count: 0}}
+;;=convert string to positive number
+;Converts a string which doesn't have a preceding sign. The result will always be positive
+convert_string_to_positive_number:;{{Addr=$ed8a Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{ed8a:e5}} 
-        call    _possibly_validate_input_buffer_is_a_number_18;{{ed8b:cd92ed}} 
+        call    _convert_string_to_positive_number_6;{{ed8b:cd92ed}} 
         pop     de                ;{{ed8e:d1}} 
         ret     c                 ;{{ed8f:d8}} 
 
         ex      de,hl             ;{{ed90:eb}} 
         ret                       ;{{ed91:c9}} 
 
-_possibly_validate_input_buffer_is_a_number_18:;{{Addr=$ed92 Code Calls/jump count: 1 Data use count: 0}}
-        ld      d,$00             ;{{ed92:1600}} 
+_convert_string_to_positive_number_6:;{{Addr=$ed92 Code Calls/jump count: 1 Data use count: 0}}
+        ld      d,$00             ;{{ed92:1600}} Positive number
         ld      a,(hl)            ;{{ed94:7e}} 
-        cp      $26               ;{{ed95:fe26}} 
-        jr      nz,_possibly_validate_input_buffer_is_a_number_31;{{ed97:200f}}  (+$0f)
-_possibly_validate_input_buffer_is_a_number_22:;{{Addr=$ed99 Code Calls/jump count: 1 Data use count: 0}}
-        call    convert_number_b  ;{{ed99:cde7ee}} 
+        cp      $26               ;{{ed95:fe26}} '&' - Hex prefix
+        jr      nz,convert_decimal;{{ed97:200f}}  (+$0f)
+
+;;=convert hex or binary to accumulator
+convert_hex_or_binary_to_accumulator:;{{Addr=$ed99 Code Calls/jump count: 1 Data use count: 0}}
+        call    convert_hex_or_binary_to_HL;{{ed99:cde7ee}} 
         ex      de,hl             ;{{ed9c:eb}} 
         push    af                ;{{ed9d:f5}} 
         call    store_HL_in_accumulator_as_INT;{{ed9e:cd35ff}} 
@@ -9715,72 +10430,88 @@ _possibly_validate_input_buffer_is_a_number_22:;{{Addr=$ed99 Code Calls/jump cou
 
         jp      overflow_error    ;{{eda5:c3becb}} 
 
-_possibly_validate_input_buffer_is_a_number_31:;{{Addr=$eda8 Code Calls/jump count: 3 Data use count: 0}}
+;;=convert decimal
+;D=&00 if positive, &ff if negative
+convert_decimal:                  ;{{Addr=$eda8 Code Calls/jump count: 3 Data use count: 0}}
         push    hl                ;{{eda8:e5}} 
         ld      a,(hl)            ;{{eda9:7e}} 
         inc     hl                ;{{edaa:23}} 
-        cp      $2e               ;{{edab:fe2e}} 
+        cp      $2e               ;{{edab:fe2e}} '.' - prefix for a float
         call    z,skip_space_tab_or_line_feed;{{edad:cc4dde}}  skip space, lf or tab
         call    test_if_digit     ;{{edb0:cda4ff}} ; test if ASCII character represents a decimal number digit
         pop     hl                ;{{edb3:e1}} 
-        jr      c,_possibly_validate_input_buffer_is_a_number_44;{{edb4:3806}}  (+$06)
+        jr      c,_convert_decimal_13;{{edb4:3806}}  (+$06) Carry set = digit
         ld      a,(hl)            ;{{edb6:7e}} 
-        xor     $2e               ;{{edb7:ee2e}} 
+        xor     $2e               ;{{edb7:ee2e}} Set zero flag if char is a period...
         ret     nz                ;{{edb9:c0}} 
 
-        inc     hl                ;{{edba:23}} 
+        inc     hl                ;{{edba:23}} ...and if so step over it
         ret                       ;{{edbb:c9}} 
 
-_possibly_validate_input_buffer_is_a_number_44:;{{Addr=$edbc Code Calls/jump count: 1 Data use count: 0}}
-        call    set_accumulator_type_to_int;{{edbc:cd38ff}} 
+;Copy ASCII number to pre-conversion buffer. Digits are converted from ASCII to binary equivalents
+_convert_decimal_13:              ;{{Addr=$edbc Code Calls/jump count: 1 Data use count: 0}}
+        call    set_accumulator_type_to_int;{{edbc:cd38ff}} Convert as an integer until we know otherwise
         push    de                ;{{edbf:d5}} 
-        ld      bc,RESET_ENTRY    ;{{edc0:010000}} 
-        ld      de,buffer_used_to_form_binary_or_hexadecima;{{edc3:112dae}} 
-        call    _possibly_validate_input_buffer_is_a_number_97;{{edc6:cd1eee}} 
-        cp      $2e               ;{{edc9:fe2e}} 
-        jr      nz,_possibly_validate_input_buffer_is_a_number_56;{{edcb:200b}}  (+$0b)
-        call    _possibly_validate_input_buffer_is_a_number_170;{{edcd:cd94ee}} 
+        ld      bc,$0000          ;{{edc0:010000}} Initialise counters ##LIT##
+        ld      de,preconversion_buffer;{{edc3:112dae}} 
+        call    copy_while_decimal_digits;{{edc6:cd1eee}} 
+        cp      $2e               ;{{edc9:fe2e}} '.'
+        jr      nz,_convert_decimal_25;{{edcb:200b}}  (+$0b) - no period - all digits read
+
+;period found - number is a real
+        call    skip_whitespace   ;{{edcd:cd94ee}} 
         call    set_accumulator_type_to_real;{{edd0:cd41ff}} 
         inc     c                 ;{{edd3:0c}} 
-        call    _possibly_validate_input_buffer_is_a_number_97;{{edd4:cd1eee}} 
+        call    copy_while_decimal_digits;{{edd4:cd1eee}} Read remaining decimal digits
         dec     c                 ;{{edd7:0d}} 
-_possibly_validate_input_buffer_is_a_number_56:;{{Addr=$edd8 Code Calls/jump count: 1 Data use count: 0}}
+
+_convert_decimal_25:              ;{{Addr=$edd8 Code Calls/jump count: 1 Data use count: 0}}
         ex      de,hl             ;{{edd8:eb}} 
         ld      (hl),$ff          ;{{edd9:36ff}} 
         ex      de,hl             ;{{eddb:eb}} 
-        call    _possibly_validate_input_buffer_is_a_number_120;{{eddc:cd42ee}} 
+        call    test_for_and_eval_exponent;{{eddc:cd42ee}} Test for (and copy if found) exponent
         pop     de                ;{{eddf:d1}} 
-        ld      e,a               ;{{ede0:5f}} 
+        ld      e,a               ;{{ede0:5f}} E=exponent
         push    hl                ;{{ede1:e5}} 
         push    de                ;{{ede2:d5}} 
-        ld      hl,buffer_used_to_form_binary_or_hexadecima;{{ede3:212dae}} 
-        call    _possibly_validate_input_buffer_is_a_number_173;{{ede6:cd99ee}} 
+
+        ld      hl,preconversion_buffer;{{ede3:212dae}} 
+        call    do_decimal_conversion;{{ede6:cd99ee}} Do the conversion?
         pop     de                ;{{ede9:d1}} 
-        call    is_accumulator_a_string;{{edea:cd66ff}} 
-        jr      nc,_possibly_validate_input_buffer_is_a_number_74;{{eded:3008}}  (+$08)
+
+        call    is_accumulator_a_string;{{edea:cd66ff}} Test result type?
+        jr      nc,_convert_decimal_43;{{eded:3008}}  (+$08) Real?
+
         push    hl                ;{{edef:e5}} 
-        ld      b,d               ;{{edf0:42}} 
-        call    _function_int_11  ;{{edf1:cd2cfe}} 
+        ld      b,d               ;{{edf0:42}} B=sign?
+        call    _function_int_11  ;{{edf1:cd2cfe}} Attempt to store as an int
         pop     hl                ;{{edf4:e1}} 
-        jr      c,_possibly_validate_input_buffer_is_a_number_83;{{edf5:3811}}  (+$11)
-_possibly_validate_input_buffer_is_a_number_74:;{{Addr=$edf7 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,d               ;{{edf7:7a}} 
+        jr      c,_convert_decimal_52;{{edf5:3811}}  (+$11) If succeeds then were done...
+                                  ;...else store as a real
+_convert_decimal_43:              ;{{Addr=$edf7 Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,d               ;{{edf7:7a}} A=sign?
         ld      c,(hl)            ;{{edf8:4e}} 
         inc     hl                ;{{edf9:23}} 
-        call    REAL_5byte_to_real;{{edfa:cdb8bd}} 
-        ld      a,e               ;{{edfd:7b}} 
-        call    REAL_10A          ;{{edfe:cd79bd}} 
+        call    REAL_5byte_to_real;{{edfa:cdb8bd}} Convert binary to real?
+        ld      a,e               ;{{edfd:7b}} A=exponent
+        call    REAL_10A          ;{{edfe:cd79bd}} Exponent?
         ex      de,hl             ;{{ee01:eb}} 
         call    set_accumulator_type_to_real_and_HL_to_accumulator_addr;{{ee02:cd3eff}} 
-        call    c,REAL_copy_atDE_to_atHL;{{ee05:dc61bd}} 
-_possibly_validate_input_buffer_is_a_number_83:;{{Addr=$ee08 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,$0a             ;{{ee08:3e0a}} 
+        call    c,REAL_copy_atDE_to_atHL;{{ee05:dc61bd}} Copy to accumulator?
+
+_convert_decimal_52:              ;{{Addr=$ee08 Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,$0a             ;{{ee08:3e0a}} We found a decimal number?
         pop     hl                ;{{ee0a:e1}} 
-        ret     c                 ;{{ee0b:d8}} 
+        ret     c                 ;{{ee0b:d8}} Return if no errors
 
         jp      overflow_error    ;{{ee0c:c3becb}} 
 
-_possibly_validate_input_buffer_is_a_number_87:;{{Addr=$ee0f Code Calls/jump count: 2 Data use count: 0}}
+;;=test for plus or minus sign
+;If next char is:
+;'-': returns Zero set, D=$ff
+;'+': returns Zero set, D=$00
+;Otherwise returns Zero clear
+test_for_plus_or_minus_sign:      ;{{Addr=$ee0f Code Calls/jump count: 2 Data use count: 0}}
         call    skip_space_tab_or_line_feed;{{ee0f:cd4dde}}  skip space, lf or tab
         inc     hl                ;{{ee12:23}} 
         ld      d,$ff             ;{{ee13:16ff}} 
@@ -9788,135 +10519,151 @@ _possibly_validate_input_buffer_is_a_number_87:;{{Addr=$ee0f Code Calls/jump cou
         ret     z                 ;{{ee17:c8}} 
 
         inc     d                 ;{{ee18:14}} 
-        cp      $2b               ;{{ee19:fe2b}} 
+        cp      $2b               ;{{ee19:fe2b}} '+'
         ret     z                 ;{{ee1b:c8}} 
 
         dec     hl                ;{{ee1c:2b}} 
         ret                       ;{{ee1d:c9}} 
 
-_possibly_validate_input_buffer_is_a_number_97:;{{Addr=$ee1e Code Calls/jump count: 4 Data use count: 0}}
+;;=copy while decimal digits
+;Copies decimal digits to buffer in DE, ignoring leading zeros (B=0) and 
+;ending at the first non-digit.
+;Following char is returned in A
+;Digits are converted from ASCII to binary equivalents
+;B=count of digits copied to buffer
+;C will be non-zero if more than one digit has been copied
+copy_while_decimal_digits:        ;{{Addr=$ee1e Code Calls/jump count: 4 Data use count: 0}}
         push    hl                ;{{ee1e:e5}} 
         call    skip_space_tab_or_line_feed;{{ee1f:cd4dde}}  skip space, lf or tab
         inc     hl                ;{{ee22:23}} 
         call    test_if_digit     ;{{ee23:cda4ff}} ; test if ASCII character represents a decimal number digit
-        jr      c,_possibly_validate_input_buffer_is_a_number_104;{{ee26:3804}}  (+$04)
+        jr      c,_copy_while_decimal_digits_7;{{ee26:3804}}  (+$04) Carry set if decimal digit
         pop     hl                ;{{ee28:e1}} 
         jp      convert_character_to_upper_case;{{ee29:c3abff}} ; convert character to upper case
 
-_possibly_validate_input_buffer_is_a_number_104:;{{Addr=$ee2c Code Calls/jump count: 1 Data use count: 0}}
+_copy_while_decimal_digits_7:     ;{{Addr=$ee2c Code Calls/jump count: 1 Data use count: 0}}
         ex      (sp),hl           ;{{ee2c:e3}} 
         pop     hl                ;{{ee2d:e1}} 
-        sub     $30               ;{{ee2e:d630}} 
-        ld      (de),a            ;{{ee30:12}} 
-        or      b                 ;{{ee31:b0}} 
-        jr      z,_possibly_validate_input_buffer_is_a_number_115;{{ee32:2807}}  (+$07)
+        sub     $30               ;{{ee2e:d630}} Converts ASCII number to decimal value
+        ld      (de),a            ;{{ee30:12}} Write digit to buffer
+        or      b                 ;{{ee31:b0}} If digit=0 and digits copied = 0, result will be zero - i.e. leading zero
+        jr      z,_copy_while_decimal_digits_18;{{ee32:2807}}  (+$07) Step over leading zeroes
         ld      a,b               ;{{ee34:78}} 
         inc     b                 ;{{ee35:04}} 
-        cp      $0c               ;{{ee36:fe0c}} 
-        jr      nc,_possibly_validate_input_buffer_is_a_number_115;{{ee38:3001}}  (+$01)
+        cp      $0c               ;{{ee36:fe0c}} Max buffer length?
+        jr      nc,_copy_while_decimal_digits_18;{{ee38:3001}}  (+$01) Buffer overflow - ignore digits
         inc     de                ;{{ee3a:13}} 
-_possibly_validate_input_buffer_is_a_number_115:;{{Addr=$ee3b Code Calls/jump count: 2 Data use count: 0}}
+_copy_while_decimal_digits_18:    ;{{Addr=$ee3b Code Calls/jump count: 2 Data use count: 0}}
         ld      a,c               ;{{ee3b:79}} 
         or      a                 ;{{ee3c:b7}} 
-        jr      z,_possibly_validate_input_buffer_is_a_number_97;{{ee3d:28df}}  (-$21)
+        jr      z,copy_while_decimal_digits;{{ee3d:28df}}  (-$21)
         inc     c                 ;{{ee3f:0c}} 
-        jr      _possibly_validate_input_buffer_is_a_number_97;{{ee40:18dc}} 
+        jr      copy_while_decimal_digits;{{ee40:18dc}} 
 
-_possibly_validate_input_buffer_is_a_number_120:;{{Addr=$ee42 Code Calls/jump count: 1 Data use count: 0}}
-        cp      $45               ;{{ee42:fe45}} ; 'E'
-        jr      nz,_possibly_validate_input_buffer_is_a_number_129;{{ee44:2010}} 
+;;=test for and eval exponent
+test_for_and_eval_exponent:       ;{{Addr=$ee42 Code Calls/jump count: 1 Data use count: 0}}
+        cp      $45               ;{{ee42:fe45}} ; 'E' - exponent
+        jr      nz,_test_for_and_eval_exponent_9;{{ee44:2010}} Not exponent
          
         push    hl                ;{{ee46:e5}} 
-        call    _possibly_validate_input_buffer_is_a_number_170;{{ee47:cd94ee}} 
-        call    _possibly_validate_input_buffer_is_a_number_87;{{ee4a:cd0fee}} 
+        call    skip_whitespace   ;{{ee47:cd94ee}} 
+        call    test_for_plus_or_minus_sign;{{ee4a:cd0fee}} 
         call    z,skip_space_tab_or_line_feed;{{ee4d:cc4dde}}  skip space, lf or tab
         call    test_if_digit     ;{{ee50:cda4ff}} ; test if ASCII character represents a decimal number digit
-        jr      c,_possibly_validate_input_buffer_is_a_number_131;{{ee53:3804}}  (+$04)
+        jr      c,eval_exponent   ;{{ee53:3804}}  (+$04)
         pop     hl                ;{{ee55:e1}} 
 
-_possibly_validate_input_buffer_is_a_number_129:;{{Addr=$ee56 Code Calls/jump count: 1 Data use count: 0}}
-        xor     a                 ;{{ee56:af}} 
-        jr      _possibly_validate_input_buffer_is_a_number_151;{{ee57:181e}}  (+$1e)
+_test_for_and_eval_exponent_9:    ;{{Addr=$ee56 Code Calls/jump count: 1 Data use count: 0}}
+        xor     a                 ;{{ee56:af}} Exponent is zero
+        jr      _eval_exponent_20 ;{{ee57:181e}}  (+$1e)
 
-_possibly_validate_input_buffer_is_a_number_131:;{{Addr=$ee59 Code Calls/jump count: 1 Data use count: 0}}
+;;=eval exponent
+eval_exponent:                    ;{{Addr=$ee59 Code Calls/jump count: 1 Data use count: 0}}
         ex      (sp),hl           ;{{ee59:e3}} 
         pop     hl                ;{{ee5a:e1}} 
         call    set_accumulator_type_to_real;{{ee5b:cd41ff}} 
         push    de                ;{{ee5e:d5}} 
         push    bc                ;{{ee5f:c5}} 
-        call    convert_number_in_base_defined;{{ee60:cd00ef}} 
-        jr      nc,_possibly_validate_input_buffer_is_a_number_144;{{ee63:3009}}  (+$09)
+        call    convert_decimal_integer;{{ee60:cd00ef}} 
+        jr      nc,_eval_exponent_13;{{ee63:3009}}  (+$09)
         ld      a,e               ;{{ee65:7b}} 
-        sub     $64               ;{{ee66:d664}} 
+        sub     $64               ;{{ee66:d664}} Maximum exponent?
         ld      a,d               ;{{ee68:7a}} 
         sbc     a,$00             ;{{ee69:de00}} 
         ld      a,e               ;{{ee6b:7b}} 
-        jr      c,_possibly_validate_input_buffer_is_a_number_145;{{ee6c:3802}}  (+$02)
-_possibly_validate_input_buffer_is_a_number_144:;{{Addr=$ee6e Code Calls/jump count: 1 Data use count: 0}}
+        jr      c,_eval_exponent_14;{{ee6c:3802}}  (+$02)
+_eval_exponent_13:                ;{{Addr=$ee6e Code Calls/jump count: 1 Data use count: 0}}
         ld      a,$7f             ;{{ee6e:3e7f}} 
-_possibly_validate_input_buffer_is_a_number_145:;{{Addr=$ee70 Code Calls/jump count: 1 Data use count: 0}}
+_eval_exponent_14:                ;{{Addr=$ee70 Code Calls/jump count: 1 Data use count: 0}}
         pop     bc                ;{{ee70:c1}} 
         pop     de                ;{{ee71:d1}} 
-        inc     d                 ;{{ee72:14}} 
-        jr      nz,_possibly_validate_input_buffer_is_a_number_151;{{ee73:2002}}  (+$02)
+        inc     d                 ;{{ee72:14}} D=sign
+        jr      nz,_eval_exponent_20;{{ee73:2002}}  (+$02)
         cpl                       ;{{ee75:2f}} 
         inc     a                 ;{{ee76:3c}} 
 
-_possibly_validate_input_buffer_is_a_number_151:;{{Addr=$ee77 Code Calls/jump count: 2 Data use count: 0}}
+;A=exponent - encode?
+_eval_exponent_20:                ;{{Addr=$ee77 Code Calls/jump count: 2 Data use count: 0}}
         add     a,$80             ;{{ee77:c680}} 
         ld      e,a               ;{{ee79:5f}} 
         ld      a,b               ;{{ee7a:78}} 
         sub     $0c               ;{{ee7b:d60c}} 
-        jr      nc,_possibly_validate_input_buffer_is_a_number_157;{{ee7d:3001}}  (+$01)
+        jr      nc,_eval_exponent_26;{{ee7d:3001}}  (+$01)
         xor     a                 ;{{ee7f:af}} 
-_possibly_validate_input_buffer_is_a_number_157:;{{Addr=$ee80 Code Calls/jump count: 1 Data use count: 0}}
+_eval_exponent_26:                ;{{Addr=$ee80 Code Calls/jump count: 1 Data use count: 0}}
         sub     c                 ;{{ee80:91}} 
-        jr      nc,_possibly_validate_input_buffer_is_a_number_165;{{ee81:3009}}  (+$09)
+        jr      nc,_eval_exponent_34;{{ee81:3009}}  (+$09)
         add     a,e               ;{{ee83:83}} 
-        jr      c,_possibly_validate_input_buffer_is_a_number_162;{{ee84:3801}}  (+$01)
+        jr      c,_eval_exponent_31;{{ee84:3801}}  (+$01)
         xor     a                 ;{{ee86:af}} 
-_possibly_validate_input_buffer_is_a_number_162:;{{Addr=$ee87 Code Calls/jump count: 1 Data use count: 0}}
+_eval_exponent_31:                ;{{Addr=$ee87 Code Calls/jump count: 1 Data use count: 0}}
         cp      $01               ;{{ee87:fe01}} 
         adc     a,$80             ;{{ee89:ce80}} 
         ret                       ;{{ee8b:c9}} 
 
-_possibly_validate_input_buffer_is_a_number_165:;{{Addr=$ee8c Code Calls/jump count: 1 Data use count: 0}}
+_eval_exponent_34:                ;{{Addr=$ee8c Code Calls/jump count: 1 Data use count: 0}}
         add     a,e               ;{{ee8c:83}} 
-        jr      nc,_possibly_validate_input_buffer_is_a_number_168;{{ee8d:3002}}  (+$02)
+        jr      nc,_eval_exponent_37;{{ee8d:3002}}  (+$02)
         ld      a,$ff             ;{{ee8f:3eff}} 
-_possibly_validate_input_buffer_is_a_number_168:;{{Addr=$ee91 Code Calls/jump count: 1 Data use count: 0}}
+_eval_exponent_37:                ;{{Addr=$ee91 Code Calls/jump count: 1 Data use count: 0}}
         sub     $80               ;{{ee91:d680}} 
         ret                       ;{{ee93:c9}} 
 
-_possibly_validate_input_buffer_is_a_number_170:;{{Addr=$ee94 Code Calls/jump count: 2 Data use count: 0}}
+;;=skip whitespace
+skip_whitespace:                  ;{{Addr=$ee94 Code Calls/jump count: 2 Data use count: 0}}
         call    skip_space_tab_or_line_feed;{{ee94:cd4dde}}  skip space, lf or tab
         inc     hl                ;{{ee97:23}} 
         ret                       ;{{ee98:c9}} 
 
-_possibly_validate_input_buffer_is_a_number_173:;{{Addr=$ee99 Code Calls/jump count: 1 Data use count: 0}}
+;;=do decimal conversion
+do_decimal_conversion:            ;{{Addr=$ee99 Code Calls/jump count: 1 Data use count: 0}}
         ex      de,hl             ;{{ee99:eb}} 
-        ld      hl,$ae3f          ;{{ee9a:213fae}} 
-        ld      bc,$0501          ;{{ee9d:010105}} 
-_possibly_validate_input_buffer_is_a_number_176:;{{Addr=$eea0 Code Calls/jump count: 1 Data use count: 0}}
+        ld      hl,end_of_conversion_buffer + 1;{{ee9a:213fae}} Zero buffer for result
+        ld      bc,$0501          ;{{ee9d:010105}} B=counter for next loop;C=count of how many bytes we need to multiply
+_do_decimal_conversion_3:         ;{{Addr=$eea0 Code Calls/jump count: 1 Data use count: 0}}
         dec     hl                ;{{eea0:2b}} 
         ld      (hl),$00          ;{{eea1:3600}} 
-        djnz    _possibly_validate_input_buffer_is_a_number_176;{{eea3:10fb}}  (-$05)
+        djnz    _do_decimal_conversion_3;{{eea3:10fb}}  (-$05)
         ld      a,(de)            ;{{eea5:1a}} 
-        cp      $ff               ;{{eea6:feff}} 
+        cp      $ff               ;{{eea6:feff}} End of ASCII digits marker
         ret     z                 ;{{eea8:c8}} 
 
-        ld      (hl),a            ;{{eea9:77}} 
-_possibly_validate_input_buffer_is_a_number_183:;{{Addr=$eeaa Code Calls/jump count: 2 Data use count: 0}}
-        ld      hl,start_of_buffer_used_to_form_hexadecimal;{{eeaa:213aae}} 
+        ld      (hl),a            ;{{eea9:77}} Write first digit
+
+;;=decimal convert loop for digits in input buffer
+decimal_convert_loop_for_digits_in_input_buffer:;{{Addr=$eeaa Code Calls/jump count: 2 Data use count: 0}}
+        ld      hl,conversion_buffer;{{eeaa:213aae}} 
         inc     de                ;{{eead:13}} 
-        ld      a,(de)            ;{{eeae:1a}} 
-        cp      $ff               ;{{eeaf:feff}} 
+        ld      a,(de)            ;{{eeae:1a}} Read next digit
+        cp      $ff               ;{{eeaf:feff}} End of buffer marker
         ret     z                 ;{{eeb1:c8}} 
 
         push    de                ;{{eeb2:d5}} 
-        ld      b,c               ;{{eeb3:41}} 
+        ld      b,c               ;{{eeb3:41}} Source digit counter
         ld      d,$00             ;{{eeb4:1600}} 
-_possibly_validate_input_buffer_is_a_number_191:;{{Addr=$eeb6 Code Calls/jump count: 1 Data use count: 0}}
+
+;;=decimal convert multiply loop
+decimal_convert_multiply_loop:    ;{{Addr=$eeb6 Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{eeb6:e5}} 
         ld      e,(hl)            ;{{eeb7:5e}} 
         ld      h,d               ;{{eeb8:62}} 
@@ -9932,150 +10679,162 @@ _possibly_validate_input_buffer_is_a_number_191:;{{Addr=$eeb6 Code Calls/jump co
         pop     hl                ;{{eec2:e1}} 
         ld      (hl),e            ;{{eec3:73}} 
         inc     hl                ;{{eec4:23}} 
-        djnz    _possibly_validate_input_buffer_is_a_number_191;{{eec5:10ef}}  (-$11)
+        djnz    decimal_convert_multiply_loop;{{eec5:10ef}}  (-$11)
+
         pop     de                ;{{eec7:d1}} 
         or      a                 ;{{eec8:b7}} 
-        jr      z,_possibly_validate_input_buffer_is_a_number_183;{{eec9:28df}}  (-$21)
+        jr      z,decimal_convert_loop_for_digits_in_input_buffer;{{eec9:28df}}  (-$21)
         ld      (hl),a            ;{{eecb:77}} 
         inc     c                 ;{{eecc:0c}} 
-        jr      _possibly_validate_input_buffer_is_a_number_183;{{eecd:18db}}  (-$25)
+        jr      decimal_convert_loop_for_digits_in_input_buffer;{{eecd:18db}}  (-$25)
 
-
-
-
-
-;;***NumbersToStrings.asm
-;;<< NUMBERS TO STRINGS
 ;;=======================================================================
-;;convert number a
-convert_number_a:                 ;{{Addr=$eecf Code Calls/jump count: 4 Data use count: 0}}
+;;parse line number
+parse_line_number:                ;{{Addr=$eecf Code Calls/jump count: 4 Data use count: 0}}
         push    bc                ;{{eecf:c5}} 
         push    hl                ;{{eed0:e5}} 
-        call    convert_number_in_base_defined;{{eed1:cd00ef}} 
+        call    convert_decimal_integer;{{eed1:cd00ef}} 
         ex      de,hl             ;{{eed4:eb}} 
         call    store_HL_in_accumulator_as_INT;{{eed5:cd35ff}} 
         ex      de,hl             ;{{eed8:eb}} 
         pop     bc                ;{{eed9:c1}} 
-        jr      nc,_convert_number_a_12;{{eeda:3006}}  (+$06)
+        jr      nc,_parse_line_number_12;{{eeda:3006}}  (+$06)
         ld      a,d               ;{{eedc:7a}} 
         or      e                 ;{{eedd:b3}} 
         add     a,$ff             ;{{eede:c6ff}} 
-        jr      c,_convert_number_a_15;{{eee0:3803}}  (+$03)
-_convert_number_a_12:             ;{{Addr=$eee2 Code Calls/jump count: 1 Data use count: 0}}
+        jr      c,_parse_line_number_15;{{eee0:3803}}  (+$03)
+_parse_line_number_12:            ;{{Addr=$eee2 Code Calls/jump count: 1 Data use count: 0}}
         ld      d,b               ;{{eee2:50}} 
         ld      e,c               ;{{eee3:59}} 
         ex      de,hl             ;{{eee4:eb}} 
-_convert_number_a_15:             ;{{Addr=$eee5 Code Calls/jump count: 1 Data use count: 0}}
+_parse_line_number_15:            ;{{Addr=$eee5 Code Calls/jump count: 1 Data use count: 0}}
         pop     bc                ;{{eee5:c1}} 
         ret                       ;{{eee6:c9}} 
 
 
 ;;=======================================================================
-;; convert number b
-convert_number_b:                 ;{{Addr=$eee7 Code Calls/jump count: 1 Data use count: 0}}
+;;convert hex or binary to HL
+convert_hex_or_binary_to_HL:      ;{{Addr=$eee7 Code Calls/jump count: 1 Data use count: 0}}
         inc     hl                ;{{eee7:23}} 
         call    skip_space_tab_or_line_feed;{{eee8:cd4dde}}  skip space, lf or tab
         call    convert_character_to_upper_case;{{eeeb:cdabff}} ; convert character to upper case
 
         ld      b,$02             ;{{eeee:0602}} ; base 2
         cp      $58               ;{{eef0:fe58}} ; X
-        jr      z,_convert_number_b_9;{{eef2:2806}} 
+        jr      z,_convert_hex_or_binary_to_hl_9;{{eef2:2806}} 
 
         ld      b,$10             ;{{eef4:0610}} ; base 16
         cp      $48               ;{{eef6:fe48}} ; H
-        jr      nz,_convert_number_b_11;{{eef8:2004}} 
+        jr      nz,_convert_hex_or_binary_to_hl_11;{{eef8:2004}} 
 
-_convert_number_b_9:              ;{{Addr=$eefa Code Calls/jump count: 1 Data use count: 0}}
+_convert_hex_or_binary_to_hl_9:   ;{{Addr=$eefa Code Calls/jump count: 1 Data use count: 0}}
         inc     hl                ;{{eefa:23}} 
         call    skip_space_tab_or_line_feed;{{eefb:cd4dde}}  skip space, lf or tab
-_convert_number_b_11:             ;{{Addr=$eefe Code Calls/jump count: 1 Data use count: 0}}
-        jr      _convert_number_in_base_defined_1;{{eefe:1802}}  (+$02)
+_convert_hex_or_binary_to_hl_11:  ;{{Addr=$eefe Code Calls/jump count: 1 Data use count: 0}}
+        jr      convert_number_using_base_in_B;{{eefe:1802}}  (+$02)
 
 ;;=======================================================================
-;; convert number in base defined
-convert_number_in_base_defined:   ;{{Addr=$ef00 Code Calls/jump count: 2 Data use count: 0}}
+;; convert decimal integer
+convert_decimal_integer:          ;{{Addr=$ef00 Code Calls/jump count: 2 Data use count: 0}}
         ld      b,$0a             ;{{ef00:060a}} ; base 10
 
-;; A = base: 2 for binary, 16 for hexadecimal, 10 for decimal
-
-_convert_number_in_base_defined_1:;{{Addr=$ef02 Code Calls/jump count: 1 Data use count: 0}}
+;;=convert number using base in B
+; B = base: 2 for binary, 16 for hexadecimal, 10 for decimal
+convert_number_using_base_in_B:   ;{{Addr=$ef02 Code Calls/jump count: 1 Data use count: 0}}
         ex      de,hl             ;{{ef02:eb}} 
-        call    _convert_number_in_base_defined_27;{{ef03:cd2cef}} 
-        ld      h,$00             ;{{ef06:2600}} 
+        call    convert_digit_using_base_in_B;{{ef03:cd2cef}} 
+
+        ld      h,$00             ;{{ef06:2600}} Result
         ld      l,a               ;{{ef08:6f}} 
-        jr      nc,_convert_number_in_base_defined_24;{{ef09:301e}}  (+$1e)
-        ld      c,$00             ;{{ef0b:0e00}} 
-_convert_number_in_base_defined_7:;{{Addr=$ef0d Code Calls/jump count: 1 Data use count: 0}}
-        call    _convert_number_in_base_defined_27;{{ef0d:cd2cef}} 
-        jr      nc,_convert_number_in_base_defined_22;{{ef10:3014}}  (+$14)
+        jr      nc,_based_conversion_loop_17;{{ef09:301e}}  (+$1e) Digit conversion failed
+
+        ld      c,$00             ;{{ef0b:0e00}} Overflow flag?
+
+;;=based conversion loop
+based_conversion_loop:            ;{{Addr=$ef0d Code Calls/jump count: 1 Data use count: 0}}
+        call    convert_digit_using_base_in_B;{{ef0d:cd2cef}} Next digit
+        jr      nc,_based_conversion_loop_15;{{ef10:3014}}  (+$14) End of digits
         push    de                ;{{ef12:d5}} 
-        ld      d,$00             ;{{ef13:1600}} 
+
+        ld      d,$00             ;{{ef13:1600}} DE=new digit
         ld      e,a               ;{{ef15:5f}} 
         push    de                ;{{ef16:d5}} 
-        ld      e,b               ;{{ef17:58}} 
+
+        ld      e,b               ;{{ef17:58}} DE=base
         call    do_16x16_multiply_with_overflow;{{ef18:cd72dd}} 
         pop     de                ;{{ef1b:d1}} 
-        jr      c,_convert_number_in_base_defined_19;{{ef1c:3803}}  (+$03)
+        jr      c,_based_conversion_loop_12;{{ef1c:3803}}  (+$03) Overflow
         add     hl,de             ;{{ef1e:19}} 
-        jr      nc,_convert_number_in_base_defined_20;{{ef1f:3002}}  (+$02)
-_convert_number_in_base_defined_19:;{{Addr=$ef21 Code Calls/jump count: 1 Data use count: 0}}
-        ld      c,$ff             ;{{ef21:0eff}} 
-_convert_number_in_base_defined_20:;{{Addr=$ef23 Code Calls/jump count: 1 Data use count: 0}}
+        jr      nc,_based_conversion_loop_13;{{ef1f:3002}}  (+$02) No overflow
+_based_conversion_loop_12:        ;{{Addr=$ef21 Code Calls/jump count: 1 Data use count: 0}}
+        ld      c,$ff             ;{{ef21:0eff}} Overflow flag?
+_based_conversion_loop_13:        ;{{Addr=$ef23 Code Calls/jump count: 1 Data use count: 0}}
         pop     de                ;{{ef23:d1}} 
-        jr      _convert_number_in_base_defined_7;{{ef24:18e7}}  (-$19)
+        jr      based_conversion_loop;{{ef24:18e7}}  (-$19) Loop for next digit
 
-_convert_number_in_base_defined_22:;{{Addr=$ef26 Code Calls/jump count: 1 Data use count: 0}}
+_based_conversion_loop_15:        ;{{Addr=$ef26 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,c               ;{{ef26:79}} 
         cp      $01               ;{{ef27:fe01}} 
-_convert_number_in_base_defined_24:;{{Addr=$ef29 Code Calls/jump count: 1 Data use count: 0}}
+_based_conversion_loop_17:        ;{{Addr=$ef29 Code Calls/jump count: 1 Data use count: 0}}
         ex      de,hl             ;{{ef29:eb}} 
         ld      a,b               ;{{ef2a:78}} 
         ret                       ;{{ef2b:c9}} 
 
-_convert_number_in_base_defined_27:;{{Addr=$ef2c Code Calls/jump count: 2 Data use count: 0}}
+;;=convert digit using base in B
+;Convert single ASCII digit to binary in selected base
+convert_digit_using_base_in_B:    ;{{Addr=$ef2c Code Calls/jump count: 2 Data use count: 0}}
         ld      a,(de)            ;{{ef2c:1a}} 
         inc     de                ;{{ef2d:13}} 
         call    test_if_digit     ;{{ef2e:cda4ff}} ; test if ASCII character represents a decimal number digit
-        jr      c,_convert_number_in_base_defined_36;{{ef31:380a}}  (+$0a)
+        jr      c,_convert_digit_using_base_in_b_9;{{ef31:380a}}  (+$0a) Carry set if decimal digit
         call    convert_character_to_upper_case;{{ef33:cdabff}} ; convert character to upper case
-        cp      $41               ;{{ef36:fe41}} 
+        cp      $41               ;{{ef36:fe41}} 'A'
         ccf                       ;{{ef38:3f}} 
-        jr      nc,_convert_number_in_base_defined_38;{{ef39:3005}}  (+$05)
-        sub     $07               ;{{ef3b:d607}} 
-_convert_number_in_base_defined_36:;{{Addr=$ef3d Code Calls/jump count: 1 Data use count: 0}}
-        sub     $30               ;{{ef3d:d630}} 
-        cp      b                 ;{{ef3f:b8}} 
-_convert_number_in_base_defined_38:;{{Addr=$ef40 Code Calls/jump count: 1 Data use count: 0}}
+        jr      nc,_convert_digit_using_base_in_b_11;{{ef39:3005}}  (+$05)
+        sub     $07               ;{{ef3b:d607}} Move ASCII letters to 'follow' ASCII numbers
+_convert_digit_using_base_in_b_9: ;{{Addr=$ef3d Code Calls/jump count: 1 Data use count: 0}}
+        sub     $30               ;{{ef3d:d630}} '0' - convert ASCII to binary
+        cp      b                 ;{{ef3f:b8}} Validate we're within given base
+_convert_digit_using_base_in_b_11:;{{Addr=$ef40 Code Calls/jump count: 1 Data use count: 0}}
         ret     c                 ;{{ef40:d8}} 
 
         dec     de                ;{{ef41:1b}} 
         xor     a                 ;{{ef42:af}} 
         ret                       ;{{ef43:c9}} 
 
+
+
+
+;;***NumbersToStrings.asm
+;;<< NUMBERS TO STRINGS
 ;;============================================
 ;;display decimal number
+;Display the value in HL to the current stream
 display_decimal_number:           ;{{Addr=$ef44 Code Calls/jump count: 2 Data use count: 0}}
-        call    convert_int_to_string;{{ef44:cd4aef}} 
+        call    convert_int_in_HL_to_string;{{ef44:cd4aef}} 
         jp      output_ASCIIZ_string;{{ef47:c38bc3}} ; display 0 terminated string
 
-;;=convert int to string
-convert_int_to_string:            ;{{Addr=$ef4a Code Calls/jump count: 3 Data use count: 0}}
+;;=convert int in HL to string
+;Convert the value in HL to a string. Could be integer or real depending on the size of the number
+convert_int_in_HL_to_string:      ;{{Addr=$ef4a Code Calls/jump count: 3 Data use count: 0}}
         push    de                ;{{ef4a:d5}} 
         push    bc                ;{{ef4b:c5}} 
         call    store_HL_in_accumulator_as_INT;{{ef4c:cd35ff}} 
-        call    _poss_free_string_at_bc_length_a_18;{{ef4f:cd03fd}} 
-        xor     a                 ;{{ef52:af}} 
-        call    _convert_number_to_string_by_format_4;{{ef53:cd72ef}} 
+        call    set_regs_for_int_to_string_conv;{{ef4f:cd03fd}} HL=accumulator + 1; B=0; E=0; C=2 (size of int)
+        xor     a                 ;{{ef52:af}} Conversion format?
+        call    do_number_to_string;{{ef53:cd72ef}} 
         inc     hl                ;{{ef56:23}} 
         pop     bc                ;{{ef57:c1}} 
         pop     de                ;{{ef58:d1}} 
         ret                       ;{{ef59:c9}} 
 
-;;=convert float atHL to string
-convert_float_atHL_to_string:     ;{{Addr=$ef5a Code Calls/jump count: 2 Data use count: 0}}
+;;=convert accumulator to string
+;Converts accumulator to 'natural' format - ie. unspecified, could be real, integer or exponent 
+;depending on the number
+convert_accumulator_to_string:    ;{{Addr=$ef5a Code Calls/jump count: 2 Data use count: 0}}
         push    de                ;{{ef5a:d5}} 
         push    bc                ;{{ef5b:c5}} 
-        xor     a                 ;{{ef5c:af}} 
+        xor     a                 ;{{ef5c:af}} Conversion format?
         call    convert_number_to_string_by_format;{{ef5d:cd6aef}} 
         pop     bc                ;{{ef60:c1}} 
         pop     de                ;{{ef61:d1}} 
@@ -10087,207 +10846,262 @@ convert_float_atHL_to_string:     ;{{Addr=$ef5a Code Calls/jump count: 2 Data us
         ret                       ;{{ef67:c9}} 
 
 ;;==================================
-;;prob eval number to decimal string
-prob_eval_number_to_decimal_string:;{{Addr=$ef68 Code Calls/jump count: 2 Data use count: 0}}
-        ld      a,$40             ;{{ef68:3e40}} '@' - Decimal specifier
+;;conv number to decimal string
+;Converts accumulator to decimal integer string
+conv_number_to_decimal_string:    ;{{Addr=$ef68 Code Calls/jump count: 2 Data use count: 0}}
+        ld      a,$40             ;{{ef68:3e40}} Integer
+
 ;;=convert number to string by format
-;Format is one of + - $ £ * # , . ^
+;A=Display format
+;If bit 7 of A is clear then the format is as follows:
+;$00=Flexible (could be real or integer depending on the number)
+;$40=Integer
+;(Other values are possible but unlikely)
+
+;If bit 7 of A is set then the value is formatted with a format string (i.e. PRINT USING or DEC$)
+;using bitwise values as follows
+;Bit    Hex
+;7      $80 Always set - indicates we have a format 
+;            (as opposed to calling the conversion routines without a format)
+;6      &40 Exponent ('^^^^' at the end)
+;5      $20 Asterisk prefix
+;4      $10 If clear then show sign prefix, otherwise sign suffix
+;3      $08 If bit 4 set, bit 3 set specifies always show sign prefix, even for positive numbers
+;                         bit 3 clear specifies sign prefix only if negative
+;           If bit 4 clear, bit 3 clear specifies sign suffix of '-' or space
+;                           bit 3 set specifies sign suffix of '-' or '+'
+;2      &04 Currency symbol prefix (actual symbol is stored at &ae54)
+;1      &02 Contains comma(s)
+;(Bit zero is used as a flag when doing conversions)
+;
+;DE=Address of format template (prob not used)
+;B=length of format template (prob not used)
+;H=number of chars before the decimal point
+;L=number of chars after, and including, the decimal point
 convert_number_to_string_by_format:;{{Addr=$ef6a Code Calls/jump count: 3 Data use count: 0}}
-        ld      (RAM_ae52),hl     ;{{ef6a:2252ae}} 
+        ld      (Chars_before_the_decimal_point_in_format),hl;{{ef6a:2252ae}} Store char counts
         push    af                ;{{ef6d:f5}} 
-        call    _poss_free_string_at_bc_length_a_12;{{ef6e:cdf3fc}} 
+        call    prepare_accum_and_regs_for_word_to_string;{{ef6e:cdf3fc}} HL=accumulator plus 1, 
         pop     af                ;{{ef71:f1}} 
-_convert_number_to_string_by_format_4:;{{Addr=$ef72 Code Calls/jump count: 1 Data use count: 0}}
+
+;;=do number to string
+;For an integer value:
+;For a real value (i.e. a value which has a fractional part or which is too large for an integer):
+;REAL_prepare_for_decimal (in he firmware) is called prior to this.
+;I /think/ this unpacks the value into BCD and sets up registers
+;
+;Either way, by the time we arrive here:
+;A=format string
+;B bit 7=set for -ve, clear for +ve
+;C=Number of bytes in the input buffer. $02=16-bit integer, $01=8-bit integer, Real=??
+;E=$00 for integers, possible number of digits for real
+;HL=last used byte of source buffer
+do_number_to_string:              ;{{Addr=$ef72 Code Calls/jump count: 1 Data use count: 0}}
         push    bc                ;{{ef72:c5}} 
-        ld      d,a               ;{{ef73:57}} 
+        ld      d,a               ;{{ef73:57}} D=format
         push    de                ;{{ef74:d5}} 
-        call    _convert_number_to_string_by_format_357;{{ef75:cd8af1}} 
-        pop     de                ;{{ef78:d1}} 
-        call    _convert_number_to_string_by_format_25;{{ef79:cd96ef}} 
-        call    _convert_number_to_string_by_format_285;{{ef7c:cd1af1}} 
+        call    do_input_to_ascii ;{{ef75:cd8af1}} Converts to a raw ASCII formatted number
+                                  ;Returns: C=number of chars digits in number
+                                  ;HL=addr of first digit
+        pop     de                ;{{ef78:d1}} D=format, E=number of digits processed(??)
+        call    prob_scale_and_add_exponent_if_needed;{{ef79:cd96ef}} 
+        call    insert_commas_if_required;{{ef7c:cd1af1}} 
         pop     af                ;{{ef7f:f1}} 
         ld      e,a               ;{{ef80:5f}} 
         ld      a,b               ;{{ef81:78}} 
         or      a                 ;{{ef82:b7}} 
-        call    z,_convert_number_to_string_by_format_297;{{ef83:cc2cf1}} 
-        call    _convert_number_to_string_by_format_314;{{ef86:cd45f1}} 
-        call    _convert_number_to_string_by_format_321;{{ef89:cd4ff1}} 
-        call    _convert_number_to_string_by_format_339;{{ef8c:cd6ff1}} 
+        call    z,write_zero_if_required;{{ef83:cc2cf1}} 
+        call    write_currency_prefix_if_required;{{ef86:cd45f1}} 
+        call    prob_write_sign_if_needed;{{ef89:cd4ff1}} 
+        call    prob_write_leading_asterisk_or_space;{{ef8c:cd6ff1}} 
         ld      a,d               ;{{ef8f:7a}} 
         rra                       ;{{ef90:1f}} 
         ret     nc                ;{{ef91:d0}} 
 
         dec     hl                ;{{ef92:2b}} 
-        ld      (hl),$25          ;{{ef93:3625}} '%'
+        ld      (hl),$25          ;{{ef93:3625}} '%' Conversion failed(?) eg too many chars
         ret                       ;{{ef95:c9}} 
 
-_convert_number_to_string_by_format_25:;{{Addr=$ef96 Code Calls/jump count: 1 Data use count: 0}}
+;;=prob scale and add exponent if needed
+prob_scale_and_add_exponent_if_needed:;{{Addr=$ef96 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,d               ;{{ef96:7a}} 
         add     a,a               ;{{ef97:87}} 
-        jr      nc,_convert_number_to_string_by_format_54;{{ef98:302d}}  (+$2d)
-        jp      m,_convert_number_to_string_by_format_76;{{ef9a:faedef}} 
-        ld      a,e               ;{{ef9d:7b}} 
+        jr      nc,unformatted_scale_and_exp_if_needed;{{ef98:302d}}  (+$2d) No format string
+        jp      m,do_scale_and_add_exponent;{{ef9a:faedef}} Already showing exponent
+
+;Check length of the number, display in exponent format if too long
+        ld      a,e               ;{{ef9d:7b}} C+E=number of digits
         add     a,c               ;{{ef9e:81}} 
         sub     $15               ;{{ef9f:d615}} 
-        jp      m,_convert_number_to_string_by_format_141;{{efa1:fa56f0}} 
+        jp      m,scale_no_exp_needed;{{efa1:fa56f0}} Not too long
         ld      a,d               ;{{efa4:7a}} 
-        or      $41               ;{{efa5:f641}}  'A'
+        or      $41               ;{{efa5:f641}}  Add show exponent flag to format
         ld      d,a               ;{{efa7:57}} 
-        jr      _convert_number_to_string_by_format_76;{{efa8:1843}}  (+$43)
+        jr      do_scale_and_add_exponent;{{efa8:1843}}  (+$43)
 
-_convert_number_to_string_by_format_37:;{{Addr=$efaa Code Calls/jump count: 2 Data use count: 0}}
+;;=unformatted scale loop
+unformatted_scale_loop:           ;{{Addr=$efaa Code Calls/jump count: 2 Data use count: 0}}
         ld      b,c               ;{{efaa:41}} 
         ld      a,c               ;{{efab:79}} 
         or      a                 ;{{efac:b7}} 
-        jr      z,_convert_number_to_string_by_format_53;{{efad:2815}}  (+$15)
+        jr      z,_unformatted_scale_loop_16;{{efad:2815}}  (+$15)
         add     a,e               ;{{efaf:83}} 
         dec     a                 ;{{efb0:3d}} 
         ld      e,a               ;{{efb1:5f}} 
-        call    _convert_number_to_string_by_format_244;{{efb2:cddef0}} 
+        call    prob_remove_trailing_zeros;{{efb2:cddef0}} 
         ld      b,$01             ;{{efb5:0601}} 
         ld      a,c               ;{{efb7:79}} 
         cp      $07               ;{{efb8:fe07}} 
-        jr      c,_convert_number_to_string_by_format_51;{{efba:3804}}  (+$04)
-        bit     6,d               ;{{efbc:cb72}} 
-        jr      nz,_convert_number_to_string_by_format_73;{{efbe:2026}}  (+$26)
-_convert_number_to_string_by_format_51:;{{Addr=$efc0 Code Calls/jump count: 1 Data use count: 0}}
+        jr      c,_unformatted_scale_loop_14;{{efba:3804}}  (+$04)
+        bit     6,d               ;{{efbc:cb72}} Show exponent?
+        jr      nz,_unformatted_scale_and_exp_if_needed_19;{{efbe:2026}}  (+$26)
+_unformatted_scale_loop_14:       ;{{Addr=$efc0 Code Calls/jump count: 1 Data use count: 0}}
         cp      b                 ;{{efc0:b8}} 
-        call    nz,_convert_number_to_string_by_format_156;{{efc1:c474f0}} 
-_convert_number_to_string_by_format_53:;{{Addr=$efc4 Code Calls/jump count: 1 Data use count: 0}}
-        jp      _convert_number_to_string_by_format_121;{{efc4:c332f0}} 
+        call    nz,poss_insert_decimal_point;{{efc1:c474f0}} 
+_unformatted_scale_loop_16:       ;{{Addr=$efc4 Code Calls/jump count: 1 Data use count: 0}}
+        jp      _do_scale_and_add_exponent_45;{{efc4:c332f0}} 
 
-_convert_number_to_string_by_format_54:;{{Addr=$efc7 Code Calls/jump count: 1 Data use count: 0}}
+;;=unformatted scale and exp if needed
+unformatted_scale_and_exp_if_needed:;{{Addr=$efc7 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,e               ;{{efc7:7b}} 
         or      a                 ;{{efc8:b7}} 
-        jp      m,_convert_number_to_string_by_format_60;{{efc9:fad0ef}} 
-        jr      nz,_convert_number_to_string_by_format_37;{{efcc:20dc}}  (-$24)
-_convert_number_to_string_by_format_58:;{{Addr=$efce Code Calls/jump count: 1 Data use count: 0}}
+        jp      m,_unformatted_scale_and_exp_if_needed_6;{{efc9:fad0ef}} 
+        jr      nz,unformatted_scale_loop;{{efcc:20dc}}  (-$24)
+_unformatted_scale_and_exp_if_needed_4:;{{Addr=$efce Code Calls/jump count: 1 Data use count: 0}}
         ld      b,c               ;{{efce:41}} 
         ret                       ;{{efcf:c9}} 
 
-_convert_number_to_string_by_format_60:;{{Addr=$efd0 Code Calls/jump count: 1 Data use count: 0}}
+_unformatted_scale_and_exp_if_needed_6:;{{Addr=$efd0 Code Calls/jump count: 1 Data use count: 0}}
         ld      b,e               ;{{efd0:43}} 
-        call    _convert_number_to_string_by_format_244;{{efd1:cddef0}} 
+        call    prob_remove_trailing_zeros;{{efd1:cddef0}} 
         ld      a,b               ;{{efd4:78}} 
         or      a                 ;{{efd5:b7}} 
-        jr      z,_convert_number_to_string_by_format_58;{{efd6:28f6}}  (-$0a)
+        jr      z,_unformatted_scale_and_exp_if_needed_4;{{efd6:28f6}}  (-$0a)
         sub     e                 ;{{efd8:93}} 
         ld      e,b               ;{{efd9:58}} 
         ld      b,a               ;{{efda:47}} 
         add     a,c               ;{{efdb:81}} 
         add     a,e               ;{{efdc:83}} 
-        jp      m,_convert_number_to_string_by_format_37;{{efdd:faaaef}} 
-        call    _convert_number_to_string_by_format_173;{{efe0:cd87f0}} 
-        jp      _convert_number_to_string_by_format_156;{{efe3:c374f0}} 
+        jp      m,unformatted_scale_loop;{{efdd:faaaef}} 
+        call    prob_write_zeros_to_buffer;{{efe0:cd87f0}} 
+        jp      poss_insert_decimal_point;{{efe3:c374f0}} 
 
-_convert_number_to_string_by_format_73:;{{Addr=$efe6 Code Calls/jump count: 1 Data use count: 0}}
+_unformatted_scale_and_exp_if_needed_19:;{{Addr=$efe6 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,$06             ;{{efe6:3e06}} 
-        ld      (RAM_ae52),a      ;{{efe8:3252ae}} 
-        jr      _convert_number_to_string_by_format_104;{{efeb:182e}}  (+$2e)
+        ld      (Chars_before_the_decimal_point_in_format),a;{{efe8:3252ae}} 
+        jr      _do_scale_and_add_exponent_28;{{efeb:182e}}  (+$2e)
 
-_convert_number_to_string_by_format_76:;{{Addr=$efed Code Calls/jump count: 2 Data use count: 0}}
-        call    _convert_number_to_string_by_format_263;{{efed:cdfbf0}} 
-        jr      nc,_convert_number_to_string_by_format_80;{{eff0:3003}}  (+$03)
+;;=do scale and add exponent
+do_scale_and_add_exponent:        ;{{Addr=$efed Code Calls/jump count: 2 Data use count: 0}}
+        call    prob_test_if_prefix_char_needed;{{efed:cdfbf0}} 
+        jr      nc,_do_scale_and_add_exponent_4;{{eff0:3003}}  (+$03)
         set     0,d               ;{{eff2:cbc2}} 
         xor     a                 ;{{eff4:af}} 
-_convert_number_to_string_by_format_80:;{{Addr=$eff5 Code Calls/jump count: 1 Data use count: 0}}
+_do_scale_and_add_exponent_4:     ;{{Addr=$eff5 Code Calls/jump count: 1 Data use count: 0}}
         ld      b,a               ;{{eff5:47}} 
-        call    z,_convert_number_to_string_by_format_280;{{eff6:cc13f1}} 
-        jr      nz,_convert_number_to_string_by_format_91;{{eff9:200e}}  (+$0e)
+        call    z,get_chars_before_dp;{{eff6:cc13f1}} 
+        jr      nz,_do_scale_and_add_exponent_15;{{eff9:200e}}  (+$0e)
         set     0,d               ;{{effb:cbc2}} 
         inc     b                 ;{{effd:04}} 
-        ld      a,(RAM_ae52)      ;{{effe:3a52ae}} 
+        ld      a,(Chars_before_the_decimal_point_in_format);{{effe:3a52ae}} 
         or      a                 ;{{f001:b7}} 
-        jr      z,_convert_number_to_string_by_format_91;{{f002:2805}}  (+$05)
+        jr      z,_do_scale_and_add_exponent_15;{{f002:2805}}  (+$05)
         dec     b                 ;{{f004:05}} 
         inc     a                 ;{{f005:3c}} 
-        ld      (RAM_ae52),a      ;{{f006:3252ae}} 
-_convert_number_to_string_by_format_91:;{{Addr=$f009 Code Calls/jump count: 2 Data use count: 0}}
+        ld      (Chars_before_the_decimal_point_in_format),a;{{f006:3252ae}} 
+_do_scale_and_add_exponent_15:    ;{{Addr=$f009 Code Calls/jump count: 2 Data use count: 0}}
         bit     1,d               ;{{f009:cb4a}} 
-        jr      z,_convert_number_to_string_by_format_98;{{f00b:2807}}  (+$07)
+        jr      z,_do_scale_and_add_exponent_22;{{f00b:2807}}  (+$07)
         ld      a,b               ;{{f00d:78}} 
         inc     b                 ;{{f00e:04}} 
-_convert_number_to_string_by_format_95:;{{Addr=$f00f Code Calls/jump count: 1 Data use count: 0}}
+_do_scale_and_add_exponent_19:    ;{{Addr=$f00f Code Calls/jump count: 1 Data use count: 0}}
         dec     b                 ;{{f00f:05}} 
         sub     $04               ;{{f010:d604}} 
-        jr      nc,_convert_number_to_string_by_format_95;{{f012:30fb}}  (-$05)
-_convert_number_to_string_by_format_98:;{{Addr=$f014 Code Calls/jump count: 1 Data use count: 0}}
+        jr      nc,_do_scale_and_add_exponent_19;{{f012:30fb}}  (-$05)
+_do_scale_and_add_exponent_22:    ;{{Addr=$f014 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,c               ;{{f014:79}} 
         or      a                 ;{{f015:b7}} 
-        jr      z,_convert_number_to_string_by_format_105;{{f016:2804}}  (+$04)
+        jr      z,_do_scale_and_add_exponent_29;{{f016:2804}}  (+$04)
         add     a,e               ;{{f018:83}} 
         sub     b                 ;{{f019:90}} 
         ld      e,a               ;{{f01a:5f}} 
-_convert_number_to_string_by_format_104:;{{Addr=$f01b Code Calls/jump count: 1 Data use count: 0}}
+_do_scale_and_add_exponent_28:    ;{{Addr=$f01b Code Calls/jump count: 1 Data use count: 0}}
         ld      a,b               ;{{f01b:78}} 
-_convert_number_to_string_by_format_105:;{{Addr=$f01c Code Calls/jump count: 1 Data use count: 0}}
+_do_scale_and_add_exponent_29:    ;{{Addr=$f01c Code Calls/jump count: 1 Data use count: 0}}
         push    af                ;{{f01c:f5}} 
         ld      b,a               ;{{f01d:47}} 
-        call    _convert_number_to_string_by_format_142;{{f01e:cd59f0}} 
+        call    _scale_no_exp_needed_1;{{f01e:cd59f0}} 
         pop     af                ;{{f021:f1}} 
         cp      b                 ;{{f022:b8}} 
-        jr      z,_convert_number_to_string_by_format_121;{{f023:280d}}  (+$0d)
+        jr      z,_do_scale_and_add_exponent_45;{{f023:280d}}  (+$0d)
         inc     e                 ;{{f025:1c}} 
         inc     hl                ;{{f026:23}} 
         dec     b                 ;{{f027:05}} 
         push    hl                ;{{f028:e5}} 
         ld      a,(hl)            ;{{f029:7e}} 
-        cp      $2e               ;{{f02a:fe2e}} 
-        jr      nz,_convert_number_to_string_by_format_119;{{f02c:2001}}  (+$01)
+        cp      $2e               ;{{f02a:fe2e}} '.'
+        jr      nz,_do_scale_and_add_exponent_43;{{f02c:2001}}  (+$01)
         inc     hl                ;{{f02e:23}} 
-_convert_number_to_string_by_format_119:;{{Addr=$f02f Code Calls/jump count: 1 Data use count: 0}}
-        ld      (hl),$31          ;{{f02f:3631}} 
+_do_scale_and_add_exponent_43:    ;{{Addr=$f02f Code Calls/jump count: 1 Data use count: 0}}
+        ld      (hl),$31          ;{{f02f:3631}} '1'
         pop     hl                ;{{f031:e1}} 
-_convert_number_to_string_by_format_121:;{{Addr=$f032 Code Calls/jump count: 2 Data use count: 0}}
+_do_scale_and_add_exponent_45:    ;{{Addr=$f032 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,$04             ;{{f032:3e04}} 
-        call    _convert_number_to_string_by_format_219;{{f034:cdc2f0}} 
+        call    prob_copy_buffer_and_right_pad_with_zeros;{{f034:cdc2f0}} 
         push    hl                ;{{f037:e5}} 
-        ld      hl,$2b45          ;{{f038:21452b}} 
-        ld      a,e               ;{{f03b:7b}} 
+
+;write exponent letter and sign
+        ld      hl,$2b45          ;{{f038:21452b}} '+','E'
+        ld      a,e               ;{{f03b:7b}} A=exponent
         or      a                 ;{{f03c:b7}} 
-        jp      p,_convert_number_to_string_by_format_131;{{f03d:f244f0}} 
-        xor     a                 ;{{f040:af}} 
+        jp      p,_do_scale_and_add_exponent_55;{{f03d:f244f0}} 
+        xor     a                 ;{{f040:af}} Convert exponent
         sub     e                 ;{{f041:93}} 
         ld      h,$2d             ;{{f042:262d}}  '-'
-_convert_number_to_string_by_format_131:;{{Addr=$f044 Code Calls/jump count: 1 Data use count: 0}}
-        ld      (RAM_ae4c),hl     ;{{f044:224cae}} 
-        ld      l,$2f             ;{{f047:2e2f}} 
-_convert_number_to_string_by_format_133:;{{Addr=$f049 Code Calls/jump count: 1 Data use count: 0}}
+_do_scale_and_add_exponent_55:    ;{{Addr=$f044 Code Calls/jump count: 1 Data use count: 0}}
+        ld      (exponent_prefix),hl;{{f044:224cae}} Write 'E+' or 'E-' before exponent
+
+;Convert exponent into chars in HL
+        ld      l,$2f             ;{{f047:2e2f}} '/' - one before '0'
+_do_scale_and_add_exponent_57:    ;{{Addr=$f049 Code Calls/jump count: 1 Data use count: 0}}
         inc     l                 ;{{f049:2c}} 
         sub     $0a               ;{{f04a:d60a}} 
-        jr      nc,_convert_number_to_string_by_format_133;{{f04c:30fb}}  (-$05)
-        add     a,$3a             ;{{f04e:c63a}} ":"
+        jr      nc,_do_scale_and_add_exponent_57;{{f04c:30fb}}  (-$05)
+        add     a,$3a             ;{{f04e:c63a}} ":" - char after '9'
         ld      h,a               ;{{f050:67}} 
-        ld      (last_byte__B),hl ;{{f051:224eae}} 
+        ld      (exponent_value),hl;{{f051:224eae}} Write exponent digits to buffer
         pop     hl                ;{{f054:e1}} 
         ret                       ;{{f055:c9}} 
 
-_convert_number_to_string_by_format_141:;{{Addr=$f056 Code Calls/jump count: 1 Data use count: 0}}
-        call    _convert_number_to_string_by_format_173;{{f056:cd87f0}} 
-_convert_number_to_string_by_format_142:;{{Addr=$f059 Code Calls/jump count: 1 Data use count: 0}}
-        call    _convert_number_to_string_by_format_280;{{f059:cd13f1}} 
+;;=scale no exp needed
+scale_no_exp_needed:              ;{{Addr=$f056 Code Calls/jump count: 1 Data use count: 0}}
+        call    prob_write_zeros_to_buffer;{{f056:cd87f0}} 
+_scale_no_exp_needed_1:           ;{{Addr=$f059 Code Calls/jump count: 1 Data use count: 0}}
+        call    get_chars_before_dp;{{f059:cd13f1}} 
         add     a,b               ;{{f05c:80}} 
         cp      c                 ;{{f05d:b9}} 
-        jr      nc,_convert_number_to_string_by_format_148;{{f05e:3005}}  (+$05)
-        call    _convert_number_to_string_by_format_188;{{f060:cd9af0}} 
-        jr      _convert_number_to_string_by_format_153;{{f063:180a}}  (+$0a)
+        jr      nc,_scale_no_exp_needed_7;{{f05e:3005}}  (+$05)
+        call    prob_round_last_digit;{{f060:cd9af0}} 
+        jr      _scale_no_exp_needed_12;{{f063:180a}}  (+$0a)
 
-_convert_number_to_string_by_format_148:;{{Addr=$f065 Code Calls/jump count: 1 Data use count: 0}}
+_scale_no_exp_needed_7:           ;{{Addr=$f065 Code Calls/jump count: 1 Data use count: 0}}
         cp      $15               ;{{f065:fe15}} 
-        jr      c,_convert_number_to_string_by_format_151;{{f067:3802}}  (+$02)
+        jr      c,_scale_no_exp_needed_10;{{f067:3802}}  (+$02)
         ld      a,$14             ;{{f069:3e14}} 
-_convert_number_to_string_by_format_151:;{{Addr=$f06b Code Calls/jump count: 1 Data use count: 0}}
+_scale_no_exp_needed_10:          ;{{Addr=$f06b Code Calls/jump count: 1 Data use count: 0}}
         sub     c                 ;{{f06b:91}} 
-        call    nz,_convert_number_to_string_by_format_219;{{f06c:c4c2f0}} 
-_convert_number_to_string_by_format_153:;{{Addr=$f06f Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(RAM_ae52)      ;{{f06f:3a52ae}} 
+        call    nz,prob_copy_buffer_and_right_pad_with_zeros;{{f06c:c4c2f0}} 
+_scale_no_exp_needed_12:          ;{{Addr=$f06f Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,(Chars_before_the_decimal_point_in_format);{{f06f:3a52ae}} 
         or      a                 ;{{f072:b7}} 
         ret     z                 ;{{f073:c8}} 
 
-_convert_number_to_string_by_format_156:;{{Addr=$f074 Code Calls/jump count: 2 Data use count: 0}}
+;;=poss insert decimal point
+poss_insert_decimal_point:        ;{{Addr=$f074 Code Calls/jump count: 2 Data use count: 0}}
         ld      c,$2e             ;{{f074:0e2e}} 
         ld      a,b               ;{{f076:78}} 
-_convert_number_to_string_by_format_158:;{{Addr=$f077 Code Calls/jump count: 1 Data use count: 0}}
+;;=poss insert char into buffer
+poss_insert_char_into_buffer:     ;{{Addr=$f077 Code Calls/jump count: 1 Data use count: 0}}
         push    bc                ;{{f077:c5}} 
         ld      b,a               ;{{f078:47}} 
         inc     b                 ;{{f079:04}} 
@@ -10296,16 +11110,17 @@ _convert_number_to_string_by_format_158:;{{Addr=$f077 Code Calls/jump count: 1 D
         adc     a,h               ;{{f07c:8c}} 
         sub     l                 ;{{f07d:95}} 
         ld      h,a               ;{{f07e:67}} 
-_convert_number_to_string_by_format_166:;{{Addr=$f07f Code Calls/jump count: 1 Data use count: 0}}
+_poss_insert_char_into_buffer_8:  ;{{Addr=$f07f Code Calls/jump count: 1 Data use count: 0}}
         dec     hl                ;{{f07f:2b}} 
         ld      a,c               ;{{f080:79}} 
         ld      c,(hl)            ;{{f081:4e}} 
         ld      (hl),a            ;{{f082:77}} 
-        djnz    _convert_number_to_string_by_format_166;{{f083:10fa}}  (-$06)
+        djnz    _poss_insert_char_into_buffer_8;{{f083:10fa}}  (-$06)
         pop     bc                ;{{f085:c1}} 
         ret                       ;{{f086:c9}} 
 
-_convert_number_to_string_by_format_173:;{{Addr=$f087 Code Calls/jump count: 2 Data use count: 0}}
+;;=prob write zeros to buffer
+prob_write_zeros_to_buffer:       ;{{Addr=$f087 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,e               ;{{f087:7b}} 
         add     a,c               ;{{f088:81}} 
         ld      b,a               ;{{f089:47}} 
@@ -10315,16 +11130,17 @@ _convert_number_to_string_by_format_173:;{{Addr=$f087 Code Calls/jump count: 2 D
         inc     a                 ;{{f08c:3c}} 
         ld      b,$14             ;{{f08d:0614}} 
         cp      b                 ;{{f08f:b8}} 
-        jr      nc,_convert_number_to_string_by_format_183;{{f090:3001}}  (+$01)
+        jr      nc,_prob_write_zeros_to_buffer_10;{{f090:3001}}  (+$01)
         ld      b,a               ;{{f092:47}} 
-_convert_number_to_string_by_format_183:;{{Addr=$f093 Code Calls/jump count: 2 Data use count: 0}}
+_prob_write_zeros_to_buffer_10:   ;{{Addr=$f093 Code Calls/jump count: 2 Data use count: 0}}
         dec     hl                ;{{f093:2b}} 
-        ld      (hl),$30          ;{{f094:3630}} 
+        ld      (hl),$30          ;{{f094:3630}} '0'
         inc     c                 ;{{f096:0c}} 
-        djnz    _convert_number_to_string_by_format_183;{{f097:10fa}}  (-$06)
+        djnz    _prob_write_zeros_to_buffer_10;{{f097:10fa}}  (-$06)
         ret                       ;{{f099:c9}} 
 
-_convert_number_to_string_by_format_188:;{{Addr=$f09a Code Calls/jump count: 1 Data use count: 0}}
+;;=prob round last digit
+prob_round_last_digit:            ;{{Addr=$f09a Code Calls/jump count: 1 Data use count: 0}}
         ld      c,a               ;{{f09a:4f}} 
         add     a,l               ;{{f09b:85}} 
         ld      l,a               ;{{f09c:6f}} 
@@ -10334,20 +11150,21 @@ _convert_number_to_string_by_format_188:;{{Addr=$f09a Code Calls/jump count: 1 D
         push    hl                ;{{f0a0:e5}} 
         push    bc                ;{{f0a1:c5}} 
         ld      a,(hl)            ;{{f0a2:7e}} 
-        cp      $35               ;{{f0a3:fe35}} 
-        call    nc,_convert_number_to_string_by_format_208;{{f0a5:d4b4f0}} 
+        cp      $35               ;{{f0a3:fe35}} '5'
+        call    nc,prob_right_pad_with_zeros;{{f0a5:d4b4f0}} 
         pop     bc                ;{{f0a8:c1}} 
-        jr      c,_convert_number_to_string_by_format_205;{{f0a9:3805}}  (+$05)
+        jr      c,_prob_round_last_digit_17;{{f0a9:3805}}  (+$05)
         dec     hl                ;{{f0ab:2b}} 
-        ld      (hl),$31          ;{{f0ac:3631}} 
+        ld      (hl),$31          ;{{f0ac:3631}} '1'
         inc     b                 ;{{f0ae:04}} 
         inc     c                 ;{{f0af:0c}} 
-_convert_number_to_string_by_format_205:;{{Addr=$f0b0 Code Calls/jump count: 1 Data use count: 0}}
+_prob_round_last_digit_17:        ;{{Addr=$f0b0 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{f0b0:e1}} 
         dec     hl                ;{{f0b1:2b}} 
-        jr      _convert_number_to_string_by_format_253;{{f0b2:1838}}  (+$38)
+        jr      _prob_remove_trailing_zeros_9;{{f0b2:1838}}  (+$38)
 
-_convert_number_to_string_by_format_208:;{{Addr=$f0b4 Code Calls/jump count: 2 Data use count: 0}}
+;;=prob right pad with zeros
+prob_right_pad_with_zeros:        ;{{Addr=$f0b4 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,c               ;{{f0b4:79}} 
         or      a                 ;{{f0b5:b7}} 
         ret     z                 ;{{f0b6:c8}} 
@@ -10356,13 +11173,14 @@ _convert_number_to_string_by_format_208:;{{Addr=$f0b4 Code Calls/jump count: 2 D
         dec     c                 ;{{f0b8:0d}} 
         ld      a,(hl)            ;{{f0b9:7e}} 
         inc     (hl)              ;{{f0ba:34}} 
-        cp      $39               ;{{f0bb:fe39}} 
+        cp      $39               ;{{f0bb:fe39}} '9'
         ret     c                 ;{{f0bd:d8}} 
 
-        ld      (hl),$30          ;{{f0be:3630}} 
-        jr      _convert_number_to_string_by_format_208;{{f0c0:18f2}}  (-$0e)
+        ld      (hl),$30          ;{{f0be:3630}} '0'
+        jr      prob_right_pad_with_zeros;{{f0c0:18f2}}  (-$0e)
 
-_convert_number_to_string_by_format_219:;{{Addr=$f0c2 Code Calls/jump count: 2 Data use count: 0}}
+;;=prob copy buffer and right pad with zeros
+prob_copy_buffer_and_right_pad_with_zeros:;{{Addr=$f0c2 Code Calls/jump count: 2 Data use count: 0}}
         push    de                ;{{f0c2:d5}} 
         push    bc                ;{{f0c3:c5}} 
         ex      de,hl             ;{{f0c4:eb}} 
@@ -10374,38 +11192,43 @@ _convert_number_to_string_by_format_219:;{{Addr=$f0c2 Code Calls/jump count: 2 D
         add     a,d               ;{{f0ca:82}} 
         ld      h,a               ;{{f0cb:67}} 
         push    hl                ;{{f0cc:e5}} 
-_convert_number_to_string_by_format_230:;{{Addr=$f0cd Code Calls/jump count: 1 Data use count: 0}}
+;copy until null loop
+_prob_copy_buffer_and_right_pad_with_zeros_11:;{{Addr=$f0cd Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(de)            ;{{f0cd:1a}} 
         inc     de                ;{{f0ce:13}} 
         ld      (hl),a            ;{{f0cf:77}} 
         inc     hl                ;{{f0d0:23}} 
         or      a                 ;{{f0d1:b7}} 
-        jr      nz,_convert_number_to_string_by_format_230;{{f0d2:20f9}}  (-$07)
+        jr      nz,_prob_copy_buffer_and_right_pad_with_zeros_11;{{f0d2:20f9}}  (-$07)
         dec     hl                ;{{f0d4:2b}} 
-_convert_number_to_string_by_format_237:;{{Addr=$f0d5 Code Calls/jump count: 1 Data use count: 0}}
-        ld      (hl),$30          ;{{f0d5:3630}} 
+;write zeros loop
+_prob_copy_buffer_and_right_pad_with_zeros_18:;{{Addr=$f0d5 Code Calls/jump count: 1 Data use count: 0}}
+        ld      (hl),$30          ;{{f0d5:3630}} '0'
         inc     hl                ;{{f0d7:23}} 
-        djnz    _convert_number_to_string_by_format_237;{{f0d8:10fb}}  (-$05)
+        djnz    _prob_copy_buffer_and_right_pad_with_zeros_18;{{f0d8:10fb}}  (-$05)
         pop     hl                ;{{f0da:e1}} 
         pop     bc                ;{{f0db:c1}} 
         pop     de                ;{{f0dc:d1}} 
         ret                       ;{{f0dd:c9}} 
 
-_convert_number_to_string_by_format_244:;{{Addr=$f0de Code Calls/jump count: 2 Data use count: 0}}
-        ld      hl,RAM_ae50       ;{{f0de:2150ae}} ##LABEL##
-_convert_number_to_string_by_format_245:;{{Addr=$f0e1 Code Calls/jump count: 1 Data use count: 0}}
+;;=prob remove trailing zeros
+prob_remove_trailing_zeros:       ;{{Addr=$f0de Code Calls/jump count: 2 Data use count: 0}}
+        ld      hl,end_of_number_in_format_buffer + 1;{{f0de:2150ae}} ##LABEL##
+;Loop over zeros
+_prob_remove_trailing_zeros_1:    ;{{Addr=$f0e1 Code Calls/jump count: 1 Data use count: 0}}
         dec     hl                ;{{f0e1:2b}} 
         ld      a,(hl)            ;{{f0e2:7e}} 
         cp      $30               ;{{f0e3:fe30}} 
-        jr      nz,_convert_number_to_string_by_format_253;{{f0e5:2005}}  (+$05)
+        jr      nz,_prob_remove_trailing_zeros_9;{{f0e5:2005}}  (+$05)
         dec     c                 ;{{f0e7:0d}} 
         inc     b                 ;{{f0e8:04}} 
-        jr      nz,_convert_number_to_string_by_format_245;{{f0e9:20f6}}  (-$0a)
+        jr      nz,_prob_remove_trailing_zeros_1;{{f0e9:20f6}}  (-$0a)
+
         dec     hl                ;{{f0eb:2b}} 
-_convert_number_to_string_by_format_253:;{{Addr=$f0ec Code Calls/jump count: 2 Data use count: 0}}
+_prob_remove_trailing_zeros_9:    ;{{Addr=$f0ec Code Calls/jump count: 2 Data use count: 0}}
         push    de                ;{{f0ec:d5}} 
         push    bc                ;{{f0ed:c5}} 
-        ld      de,$ae4f          ;{{f0ee:114fae}} ##LABEL##
+        ld      de,end_of_number_in_format_buffer;{{f0ee:114fae}} ##LABEL##
         ld      b,$00             ;{{f0f1:0600}} 
         call    copy_bytes_LDDR_BCcount_HLsource_DEdest;{{f0f3:cdf5ff}}  copy bytes LDDR (BC = count)
         ex      de,hl             ;{{f0f6:eb}} 
@@ -10414,247 +11237,339 @@ _convert_number_to_string_by_format_253:;{{Addr=$f0ec Code Calls/jump count: 2 D
         pop     de                ;{{f0f9:d1}} 
         ret                       ;{{f0fa:c9}} 
 
-_convert_number_to_string_by_format_263:;{{Addr=$f0fb Code Calls/jump count: 2 Data use count: 0}}
+;;=prob test if prefix char needed
+prob_test_if_prefix_char_needed:  ;{{Addr=$f0fb Code Calls/jump count: 2 Data use count: 0}}
         push    bc                ;{{f0fb:c5}} 
         ld      a,d               ;{{f0fc:7a}} 
-        and     $04               ;{{f0fd:e604}} 
+        and     $04               ;{{f0fd:e604}} Currency prefix
         rra                       ;{{f0ff:1f}} 
         rra                       ;{{f100:1f}} 
         ld      b,a               ;{{f101:47}} 
-        bit     4,d               ;{{f102:cb62}} 
-        jr      nz,_convert_number_to_string_by_format_276;{{f104:2007}}  (+$07)
+        bit     4,d               ;{{f102:cb62}} Sign prefix
+        jr      nz,_prob_test_if_prefix_char_needed_13;{{f104:2007}}  (+$07)
         ld      a,d               ;{{f106:7a}} 
         add     a,a               ;{{f107:87}} 
         or      e                 ;{{f108:b3}} 
-        jp      p,_convert_number_to_string_by_format_276;{{f109:f20df1}} 
+        jp      p,_prob_test_if_prefix_char_needed_13;{{f109:f20df1}} 
         inc     b                 ;{{f10c:04}} 
-_convert_number_to_string_by_format_276:;{{Addr=$f10d Code Calls/jump count: 2 Data use count: 0}}
-        ld      a,(RAM_ae53)      ;{{f10d:3a53ae}} 
+_prob_test_if_prefix_char_needed_13:;{{Addr=$f10d Code Calls/jump count: 2 Data use count: 0}}
+        ld      a,(Chars_after_decimal_point_in_format_stri);{{f10d:3a53ae}} 
         sub     b                 ;{{f110:90}} 
         pop     bc                ;{{f111:c1}} 
         ret                       ;{{f112:c9}} 
 
-_convert_number_to_string_by_format_280:;{{Addr=$f113 Code Calls/jump count: 2 Data use count: 0}}
-        ld      a,(RAM_ae52)      ;{{f113:3a52ae}} 
+;;=get chars before dp
+get_chars_before_dp:              ;{{Addr=$f113 Code Calls/jump count: 2 Data use count: 0}}
+        ld      a,(Chars_before_the_decimal_point_in_format);{{f113:3a52ae}} 
         or      a                 ;{{f116:b7}} 
         ret     z                 ;{{f117:c8}} 
 
         dec     a                 ;{{f118:3d}} 
         ret                       ;{{f119:c9}} 
 
-_convert_number_to_string_by_format_285:;{{Addr=$f11a Code Calls/jump count: 1 Data use count: 0}}
-        bit     1,d               ;{{f11a:cb4a}} 
+;;=insert commas if required
+;D=format flags
+;B=position of decimal point
+insert_commas_if_required:        ;{{Addr=$f11a Code Calls/jump count: 1 Data use count: 0}}
+        bit     1,d               ;{{f11a:cb4a}} Bit 1 of flag = insert commas
         ret     z                 ;{{f11c:c8}} 
 
-        ld      a,b               ;{{f11d:78}} 
-_convert_number_to_string_by_format_288:;{{Addr=$f11e Code Calls/jump count: 1 Data use count: 0}}
-        sub     $03               ;{{f11e:d603}} 
-        ret     c                 ;{{f120:d8}} 
-
+        ld      a,b               ;{{f11d:78}} Position of decimal point?
+_insert_commas_if_required_3:     ;{{Addr=$f11e Code Calls/jump count: 1 Data use count: 0}}
+        sub     $03               ;{{f11e:d603}} Three chars prior
+        ret     c                 ;{{f120:d8}} Return when done
         ret     z                 ;{{f121:c8}} 
 
-        push    af                ;{{f122:f5}} 
+        push    af                ;{{f122:f5}} Do the insertion
         ld      c,$2c             ;{{f123:0e2c}}  ','
-        call    _convert_number_to_string_by_format_158;{{f125:cd77f0}} 
+        call    poss_insert_char_into_buffer;{{f125:cd77f0}} 
         inc     b                 ;{{f128:04}} 
         pop     af                ;{{f129:f1}} 
-        jr      _convert_number_to_string_by_format_288;{{f12a:18f2}}  (-$0e)
+        jr      _insert_commas_if_required_3;{{f12a:18f2}}  (-$0e) Loop
 
-_convert_number_to_string_by_format_297:;{{Addr=$f12c Code Calls/jump count: 1 Data use count: 0}}
+;;=write zero if required
+write_zero_if_required:           ;{{Addr=$f12c Code Calls/jump count: 1 Data use count: 0}}
         push    hl                ;{{f12c:e5}} 
-_convert_number_to_string_by_format_298:;{{Addr=$f12d Code Calls/jump count: 1 Data use count: 0}}
+;Loop over chars < '0'
+_write_zero_if_required_1:        ;{{Addr=$f12d Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(hl)            ;{{f12d:7e}} 
         inc     hl                ;{{f12e:23}} 
         dec     a                 ;{{f12f:3d}} 
-        cp      $30               ;{{f130:fe30}} 
-        jr      c,_convert_number_to_string_by_format_298;{{f132:38f9}}  (-$07)
+        cp      $30               ;{{f130:fe30}} '0'
+        jr      c,_write_zero_if_required_1;{{f132:38f9}}  (-$07)
+
         inc     a                 ;{{f134:3c}} 
-        jr      nz,_convert_number_to_string_by_format_306;{{f135:2001}}  (+$01)
+        jr      nz,_write_zero_if_required_9;{{f135:2001}}  (+$01)
         ld      e,a               ;{{f137:5f}} 
-_convert_number_to_string_by_format_306:;{{Addr=$f138 Code Calls/jump count: 1 Data use count: 0}}
+_write_zero_if_required_9:        ;{{Addr=$f138 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{f138:e1}} 
         ld      a,d               ;{{f139:7a}} 
         xor     $80               ;{{f13a:ee80}} 
-        call    p,_convert_number_to_string_by_format_263;{{f13c:f4fbf0}} 
+        call    p,prob_test_if_prefix_char_needed;{{f13c:f4fbf0}} Formatted number
         ret     c                 ;{{f13f:d8}} 
 
         ret     z                 ;{{f140:c8}} 
 
         ld      a,$30             ;{{f141:3e30}}  '0'
-        jr      _convert_number_to_string_by_format_317;{{f143:1806}} 
+        jr      write_prefix_char ;{{f143:1806}} 
 
-_convert_number_to_string_by_format_314:;{{Addr=$f145 Code Calls/jump count: 1 Data use count: 0}}
+;;=write currency prefix if required
+write_currency_prefix_if_required:;{{Addr=$f145 Code Calls/jump count: 1 Data use count: 0}}
         bit     2,d               ;{{f145:cb52}} 
         ret     z                 ;{{f147:c8}} 
+        ld      a,(Print_format_currency_symbol___or_);{{f148:3a54ae}} 
 
-        ld      a,(RAM_ae54)      ;{{f148:3a54ae}} 
-_convert_number_to_string_by_format_317:;{{Addr=$f14b Code Calls/jump count: 2 Data use count: 0}}
+;;=write prefix char
+write_prefix_char:                ;{{Addr=$f14b Code Calls/jump count: 2 Data use count: 0}}
         inc     b                 ;{{f14b:04}} 
         dec     hl                ;{{f14c:2b}} 
         ld      (hl),a            ;{{f14d:77}} 
         ret                       ;{{f14e:c9}} 
 
-_convert_number_to_string_by_format_321:;{{Addr=$f14f Code Calls/jump count: 1 Data use count: 0}}
+;;=prob write sign if needed
+;Writes leading or trailing sign (or space) as necessary
+;Bit 7 of E is set if number is negative
+prob_write_sign_if_needed:        ;{{Addr=$f14f Code Calls/jump count: 1 Data use count: 0}}
         ld      a,e               ;{{f14f:7b}} 
         add     a,a               ;{{f150:87}} 
         ld      a,$2d             ;{{f151:3e2d}}  '-'
-        jr      c,_convert_number_to_string_by_format_333;{{f153:380e}}  
+        jr      c,_prob_write_sign_if_needed_12;{{f153:380e}}  Negative number
         ld      a,d               ;{{f155:7a}} 
-        and     $98               ;{{f156:e698}} 
-        xor     $80               ;{{f158:ee80}} 
-        ret     z                 ;{{f15a:c8}} 
+        and     $98               ;{{f156:e698}} Bits 4 and 3 = sign formatting
+        xor     $80               ;{{f158:ee80}} Formatted number?
+        ret     z                 ;{{f15a:c8}} Exit if not    
 
         and     $08               ;{{f15b:e608}} 
         ld      a,$2b             ;{{f15d:3e2b}}  '+'
-        jr      nz,_convert_number_to_string_by_format_333;{{f15f:2002}}  
-        ld      a,$20             ;{{f161:3e20}}  ' '
-_convert_number_to_string_by_format_333:;{{Addr=$f163 Code Calls/jump count: 2 Data use count: 0}}
-        bit     4,d               ;{{f163:cb62}} 
-        jr      z,_convert_number_to_string_by_format_317;{{f165:28e4}}  (-$1c)
-        ld      (RAM_ae50),a      ;{{f167:3250ae}} 
-        xor     a                 ;{{f16a:af}} 
-        ld      (RAM_ae51),a      ;{{f16b:3251ae}} 
+        jr      nz,_prob_write_sign_if_needed_12;{{f15f:2002}}  Positive prefix or any suffix
+        ld      a,$20             ;{{f161:3e20}}  ' ' else space prefix
+_prob_write_sign_if_needed_12:    ;{{Addr=$f163 Code Calls/jump count: 2 Data use count: 0}}
+        bit     4,d               ;{{f163:cb62}} Suffix if set
+        jr      z,write_prefix_char;{{f165:28e4}}  (-$1c) if prefix
+        ld      (trailing_sign_in_format_buffer),a;{{f167:3250ae}} Suffix address
+        xor     a                 ;{{f16a:af}} Terminate buffer
+        ld      (end_of_format_buffer),a;{{f16b:3251ae}} 
         ret                       ;{{f16e:c9}} 
 
-_convert_number_to_string_by_format_339:;{{Addr=$f16f Code Calls/jump count: 1 Data use count: 0}}
+;;=prob write leading asterisk or space
+prob_write_leading_asterisk_or_space:;{{Addr=$f16f Code Calls/jump count: 1 Data use count: 0}}
         ld      a,d               ;{{f16f:7a}} 
         or      a                 ;{{f170:b7}} 
         ret     p                 ;{{f171:f0}} 
 
-        ld      a,(RAM_ae53)      ;{{f172:3a53ae}} 
+        ld      a,(Chars_after_decimal_point_in_format_stri);{{f172:3a53ae}} 
         sub     b                 ;{{f175:90}} 
         ret     z                 ;{{f176:c8}} 
 
-        jr      c,_convert_number_to_string_by_format_355;{{f177:380e}}  (+$0e)
+        jr      c,_prob_write_leading_asterisk_or_space_16;{{f177:380e}}  (+$0e)
         ld      b,a               ;{{f179:47}} 
         bit     5,d               ;{{f17a:cb6a}} 
-        ld      a,$2a             ;{{f17c:3e2a}} 
-        jr      nz,_convert_number_to_string_by_format_351;{{f17e:2002}}  (+$02)
-        ld      a,$20             ;{{f180:3e20}} 
-_convert_number_to_string_by_format_351:;{{Addr=$f182 Code Calls/jump count: 2 Data use count: 0}}
+        ld      a,$2a             ;{{f17c:3e2a}} '*'
+        jr      nz,_prob_write_leading_asterisk_or_space_12;{{f17e:2002}}  (+$02)
+        ld      a,$20             ;{{f180:3e20}} ' '
+_prob_write_leading_asterisk_or_space_12:;{{Addr=$f182 Code Calls/jump count: 2 Data use count: 0}}
         dec     hl                ;{{f182:2b}} 
         ld      (hl),a            ;{{f183:77}} 
-        djnz    _convert_number_to_string_by_format_351;{{f184:10fc}}  (-$04)
+        djnz    _prob_write_leading_asterisk_or_space_12;{{f184:10fc}}  (-$04)
         ret                       ;{{f186:c9}} 
 
-_convert_number_to_string_by_format_355:;{{Addr=$f187 Code Calls/jump count: 1 Data use count: 0}}
+_prob_write_leading_asterisk_or_space_16:;{{Addr=$f187 Code Calls/jump count: 1 Data use count: 0}}
         set     0,d               ;{{f187:cbc2}} 
         ret                       ;{{f189:c9}} 
 
-_convert_number_to_string_by_format_357:;{{Addr=$f18a Code Calls/jump count: 1 Data use count: 0}}
-        ld      de,buffer_used_to_form_binary_or_hexadecima;{{f18a:112dae}} 
+;;=do input to ascii
+;Converts the input number to unformatted ASCII
+;HL=last byte of input buffer
+;C=number of bytes in buffer: $01 for one byte integer, $02 for 2 byte integer, various for real
+;
+;Returns:
+;HL=addr of first digit of number
+;C=Number of digits
+do_input_to_ascii:                ;{{Addr=$f18a Code Calls/jump count: 1 Data use count: 0}}
+        ld      de,preconversion_buffer;{{f18a:112dae}} 
         xor     a                 ;{{f18d:af}} 
-        ld      b,a               ;{{f18e:47}} 
-_convert_number_to_string_by_format_360:;{{Addr=$f18f Code Calls/jump count: 1 Data use count: 0}}
+        ld      b,a               ;{{f18e:47}} Count=0
+
+;Loop backwards over buffer to find first non-null value (if any).
+;Ie. skip any zero high bytes
+;Buffer is C bytes long
+_do_input_to_ascii_3:             ;{{Addr=$f18f Code Calls/jump count: 1 Data use count: 0}}
         or      (hl)              ;{{f18f:b6}} 
         dec     hl                ;{{f190:2b}} 
-        jr      nz,_convert_number_to_string_by_format_366;{{f191:2005}}  (+$05)
+        jr      nz,binary_to_ASCII;{{f191:2005}}  (+$05) Non-null value found
         dec     c                 ;{{f193:0d}} 
-        jr      nz,_convert_number_to_string_by_format_360;{{f194:20f9}}  (-$07)
-        jr      _convert_number_to_string_by_format_397;{{f196:1828}}  (+$28)
+        jr      nz,_do_input_to_ascii_3;{{f194:20f9}}  (-$07)
 
-_convert_number_to_string_by_format_366:;{{Addr=$f198 Code Calls/jump count: 1 Data use count: 0}}
+        jr      BCD_to_ASCII      ;{{f196:1828}}  (+$28) End of buffer. Number is zero
+
+;;=binary to ASCII
+;Converts the binary number to BCD then falls through to the BCD to ASCII routine
+;HL=addr of second most significant byte (penultimate) of number
+;C=number of bytes to convert
+;B=0
+;A=most significant byte
+binary_to_ASCII:                  ;{{Addr=$f198 Code Calls/jump count: 1 Data use count: 0}}
         scf                       ;{{f198:37}} 
-_convert_number_to_string_by_format_367:;{{Addr=$f199 Code Calls/jump count: 1 Data use count: 0}}
+_binary_to_ascii_1:               ;{{Addr=$f199 Code Calls/jump count: 1 Data use count: 0}}
         adc     a,a               ;{{f199:8f}} 
-        jr      nc,_convert_number_to_string_by_format_367;{{f19a:30fd}}  (-$03)
+        jr      nc,_binary_to_ascii_1;{{f19a:30fd}}  (-$03)
         ex      de,hl             ;{{f19c:eb}} 
         push    de                ;{{f19d:d5}} 
         ld      d,a               ;{{f19e:57}} 
-        jr      _convert_number_to_string_by_format_388;{{f19f:1811}}  (+$11)
+        jr      _binary_to_ascii_22;{{f19f:1811}}  (+$11)
 
-_convert_number_to_string_by_format_373:;{{Addr=$f1a1 Code Calls/jump count: 1 Data use count: 0}}
+;Outer loop
+_binary_to_ascii_7:               ;{{Addr=$f1a1 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(de)            ;{{f1a1:1a}} 
         dec     de                ;{{f1a2:1b}} 
         push    de                ;{{f1a3:d5}} 
         scf                       ;{{f1a4:37}} 
         adc     a,a               ;{{f1a5:8f}} 
-_convert_number_to_string_by_format_378:;{{Addr=$f1a6 Code Calls/jump count: 1 Data use count: 0}}
+
+;Middle loop
+_binary_to_ascii_12:              ;{{Addr=$f1a6 Code Calls/jump count: 1 Data use count: 0}}
         ld      d,a               ;{{f1a6:57}} 
         ld      e,b               ;{{f1a7:58}} 
-_convert_number_to_string_by_format_380:;{{Addr=$f1a8 Code Calls/jump count: 1 Data use count: 0}}
+
+;Inner loop
+_binary_to_ascii_14:              ;{{Addr=$f1a8 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(hl)            ;{{f1a8:7e}} 
         adc     a,a               ;{{f1a9:8f}} 
         daa                       ;{{f1aa:27}} 
         ld      (hl),a            ;{{f1ab:77}} 
         inc     hl                ;{{f1ac:23}} 
         dec     e                 ;{{f1ad:1d}} 
-        jr      nz,_convert_number_to_string_by_format_380;{{f1ae:20f8}}  (-$08)
-        jr      nc,_convert_number_to_string_by_format_390;{{f1b0:3003}}  (+$03)
-_convert_number_to_string_by_format_388:;{{Addr=$f1b2 Code Calls/jump count: 1 Data use count: 0}}
+        jr      nz,_binary_to_ascii_14;{{f1ae:20f8}}  (-$08) 
+;End of inner loop
+
+        jr      nc,_binary_to_ascii_24;{{f1b0:3003}}  (+$03)
+
+;Entry point
+_binary_to_ascii_22:              ;{{Addr=$f1b2 Code Calls/jump count: 1 Data use count: 0}}
         inc     b                 ;{{f1b2:04}} 
         ld      (hl),$01          ;{{f1b3:3601}} 
-_convert_number_to_string_by_format_390:;{{Addr=$f1b5 Code Calls/jump count: 1 Data use count: 0}}
-        ld      hl,buffer_used_to_form_binary_or_hexadecima;{{f1b5:212dae}} 
+_binary_to_ascii_24:              ;{{Addr=$f1b5 Code Calls/jump count: 1 Data use count: 0}}
+        ld      hl,preconversion_buffer;{{f1b5:212dae}} 
         ld      a,d               ;{{f1b8:7a}} 
         add     a,a               ;{{f1b9:87}} 
-        jr      nz,_convert_number_to_string_by_format_378;{{f1ba:20ea}}  (-$16)
+        jr      nz,_binary_to_ascii_12;{{f1ba:20ea}}  (-$16) 
+;End of middle loop
+
         pop     de                ;{{f1bc:d1}} 
         dec     c                 ;{{f1bd:0d}} 
-        jr      nz,_convert_number_to_string_by_format_373;{{f1be:20e1}}  (-$1f)
-_convert_number_to_string_by_format_397:;{{Addr=$f1c0 Code Calls/jump count: 1 Data use count: 0}}
+        jr      nz,_binary_to_ascii_7;{{f1be:20e1}}  (-$1f) 
+;End of outer loop
+
+
+;;=BCD to ASCII
+;B=number of bytes to convert, $00 if number is zero
+BCD_to_ASCII:                     ;{{Addr=$f1c0 Code Calls/jump count: 1 Data use count: 0}}
         ex      de,hl             ;{{f1c0:eb}} 
-        ld      hl,RAM_ae50       ;{{f1c1:2150ae}} 
-        ld      (hl),$00          ;{{f1c4:3600}} 
+        ld      hl,end_of_number_in_format_buffer + 1;{{f1c1:2150ae}} 
+        ld      (hl),$00          ;{{f1c4:3600}} Zero terminate the buffer
         ld      a,b               ;{{f1c6:78}} 
         add     a,a               ;{{f1c7:87}} 
-        ld      c,a               ;{{f1c8:4f}} 
+        ld      c,a               ;{{f1c8:4f}} C=number of digits returned, zero if number is zero
         ret     z                 ;{{f1c9:c8}} 
 
-        ld      a,$30             ;{{f1ca:3e30}} ; '0'
+        ld      a,$30             ;{{f1ca:3e30}}  '0' - Puts 3 into the high nybble of A, 
+                                  ;so digits get converted to ASCII numbers
         ex      de,hl             ;{{f1cc:eb}} 
-_convert_number_to_string_by_format_406:;{{Addr=$f1cd Code Calls/jump count: 1 Data use count: 0}}
-        rrd                       ;{{f1cd:ed67}} 
+
+;Loop
+;RRD rotates: low nybble of A to high nybble of (HL) to low nybble of (HL) to low nybbe of A
+;This code splits the number at (HL) into separate nybbles, writing one to each byte starting at (DE) - 1
+;HL increments after each byte. DE decrements for each nybble
+;So, we're unpacking a hex number (or a BCD one)
+_bcd_to_ascii_9:                  ;{{Addr=$f1cd Code Calls/jump count: 1 Data use count: 0}}
+        rrd                       ;{{f1cd:ed67}} Put low nybble of (HL) into A
         dec     de                ;{{f1cf:1b}} 
-        ld      (de),a            ;{{f1d0:12}} 
-        rrd                       ;{{f1d1:ed67}} 
+        ld      (de),a            ;{{f1d0:12}} And store into (DE)
+        rrd                       ;{{f1d1:ed67}} Put (what was) high nybble of (HL) into A
         dec     de                ;{{f1d3:1b}} 
-        ld      (de),a            ;{{f1d4:12}} 
+        ld      (de),a            ;{{f1d4:12}} And store in (DE)
         inc     hl                ;{{f1d5:23}} 
-        djnz    _convert_number_to_string_by_format_406;{{f1d6:10f5}}  (-$0b)
+        djnz    _bcd_to_ascii_9   ;{{f1d6:10f5}}  (-$0b)
+;End of loop
+
         ex      de,hl             ;{{f1d8:eb}} 
-        cp      $30               ;{{f1d9:fe30}} 
+        cp      $30               ;{{f1d9:fe30}} '0'
         ret     nz                ;{{f1db:c0}} 
 
-        dec     c                 ;{{f1dc:0d}} 
+        dec     c                 ;{{f1dc:0d}} Step back if leading zero (if there is one)
+                                  ;Since we already counted how many bytes to unpack there is a 
+                                  ;maximum of one leading zero
         inc     hl                ;{{f1dd:23}} 
         ret                       ;{{f1de:c9}} 
 
 ;;===============================
 ;;convert based number to string
+;HL=number to convert
 ;C=base (01=binary, 0f=hex)
 ;B=number of bits per output digit (01 for binary, 04 for hex)
+;A: $01 to $80=minimum number of digits to output. I.e. pad with leading zeros. 
+;   $81 to $ff or $00=no padding.
+
+;Returns: ASCIIZ string at HL
 convert_based_number_to_string:   ;{{Addr=$f1df Code Calls/jump count: 2 Data use count: 0}}
         push    de                ;{{f1df:d5}} 
         ex      de,hl             ;{{f1e0:eb}} 
-        ld      hl,last_byte_     ;{{f1e1:213eae}} 
-        ld      (hl),$00          ;{{f1e4:3600}} 
+        ld      hl,end_of_conversion_buffer;{{f1e1:213eae}} 
+        ld      (hl),$00          ;{{f1e4:3600}} Returns a zero terminated string
         dec     a                 ;{{f1e6:3d}} 
-_convert_based_number_to_string_5:;{{Addr=$f1e7 Code Calls/jump count: 2 Data use count: 0}}
+
+;;=convert digit loop
+convert_digit_loop:               ;{{Addr=$f1e7 Code Calls/jump count: 2 Data use count: 0}}
         push    af                ;{{f1e7:f5}} 
-        ld      a,e               ;{{f1e8:7b}} 
-        and     c                 ;{{f1e9:a1}} 
+        ld      a,e               ;{{f1e8:7b}} A=byte
+        and     c                 ;{{f1e9:a1}} C=mask for bits we're interested in
+
+;These four lines convert nybble to hex ASCII. 
+;See 'Analysis of the binary to ASCII hex conversion' below
         or      $f0               ;{{f1ea:f6f0}} 
         daa                       ;{{f1ec:27}} 
         add     a,$a0             ;{{f1ed:c6a0}} 
         adc     a,$40             ;{{f1ef:ce40}} ; 'A'-1
+
         dec     hl                ;{{f1f1:2b}} 
-        ld      (hl),a            ;{{f1f2:77}} 
-        ld      a,b               ;{{f1f3:78}} 
-_convert_based_number_to_string_15:;{{Addr=$f1f4 Code Calls/jump count: 1 Data use count: 0}}
-        srl     d                 ;{{f1f4:cb3a}} 
-        rr      e                 ;{{f1f6:cb1b}} 
-        djnz    _convert_based_number_to_string_15;{{f1f8:10fa}}  (-$06)
-        ld      b,a               ;{{f1fa:47}} 
-        pop     af                ;{{f1fb:f1}} 
+        ld      (hl),a            ;{{f1f2:77}} Write to buffer
+        ld      a,b               ;{{f1f3:78}} Cache bits per digit
+
+;;=convert shift loop
+convert_shift_loop:               ;{{Addr=$f1f4 Code Calls/jump count: 1 Data use count: 0}}
+        srl     d                 ;{{f1f4:cb3a}} DE=number to convert
+        rr      e                 ;{{f1f6:cb1b}} Shift for next digit
+        djnz    convert_shift_loop;{{f1f8:10fa}}  (-$06) Next digit
+
+        ld      b,a               ;{{f1fa:47}} Restore bits per digit
+        pop     af                ;{{f1fb:f1}} A=minimum width
         dec     a                 ;{{f1fc:3d}} 
-        jp      p,_convert_based_number_to_string_5;{{f1fd:f2e7f1}} 
-        ld      a,d               ;{{f200:7a}} 
+        jp      p,convert_digit_loop;{{f1fd:f2e7f1}} If A still > 0 then loop
+
+        ld      a,d               ;{{f200:7a}} If A < 0 then check if number is now zero
         or      e                 ;{{f201:b3}} 
-        ld      a,$00             ;{{f202:3e00}} 
-        jr      nz,_convert_based_number_to_string_5;{{f204:20e1}}  (-$1f)
+        ld      a,$00             ;{{f202:3e00}} Force no padding
+        jr      nz,convert_digit_loop;{{f204:20e1}}  (-$1f) Not zero? => next digit
+
         pop     de                ;{{f206:d1}} 
         ret                       ;{{f207:c9}} 
+
+;Analysis of the binary to ASCII hex conversion
+;----------------------------------------------
+;Lower nybble:
+;To convert from binary to ASCII we only need to add 7 if value is more than 9:
+;or $f0     ;Remains the same
+;daa        ;Adds 6 if more than 9
+;add a,$a0  ;If DAA added 6 then this will set carry (see high nybble section)
+;adc a,$40  ;Adds one to lower nybble if carry set
+
+;High nybble:
+;Needs to be $3 (%0011) for number or $4 (%0100) for letter
+;or $f0     ;Initialises to $f
+;daa        ;If low nybble 0..9, adds 6. If low nybble A to F effectively adds 7.
+;           ;Thus high nybble becomes          $5 (%0101) or          $6 ($0110)
+;add $a0    ;(%1010) Becomes          No carry,$f ($1111) or 16=Carry,$0 ($0000)
+;adc $40    ;(%0110) Becomes                   $3 (%0011) or          $4 ($0110)
 
 
 
@@ -10664,57 +11579,75 @@ _convert_based_number_to_string_15:;{{Addr=$f1f4 Code Calls/jump count: 1 Data u
 ;;<< PEEK, POKE, INP, OUT, WAIT, |BAR commands, CALL
 ;;========================================================
 ;; function PEEK
+;PEEK(<address expression>)
+;Reads the given byte from RAM
 
 function_PEEK:                    ;{{Addr=$f208 Code Calls/jump count: 0 Data use count: 1}}
-        call    function_UNT      ;{{f208:cdebfe}} 
-        rst     $20               ;{{f20b:e7}} 
+        call    function_UNT      ;{{f208:cdebfe}} Eval address
+        rst     $20               ;{{f20b:e7}} RAM_LAM - read a byte from RAM with all ROMs disabled
         jp      store_A_in_accumulator_as_INT;{{f20c:c332ff}} 
 
 ;;========================================================================
 ;; command POKE
+;POKE <address expression>,<integer expression>
+;Pokes a byte into RAM at the given location
 
 command_POKE:                     ;{{Addr=$f20f Code Calls/jump count: 0 Data use count: 1}}
-        call    eval_expr_as_uint ;{{f20f:cdf5ce}} 
+        call    eval_expr_as_uint ;{{f20f:cdf5ce}} Eval address
         push    de                ;{{f212:d5}} 
-        call    eval_next_param_as_byte_or_error;{{f213:cd3ff2}} 
+        call    eval_next_param_as_byte_or_error;{{f213:cd3ff2}} Eval data
         pop     de                ;{{f216:d1}} 
-        ld      (de),a            ;{{f217:12}} 
+        ld      (de),a            ;{{f217:12}} Poke data
         ret                       ;{{f218:c9}} 
 
 ;;========================================================================
 ;; function INP
+;INP(<port number>)
+;Reads a value from the given I/O port
+
 function_INP:                     ;{{Addr=$f219 Code Calls/jump count: 0 Data use count: 1}}
-        call    function_CINT     ;{{f219:cdb6fe}} 
+        call    function_CINT     ;{{f219:cdb6fe}} Eval port
         ld      b,h               ;{{f21c:44}} 
         ld      c,l               ;{{f21d:4d}} 
-        in      a,(c)             ;{{f21e:ed78}} 
+        in      a,(c)             ;{{f21e:ed78}} Read port
         jp      store_A_in_accumulator_as_INT;{{f220:c332ff}} 
 
 ;;========================================================================
 ;; command OUT
+;OUT <port number>,<integer expression>
+;Outputs data to the given I/O port
+;Expression must be 0..255
 
 command_OUT:                      ;{{Addr=$f223 Code Calls/jump count: 0 Data use count: 1}}
-        call    eval_uint_and_byte_params_or_error;{{f223:cd3af2}} 
-        out     (c),a             ;{{f226:ed79}} 
+        call    eval_uint_and_byte_params_or_error;{{f223:cd3af2}} Eval port and data
+        out     (c),a             ;{{f226:ed79}} Write to port
         ret                       ;{{f228:c9}} 
  
 ;;========================================================================
 ;; command WAIT
+;WAIT <port number>,<mask>[,<inversion>]
+;Waits for an I/O port to have a specific value.
+;XORs the input data with <inversion> then ANDs it with <mask>. Loops until the result
+;is non-zero.
+
 command_WAIT:                     ;{{Addr=$f229 Code Calls/jump count: 0 Data use count: 1}}
-        call    eval_uint_and_byte_params_or_error;{{f229:cd3af2}} 
-        ld      d,a               ;{{f22c:57}} 
-        ld      a,$00             ;{{f22d:3e00}} 
-        call    nz,eval_next_param_as_byte_or_error;{{f22f:c43ff2}} 
-        ld      e,a               ;{{f232:5f}} 
+        call    eval_uint_and_byte_params_or_error;{{f229:cd3af2}} Eval port and mask
+        ld      d,a               ;{{f22c:57}} D=mask
+        ld      a,$00             ;{{f22d:3e00}} Default inversion
+        call    nz,eval_next_param_as_byte_or_error;{{f22f:c43ff2}} Eval inversion if preset
+        ld      e,a               ;{{f232:5f}} E=inversion
+
 _command_wait_5:                  ;{{Addr=$f233 Code Calls/jump count: 1 Data use count: 0}}
-        in      a,(c)             ;{{f233:ed78}} 
-        xor     e                 ;{{f235:ab}} 
-        and     d                 ;{{f236:a2}} 
-        jr      z,_command_wait_5 ;{{f237:28fa}}  (-$06)
+        in      a,(c)             ;{{f233:ed78}} Read port
+        xor     e                 ;{{f235:ab}} Inversion
+        and     d                 ;{{f236:a2}} Mask
+        jr      z,_command_wait_5 ;{{f237:28fa}}  (-$06) Loop while zero
+
         ret                       ;{{f239:c9}} 
 
 ;;========================================================================
 ;;=eval uint and byte params or error
+;evals a UINT parameter into BC and a byte parameter into A
 eval_uint_and_byte_params_or_error:;{{Addr=$f23a Code Calls/jump count: 2 Data use count: 0}}
         call    eval_expr_as_uint ;{{f23a:cdf5ce}} 
         ld      b,d               ;{{f23d:42}} 
@@ -10726,6 +11659,9 @@ eval_next_param_as_byte_or_error: ;{{Addr=$f23f Code Calls/jump count: 2 Data us
 
 ;;=========================================================
 ;; BAR command
+;|<command name>[,<list of: <parameter}>]
+;Executes the given RSX (bar) command.
+;Parameter passing is as per CALL
 
 ;; skip | symbol
 BAR_command:                      ;{{Addr=$f245 Code Calls/jump count: 1 Data use count: 0}}
@@ -10753,6 +11689,12 @@ _bar_command_14:                  ;{{Addr=$f258 Code Calls/jump count: 1 Data us
 
 ;;==================================================================
 ;; command CALL
+;CALL <address expression>[,<list of: <parameter>>]
+;Calls a machine code routine at the given address.
+;The routine is called with IX pointing to the list of parameters
+;and A containing the number of parameters.
+;Parameters are passed in reverse order, ie. (IX+0) is the last parameter supplied.
+
 command_CALL:                     ;{{Addr=$f25c Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_uint ;{{f25c:cdf5ce}}  get address
         ld      c,$ff             ;{{f25f:0eff}} 
@@ -10773,7 +11715,7 @@ _command_call_7:                  ;{{Addr=$f26f Code Calls/jump count: 1 Data us
         push    de                ;{{f279:d5}}  push parameter onto stack
         djnz    _command_call_7   ;{{f27a:10f3}}  (-$0d)
 _command_call_14:                 ;{{Addr=$f27c Code Calls/jump count: 1 Data use count: 0}}
-        call    syntax_error_if_not_02;{{f27c:cd37de}} 
+        call    error_if_not_end_of_statement_or_eoln;{{f27c:cd37de}} 
         ld      (BASIC_Parser_position_moved_on_to__),hl;{{f27f:2258ae}} 
         ld      a,$20             ;{{f282:3e20}}  max 32 parameters
 ;; B = $20-number of parameters specified
@@ -10788,10 +11730,9 @@ _command_call_14:                 ;{{Addr=$f27c Code Calls/jump count: 1 Data us
         rst     $18               ;{{f28b:df}} 
         defw Machine_code_address_to_CALL_                
         ld      sp,(saved_address_for_SP_during_a_CALL_or_an);{{f28e:ed7b5aae}} 
-        call    get_string_stack_first_free_ptr;{{f292:cdccfb}} 
+        call    clear_string_stack;{{f292:cdccfb}} 
         ld      hl,(BASIC_Parser_position_moved_on_to__);{{f295:2a58ae}} 
         ret                       ;{{f298:c9}} 
-
 
 
 
@@ -10808,6 +11749,8 @@ set_zone_13:                      ;{{Addr=$f299 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command ZONE
+;ZONE <integer expression>
+;Sets the print zone width. Values 1..255
 
 command_ZONE:                     ;{{Addr=$f29d Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_int_less_than_256;{{f29d:cdc3ce}} 
@@ -10817,21 +11760,66 @@ _command_zone_1:                  ;{{Addr=$f2a0 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command PRINT
+;PRINT [#<stream expression>,][<print list>][<using clause>][<separator>]
+;where
+;<print list>   is: <print item>[<separator><print item>]*
+;<print item>   is: <expression>
+;               or: SPC(<integer expression>)
+;               or: TAB(<integer expression>)
+;<using clause> is: USING <string expression>;<using list>
+;<using list>   is: <expression>[<separator><expression>]*
+;<separator>    is: comma or semi-colon
+
+;* - these items can be repeated zero or more times
+
+;Print items to the specified stream
+;SPC(..) prints the given number of spaces
+;TAB(..) moves to the given tab position
+;A trailing SPC, TAB or separator prevents a new line being printed
+;USING:
+;   Valid formatting characters:  ! \ & # . + - * $ ^ , _
+;   _   prints the following character as a literal
+;   String formatting:
+;       !   Prints first character of string
+;       \  \    Prints n characters where n equals the number of spaces between \ chars
+;       &   Prints the entire string
+;   Number formatting:
+;       #   Specifies a digit position
+;       .   Specifies position of decimal point
+;       ,   (before .) Digits will be in groups of three separated by commas
+;       $$  (Before number): leading $ sign
+;       **  (Before number): leading spaces will be replaced by *
+;       **$ (Before number): combination of previous two items
+;       +   (Before number): print leading + sign if positive
+;       +   (After number):  print trailing + if positive
+;       -   (After number):  print trailing + or - sign
+;       ^^^^ (After number): print exponent
+
+;If the number can't be displayed in the chosen format a leading % is printed
 
 command_PRINT:                    ;{{Addr=$f2a4 Code Calls/jump count: 0 Data use count: 1}}
-        call    exec_BC_on_evalled_stream_and_swap_back;{{f2a4:cdcfc1}} 
+        call    exec_following_on_evalled_stream_and_swap_back;{{f2a4:cdcfc1}} 
+                                  ;This routine evals a stream number (if present),
+                                  ;swaps to it,
+                                  ;CALLs the following code (popping address of the stack), 
+                                  ;swaps back to original stream,
+                                  ;returns to the caller
+
         call    is_next_02        ;{{f2a7:cd3dde}} 
-        jp      c,output_new_line ;{{f2aa:da98c3}} ; new text line
-_command_print_3:                 ;{{Addr=$f2ad Code Calls/jump count: 1 Data use count: 0}}
+        jp      c,output_new_line ;{{f2aa:da98c3}} No parameters
+
+;;=print item loop
+;Loop though each parameter/item
+print_item_loop:                  ;{{Addr=$f2ad Code Calls/jump count: 1 Data use count: 0}}
         cp      $ed               ;{{f2ad:feed}} "USING"
         jp      z,PRINT_USING     ;{{f2af:ca7ef3}} 
         ex      de,hl             ;{{f2b2:eb}} 
-        ld      hl,PRINT_parameters_LUT;{{f2b3:21c3f2}} 
-        call    get_address_from_table;{{f2b6:cdb4ff}} 
+        ld      hl,PRINT_parameters_LUT;{{f2b3:21c3f2}} Look up the routine tom process the item in the following table...
+        call    get_address_from_table;{{f2b6:cdb4ff}} ...or PRINT_do_other for general items
         ex      de,hl             ;{{f2b9:eb}} 
         call    JP_DE             ;{{f2ba:cdfeff}}  JP (DE)
-        call    is_next_02        ;{{f2bd:cd3dde}} 
-        jr      nc,_command_print_3;{{f2c0:30eb}}  (-$15)
+        call    is_next_02        ;{{f2bd:cd3dde}} Next item
+        jr      nc,print_item_loop;{{f2c0:30eb}}  (-$15) Loop if not end of statement/line
         ret                       ;{{f2c2:c9}} 
 
 ;;=PRINT parameters LUT
@@ -10849,51 +11837,61 @@ PRINT_parameters_LUT:             ;{{Addr=$f2c3 Data Calls/jump count: 0 Data us
         defw get_next_token_skipping_space;  ##LABEL##
 
 ;;+PRINT do other
+;Anything other than comma, semicolon, SPC, TAB or USING
 PRINT_do_other:                   ;{{Addr=$f2d2 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expression   ;{{f2d2:cd62cf}} 
         push    af                ;{{f2d5:f5}} 
         push    hl                ;{{f2d6:e5}} 
-        call    is_accumulator_a_string;{{f2d7:cd66ff}} 
-        jr      z,_print_do_other_12;{{f2da:280f}}  (+$0f)
-        call    prob_eval_number_to_decimal_string;{{f2dc:cd68ef}} 
-        call    get_ASCIIZ_string ;{{f2df:cd8af8}} 
-        ld      (hl),$20          ;{{f2e2:3620}} 
-        ld      hl,(accumulator)  ;{{f2e4:2aa0b0}} 
-        inc     (hl)              ;{{f2e7:34}} 
-        ld      a,(hl)            ;{{f2e8:7e}} 
-        jr      _print_do_other_34;{{f2e9:181f}}  (+$1f)
+        call    is_accumulator_a_string;{{f2d7:cd66ff}} Parameter type
+        jr      z,PRINT_do_string ;{{f2da:280f}}  (+$0f) String
 
-_print_do_other_12:               ;{{Addr=$f2eb Code Calls/jump count: 1 Data use count: 0}}
-        ld      hl,(accumulator)  ;{{f2eb:2aa0b0}} 
-        ld      b,(hl)            ;{{f2ee:46}} 
+;Print number
+        call    conv_number_to_decimal_string;{{f2dc:cd68ef}} Convert to string
+        call    get_ASCIIZ_string ;{{f2df:cd8af8}} Put string in accumulator
+        ld      (hl),$20          ;{{f2e2:3620}} " " - leading space?
+        ld      hl,(accumulator)  ;{{f2e4:2aa0b0}} Addr of string descriptor
+        inc     (hl)              ;{{f2e7:34}} inc string length
+        ld      a,(hl)            ;{{f2e8:7e}} Get string length
+        jr      PRINT_do_string_skip_A_chars;{{f2e9:181f}}  (+$1f)
+
+;;=PRINT do string
+PRINT_do_string:                  ;{{Addr=$f2eb Code Calls/jump count: 1 Data use count: 0}}
+        ld      hl,(accumulator)  ;{{f2eb:2aa0b0}} HL=string descriptor
+        ld      b,(hl)            ;{{f2ee:46}} B-length
         ld      c,$00             ;{{f2ef:0e00}} 
         inc     hl                ;{{f2f1:23}} 
-        ld      a,(hl)            ;{{f2f2:7e}} 
+        ld      a,(hl)            ;{{f2f2:7e}} HL=string address
         inc     hl                ;{{f2f3:23}} 
         ld      h,(hl)            ;{{f2f4:66}} 
         ld      l,a               ;{{f2f5:6f}} 
         inc     b                 ;{{f2f6:04}} 
-        jr      _print_do_other_32;{{f2f7:180e}}  (+$0e)
+        jr      PRINT_do_test_string_wrap;{{f2f7:180e}}  (+$0e)
 
-_print_do_other_22:               ;{{Addr=$f2f9 Code Calls/jump count: 1 Data use count: 0}}
+;;=PRINT do string wrap loop
+;Test for leading control codes to see if we need to wrap to next line and ignore them(?)
+PRINT_do_string_wrap_loop:        ;{{Addr=$f2f9 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(hl)            ;{{f2f9:7e}} 
-        cp      $20               ;{{f2fa:fe20}} 
+        cp      $20               ;{{f2fa:fe20}} Control code < $20 " "
         inc     hl                ;{{f2fc:23}} 
-        jr      nc,_print_do_other_31;{{f2fd:3007}}  (+$07)
+        jr      nc,_print_do_string_wrap_loop_9;{{f2fd:3007}}  (+$07) Control code
         dec     a                 ;{{f2ff:3d}} 
-        jr      nz,_print_do_other_33;{{f300:2007}}  (+$07)
+        jr      nz,PRINT_do_string_skip_C_chars;{{f300:2007}}  (+$07) Not control code $01 - print symbol given by parameter(?)
         dec     b                 ;{{f302:05}} 
-        jr      z,_print_do_other_33;{{f303:2804}}  (+$04)
+        jr      z,PRINT_do_string_skip_C_chars;{{f303:2804}}  (+$04) End of string
         inc     hl                ;{{f305:23}} 
-_print_do_other_31:               ;{{Addr=$f306 Code Calls/jump count: 1 Data use count: 0}}
+_print_do_string_wrap_loop_9:     ;{{Addr=$f306 Code Calls/jump count: 1 Data use count: 0}}
         inc     c                 ;{{f306:0c}} 
-_print_do_other_32:               ;{{Addr=$f307 Code Calls/jump count: 1 Data use count: 0}}
-        djnz    _print_do_other_22;{{f307:10f0}}  (-$10)
-_print_do_other_33:               ;{{Addr=$f309 Code Calls/jump count: 2 Data use count: 0}}
+;;=PRINT do test string wrap
+PRINT_do_test_string_wrap:        ;{{Addr=$f307 Code Calls/jump count: 1 Data use count: 0}}
+        djnz    PRINT_do_string_wrap_loop;{{f307:10f0}}  (-$10)
+
+;;=PRINT do string skip C chars
+PRINT_do_string_skip_C_chars:     ;{{Addr=$f309 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,c               ;{{f309:79}} 
-_print_do_other_34:               ;{{Addr=$f30a Code Calls/jump count: 1 Data use count: 0}}
+;;=PRINT do string skip A chars
+PRINT_do_string_skip_A_chars:     ;{{Addr=$f30a Code Calls/jump count: 1 Data use count: 0}}
         call    poss_validate_xpos_in_D;{{f30a:cde7c2}} 
-        call    nc,output_new_line;{{f30d:d498c3}} ; new text line
+        call    nc,output_new_line;{{f30d:d498c3}} Nothing to print?
         call    output_accumulator_string;{{f310:cdd0f8}} 
         pop     hl                ;{{f313:e1}} 
         pop     af                ;{{f314:f1}} 
@@ -10907,64 +11905,70 @@ PRINT_do_comma:                   ;{{Addr=$f319 Code Calls/jump count: 0 Data us
         ld      c,a               ;{{f31f:4f}} 
         call    get_xpos_of_output_stream;{{f320:cdb9c2}} 
         dec     a                 ;{{f323:3d}} 
+
 _print_do_comma_5:                ;{{Addr=$f324 Code Calls/jump count: 1 Data use count: 0}}
-        sub     c                 ;{{f324:91}} 
+        sub     c                 ;{{f324:91}} C=chars to next print zone?
         jr      nc,_print_do_comma_5;{{f325:30fd}}  (-$03)
+
         cpl                       ;{{f327:2f}} 
-        inc     a                 ;{{f328:3c}} 
+        inc     a                 ;{{f328:3c}} A=current print position
         ld      b,a               ;{{f329:47}} 
-        add     a,c               ;{{f32a:81}} 
+        add     a,c               ;{{f32a:81}} A=new print position
         call    poss_validate_xpos_in_D;{{f32b:cde7c2}} 
         jp      nc,output_new_line;{{f32e:d298c3}} ; new text line
         ld      a,b               ;{{f331:78}} 
-        jr      _print_do_tab_12  ;{{f332:181e}}  (+$1e)
+        jr      PRINT_do_B_minus_1_spaces;{{f332:181e}}  (+$1e)
 
 ;;+PRINT do SPC
 PRINT_do_SPC:                     ;{{Addr=$f334 Code Calls/jump count: 0 Data use count: 1}}
-        call    _print_do_tab_19  ;{{f334:cd5df3}} 
-        call    _print_do_tab_23  ;{{f337:cd69f3}} 
+        call    PRINT_do_eval_SPC_TAB_parameter;{{f334:cd5df3}} 
+        call    PRINT_do_process_SPC_TAB_parameter;{{f337:cd69f3}} 
         ld      a,e               ;{{f33a:7b}} 
-        jr      _print_do_tab_12  ;{{f33b:1815}}  (+$15)
+        jr      PRINT_do_B_minus_1_spaces;{{f33b:1815}}  (+$15)
 
 ;;+PRINT do TAB
 PRINT_do_TAB:                     ;{{Addr=$f33d Code Calls/jump count: 0 Data use count: 1}}
-        call    _print_do_tab_19  ;{{f33d:cd5df3}} 
+        call    PRINT_do_eval_SPC_TAB_parameter;{{f33d:cd5df3}} 
         dec     de                ;{{f340:1b}} 
-        call    _print_do_tab_23  ;{{f341:cd69f3}} 
+        call    PRINT_do_process_SPC_TAB_parameter;{{f341:cd69f3}} 
         call    get_xpos_of_output_stream;{{f344:cdb9c2}} 
         cpl                       ;{{f347:2f}} 
         inc     a                 ;{{f348:3c}} 
         inc     e                 ;{{f349:1c}} 
         add     a,e               ;{{f34a:83}} 
-        jr      c,_print_do_tab_12;{{f34b:3805}}  (+$05)
+        jr      c,PRINT_do_B_minus_1_spaces;{{f34b:3805}}  (+$05)
         call    output_new_line   ;{{f34d:cd98c3}} ; new text line
         dec     e                 ;{{f350:1d}} 
         ld      a,e               ;{{f351:7b}} 
-_print_do_tab_12:                 ;{{Addr=$f352 Code Calls/jump count: 4 Data use count: 0}}
+
+;;=PRINT do B minus 1 spaces
+PRINT_do_B_minus_1_spaces:        ;{{Addr=$f352 Code Calls/jump count: 4 Data use count: 0}}
         ld      b,a               ;{{f352:47}} 
         inc     b                 ;{{f353:04}} 
-_print_do_tab_14:                 ;{{Addr=$f354 Code Calls/jump count: 1 Data use count: 0}}
+_print_do_b_minus_1_spaces_2:     ;{{Addr=$f354 Code Calls/jump count: 1 Data use count: 0}}
         dec     b                 ;{{f354:05}} 
         ret     z                 ;{{f355:c8}} 
 
         ld      a,$20             ;{{f356:3e20}}  ' '
         call    output_char       ;{{f358:cda0c3}} ; display text char
-        jr      _print_do_tab_14  ;{{f35b:18f7}}  (-$09)
+        jr      _print_do_b_minus_1_spaces_2;{{f35b:18f7}}  (-$09) Loop
 
 
-_print_do_tab_19:                 ;{{Addr=$f35d Code Calls/jump count: 2 Data use count: 0}}
+;;=PRINT do eval SPC TAB parameter
+PRINT_do_eval_SPC_TAB_parameter:  ;{{Addr=$f35d Code Calls/jump count: 2 Data use count: 0}}
         call    get_next_token_skipping_space;{{f35d:cd2cde}}  get next token skipping space
         call    next_token_if_open_bracket;{{f360:cd19de}}  check for open bracket
         call    eval_expr_as_int  ;{{f363:cdd8ce}}  get number
         jp      next_token_if_close_bracket;{{f366:c31dde}}  check for close bracket
 
-
-_print_do_tab_23:                 ;{{Addr=$f369 Code Calls/jump count: 2 Data use count: 0}}
+;;=PRINT do process SPC TAB parameter
+;Calc new print position?
+PRINT_do_process_SPC_TAB_parameter:;{{Addr=$f369 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,d               ;{{f369:7a}} 
         rla                       ;{{f36a:17}} 
-        jr      nc,_print_do_tab_27;{{f36b:3003}}  (+$03)
+        jr      nc,_print_do_process_spc_tab_parameter_4;{{f36b:3003}}  (+$03)
         ld      de,$0000          ;{{f36d:110000}} ##LIT##
-_print_do_tab_27:                 ;{{Addr=$f370 Code Calls/jump count: 1 Data use count: 0}}
+_print_do_process_spc_tab_parameter_4:;{{Addr=$f370 Code Calls/jump count: 1 Data use count: 0}}
         call    pos_is_xpos_in_D_in_range;{{f370:cdcfc2}} 
         ret     nc                ;{{f373:d0}} 
 
@@ -10979,309 +11983,397 @@ _print_do_tab_27:                 ;{{Addr=$f370 Code Calls/jump count: 1 Data us
 ;;=PRINT USING
 PRINT_USING:                      ;{{Addr=$f37e Code Calls/jump count: 1 Data use count: 0}}
         call    get_next_token_skipping_space;{{f37e:cd2cde}}  get next token skipping space
-        call    eval_expr_and_error_if_not_string;{{f381:cd09cf}} 
+        call    eval_expr_and_error_if_not_string;{{f381:cd09cf}} Format string paramater
         call    next_token_if_equals_inline_data_byte;{{f384:cd25de}} 
         defb $3b                  ;inline token to test ";"
         push    hl                ;{{f388:e5}} 
-        ld      hl,(accumulator)  ;{{f389:2aa0b0}} 
+        ld      hl,(accumulator)  ;{{f389:2aa0b0}} Address of format string descriptor
         ex      (sp),hl           ;{{f38c:e3}} 
-        call    eval_expression   ;{{f38d:cd62cf}} 
-        xor     a                 ;{{f390:af}} 
-        ld      ($ae5d),a         ;{{f391:325dae}} 
-_print_using_10:                  ;{{Addr=$f394 Code Calls/jump count: 1 Data use count: 0}}
-        pop     de                ;{{f394:d1}} 
+        call    eval_expression   ;{{f38d:cd62cf}} Eval first number to format
+        xor     a                 ;{{f390:af}} Flag=We have parameters to insert
+        ld      (end_of_PRINT_USING_expr_list_flag),a;{{f391:325dae}} 
+
+;;=print using format string loop
+;Loops through the format string looking for parameters to format and insert
+;If we reach the end of the format string and there are more parameters to insert then
+;restart the format string
+print_using_format_string_loop:   ;{{Addr=$f394 Code Calls/jump count: 1 Data use count: 0}}
+        pop     de                ;{{f394:d1}} Get format string descriptor
         push    de                ;{{f395:d5}} 
         ex      de,hl             ;{{f396:eb}} 
-        ld      b,(hl)            ;{{f397:46}} 
+        ld      b,(hl)            ;{{f397:46}} B=Format string length
         inc     hl                ;{{f398:23}} 
-        ld      a,(hl)            ;{{f399:7e}} 
+        ld      a,(hl)            ;{{f399:7e}} HL=Format string address
         inc     hl                ;{{f39a:23}} 
         ld      h,(hl)            ;{{f39b:66}} 
         ld      l,a               ;{{f39c:6f}} 
         ex      de,hl             ;{{f39d:eb}} 
-        call    _print_using_42   ;{{f39e:cdcdf3}} 
-        jp      nc,_print_using_187;{{f3a1:d2abf4}} 
-_print_using_22:                  ;{{Addr=$f3a4 Code Calls/jump count: 1 Data use count: 0}}
-        call    is_next_02        ;{{f3a4:cd3dde}} 
-        jr      c,_print_using_32 ;{{f3a7:3811}}  (+$11)
-        call    _print_using_64   ;{{f3a9:cdeff3}} 
-        jr      z,_print_using_32 ;{{f3ac:280c}}  (+$0c)
-        push    de                ;{{f3ae:d5}} 
-        call    eval_expression   ;{{f3af:cd62cf}} 
-        pop     de                ;{{f3b2:d1}} 
-        call    _print_using_42   ;{{f3b3:cdcdf3}} 
-        jr      nc,_print_using_10;{{f3b6:30dc}}  (-$24)
-        jr      _print_using_22   ;{{f3b8:18ea}}  (-$16)
+        call    print_using_item  ;{{f39e:cdcdf3}} Print item
+        jp      nc,raise_improper_argument_error_F;{{f3a1:d2abf4}} NC if zero length format string or format string contains nothing to substitute
 
-_print_using_32:                  ;{{Addr=$f3ba Code Calls/jump count: 2 Data use count: 0}}
+;;=print using expr loop
+print_using_expr_loop:            ;{{Addr=$f3a4 Code Calls/jump count: 1 Data use count: 0}}
+        call    is_next_02        ;{{f3a4:cd3dde}} 
+        jr      c,print_using_end_of_parameters;{{f3a7:3811}}  (+$11) End of line/statement
+        call    is_A_print_separator;{{f3a9:cdeff3}} 
+        jr      z,print_using_end_of_parameters;{{f3ac:280c}}  (+$0c) End if not a valid separator
+        push    de                ;{{f3ae:d5}} 
+        call    eval_expression   ;{{f3af:cd62cf}} Eval next expression to format
+        pop     de                ;{{f3b2:d1}} 
+        call    print_using_item  ;{{f3b3:cdcdf3}} Print item
+        jr      nc,print_using_format_string_loop;{{f3b6:30dc}}  (-$24) reached end of format string loop so restart it more following parameters
+        jr      print_using_expr_loop;{{f3b8:18ea}}  (-$16) Loop for more expressions
+
+;;=print using end of parameters
+print_using_end_of_parameters:    ;{{Addr=$f3ba Code Calls/jump count: 2 Data use count: 0}}
         push    af                ;{{f3ba:f5}} 
-        ld      a,$ff             ;{{f3bb:3eff}} 
-        ld      ($ae5d),a         ;{{f3bd:325dae}} 
-        call    _print_using_42   ;{{f3c0:cdcdf3}} 
+        ld      a,$ff             ;{{f3bb:3eff}} Set flag to show there are no more parameters available to insert
+        ld      (end_of_PRINT_USING_expr_list_flag),a;{{f3bd:325dae}} 
+        call    print_using_item  ;{{f3c0:cdcdf3}} 
         pop     af                ;{{f3c3:f1}} 
         call    c,output_new_line ;{{f3c4:dc98c3}} ; new text line
         ex      (sp),hl           ;{{f3c7:e3}} 
-        call    various_get_string_from_stack_stuff;{{f3c8:cd03fc}} 
+        call    pop_TOS_from_string_stack_and_strings_area;{{f3c8:cd03fc}} 
         pop     hl                ;{{f3cb:e1}} 
         ret                       ;{{f3cc:c9}} 
 
-_print_using_42:                  ;{{Addr=$f3cd Code Calls/jump count: 3 Data use count: 0}}
-        ld      a,b               ;{{f3cd:78}} 
+;;=print using item
+;Starting from current position in format string looks for the next item to substitute
+;printing any literals it comes across along the way. Ends once an item has been subbed or
+;at end of format string
+;B=chars remaining in format string
+;DE=current position in format string
+
+;Returns Carry set if we subbed an item
+;DE=addr of next char in format string
+print_using_item:                 ;{{Addr=$f3cd Code Calls/jump count: 3 Data use count: 0}}
+        ld      a,b               ;{{f3cd:78}} End of format string
         or      a                 ;{{f3ce:b7}} 
         ret     z                 ;{{f3cf:c8}} 
 
         push    hl                ;{{f3d0:e5}} 
-_print_using_46:                  ;{{Addr=$f3d1 Code Calls/jump count: 1 Data use count: 0}}
+
+_print_using_item_4:              ;{{Addr=$f3d1 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(de)            ;{{f3d1:1a}} 
-        cp      $5f               ;{{f3d2:fe5f}} "_"
-        jr      nz,_print_using_54;{{f3d4:2007}}  (+$07)
+        cp      $5f               ;{{f3d2:fe5f}} "_" Next char is a literal
+        jr      nz,_print_using_item_12;{{f3d4:2007}}  (+$07)
         inc     de                ;{{f3d6:13}} 
-        djnz    _print_using_57   ;{{f3d7:100c}}  (+$0c)
+        djnz    _print_using_item_15;{{f3d7:100c}}  (+$0c)
         inc     b                 ;{{f3d9:04}} 
         dec     de                ;{{f3da:1b}} 
-        jr      _print_using_57   ;{{f3db:1808}}  (+$08)
+        jr      _print_using_item_15;{{f3db:1808}}  (+$08)
 
-_print_using_54:                  ;{{Addr=$f3dd Code Calls/jump count: 1 Data use count: 0}}
-        call    _print_using_67   ;{{f3dd:cdf7f3}} 
-        call    nc,_print_using_107;{{f3e0:d431f4}} 
-        jr      c,_print_using_62 ;{{f3e3:3808}}  (+$08)
-_print_using_57:                  ;{{Addr=$f3e5 Code Calls/jump count: 2 Data use count: 0}}
+_print_using_item_12:             ;{{Addr=$f3dd Code Calls/jump count: 1 Data use count: 0}}
+        call    print_using_string_item;{{f3dd:cdf7f3}} Returns C set if item subbed
+        call    nc,PRINT_USING_number_item;{{f3e0:d431f4}} Returns C set if item subbed
+        jr      c,_print_using_item_20;{{f3e3:3808}}  (+$08) Done once item subbed 
+_print_using_item_15:             ;{{Addr=$f3e5 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,(de)            ;{{f3e5:1a}} 
-        call    output_char       ;{{f3e6:cda0c3}} ; display text char
+        call    output_char       ;{{f3e6:cda0c3}}  display text char
         inc     de                ;{{f3e9:13}} 
-        djnz    _print_using_46   ;{{f3ea:10e5}}  (-$1b)
+        djnz    _print_using_item_4;{{f3ea:10e5}}  (-$1b)
+
         or      a                 ;{{f3ec:b7}} 
-_print_using_62:                  ;{{Addr=$f3ed Code Calls/jump count: 1 Data use count: 0}}
+_print_using_item_20:             ;{{Addr=$f3ed Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{f3ed:e1}} 
         ret                       ;{{f3ee:c9}} 
 
-_print_using_64:                  ;{{Addr=$f3ef Code Calls/jump count: 2 Data use count: 0}}
+;;=is A print separator
+;Is A a ';' or ',' token. Returns Z flag set if either was found
+is_A_print_separator:             ;{{Addr=$f3ef Code Calls/jump count: 2 Data use count: 0}}
         cp      $3b               ;{{f3ef:fe3b}} ";"
         jp      z,get_next_token_skipping_space;{{f3f1:ca2cde}}  get next token skipping space
         jp      next_token_if_comma;{{f3f4:c315de}}  check for comma
 
-_print_using_67:                  ;{{Addr=$f3f7 Code Calls/jump count: 1 Data use count: 0}}
+;;=print using string item
+;Do if format is one for strings, otherwise returns NC
+print_using_string_item:          ;{{Addr=$f3f7 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(de)            ;{{f3f7:1a}} 
         ld      c,$00             ;{{f3f8:0e00}} 
-        cp      $26               ;{{f3fa:fe26}} "&"
-        jr      z,_print_using_93 ;{{f3fc:281e}}  (+$1e)
+        cp      $26               ;{{f3fa:fe26}} "&" Print entire string
+        jr      z,_print_using_do_string_2;{{f3fc:281e}}  (+$1e)
         inc     c                 ;{{f3fe:0c}} 
-        cp      $21               ;{{f3ff:fe21}} "!"
-        jr      z,_print_using_93 ;{{f401:2819}}  (+$19)
-        xor     $5c               ;{{f403:ee5c}} "\"
+        cp      $21               ;{{f3ff:fe21}} "!" Print first character only
+        jr      z,_print_using_do_string_2;{{f401:2819}}  (+$19)
+        xor     $5c               ;{{f403:ee5c}} "\" Print number of chars equivalent to number of spaces between \ and \
         ret     nz                ;{{f405:c0}} 
 
         push    bc                ;{{f406:c5}} 
         push    de                ;{{f407:d5}} 
-_print_using_78:                  ;{{Addr=$f408 Code Calls/jump count: 1 Data use count: 0}}
-        inc     de                ;{{f408:13}} 
+
+_print_using_string_item_11:      ;{{Addr=$f408 Code Calls/jump count: 1 Data use count: 0}}
+        inc     de                ;{{f408:13}} Count number of chars (spaces) in C
         dec     b                 ;{{f409:05}} 
-        jr      z,_print_using_87 ;{{f40a:280a}}  (+$0a)
+        jr      z,_print_using_string_item_20;{{f40a:280a}}  (+$0a) Premature and of string
         inc     c                 ;{{f40c:0c}} 
         ld      a,(de)            ;{{f40d:1a}} 
         cp      $5c               ;{{f40e:fe5c}} "\"
-        jr      z,_print_using_91 ;{{f410:2808}}  (+$08)
+        jr      z,PRINT_USING_do_string;{{f410:2808}}  (+$08) End of specifier
         cp      $20               ;{{f412:fe20}} " "
-        jr      z,_print_using_78 ;{{f414:28f2}}  (-$0e)
-_print_using_87:                  ;{{Addr=$f416 Code Calls/jump count: 1 Data use count: 0}}
+        jr      z,_print_using_string_item_11;{{f414:28f2}}  (-$0e) Loop
+
+_print_using_string_item_20:      ;{{Addr=$f416 Code Calls/jump count: 1 Data use count: 0}}
         pop     de                ;{{f416:d1}} 
         pop     bc                ;{{f417:c1}} 
         or      a                 ;{{f418:b7}} 
         ret                       ;{{f419:c9}} 
 
-_print_using_91:                  ;{{Addr=$f41a Code Calls/jump count: 1 Data use count: 0}}
+;;=PRINT USING do string
+;C=number of leading chars of string to print. $00=entire string
+PRINT_USING_do_string:            ;{{Addr=$f41a Code Calls/jump count: 1 Data use count: 0}}
         pop     af                ;{{f41a:f1}} 
         pop     af                ;{{f41b:f1}} 
-_print_using_93:                  ;{{Addr=$f41c Code Calls/jump count: 2 Data use count: 0}}
+_print_using_do_string_2:         ;{{Addr=$f41c Code Calls/jump count: 2 Data use count: 0}}
         inc     de                ;{{f41c:13}} 
         dec     b                 ;{{f41d:05}} 
         push    bc                ;{{f41e:c5}} 
         push    de                ;{{f41f:d5}} 
-        ld      a,($ae5d)         ;{{f420:3a5dae}} 
+        ld      a,(end_of_PRINT_USING_expr_list_flag);{{f420:3a5dae}} Don't print if we've exhausted all the parameters in PRINT statement
         or      a                 ;{{f423:b7}} 
-        jr      nz,_print_using_103;{{f424:2007}}  (+$07)
-        call    unknown_output_accumulator_string;{{f426:cddcf8}} 
-        ld      a,c               ;{{f429:79}} 
-        call    _print_do_tab_12  ;{{f42a:cd52f3}} 
-_print_using_103:                 ;{{Addr=$f42d Code Calls/jump count: 1 Data use count: 0}}
+        jr      nz,_print_using_do_string_12;{{f424:2007}}  (+$07)
+        call    prob_output_first_C_chars_of_accumulator_string;{{f426:cddcf8}} 
+        ld      a,c               ;{{f429:79}} If string shorter than format specifier, pad with spaces
+        call    PRINT_do_B_minus_1_spaces;{{f42a:cd52f3}} 
+_print_using_do_string_12:        ;{{Addr=$f42d Code Calls/jump count: 1 Data use count: 0}}
         pop     de                ;{{f42d:d1}} 
         pop     bc                ;{{f42e:c1}} 
         scf                       ;{{f42f:37}} 
         ret                       ;{{f430:c9}} 
 
-_print_using_107:                 ;{{Addr=$f431 Code Calls/jump count: 1 Data use count: 0}}
-        call    _print_using_121  ;{{f431:cd48f4}} 
+;;=PRINT USING number item
+PRINT_USING_number_item:          ;{{Addr=$f431 Code Calls/jump count: 1 Data use count: 0}}
+        call    parse_number_format_template;{{f431:cd48f4}} 
         ret     nc                ;{{f434:d0}} 
 
-        ld      a,($ae5d)         ;{{f435:3a5dae}} 
+        ld      a,(end_of_PRINT_USING_expr_list_flag);{{f435:3a5dae}} Don't print if we've exhausted all the parameters in PRINT statement
         or      a                 ;{{f438:b7}} 
-        jr      nz,_print_using_119;{{f439:200b}}  (+$0b)
+        jr      nz,_print_using_number_item_12;{{f439:200b}}  (+$0b)
         push    bc                ;{{f43b:c5}} 
         push    de                ;{{f43c:d5}} 
         ld      a,c               ;{{f43d:79}} 
-        call    convert_number_to_string_by_format;{{f43e:cd6aef}} 
-        call    output_ASCIIZ_string;{{f441:cd8bc3}} ; display 0 terminated string
+        call    convert_number_to_string_by_format;{{f43e:cd6aef}} Number to string
+        call    output_ASCIIZ_string;{{f441:cd8bc3}} and output it
         pop     de                ;{{f444:d1}} 
         pop     bc                ;{{f445:c1}} 
-_print_using_119:                 ;{{Addr=$f446 Code Calls/jump count: 1 Data use count: 0}}
+_print_using_number_item_12:      ;{{Addr=$f446 Code Calls/jump count: 1 Data use count: 0}}
         scf                       ;{{f446:37}} 
         ret                       ;{{f447:c9}} 
 
-_print_using_121:                 ;{{Addr=$f448 Code Calls/jump count: 2 Data use count: 0}}
+;;===============================================
+;;=parse number format template
+;DE=addr of format template
+;B=length of format template
+;Valid chars in format template: + - $ £ * # , . ^
+
+;A returns the number of (printable?) chars in the template
+;C returns a bitwise set of flags:
+;Bit    Hex
+;7      $80 Always set - indicates we have a format 
+;            (as opposed to calling the conversion routines without a format)
+;6      &40 Exponent ('^^^^' at the end)
+;5      $20 Asterisk prefix
+;4      $10 If clear then show sign prefix, otherwise sign suffix
+;3      $08 If bit 4 set, bit 3 set specifies always show sign prefix, even for positive numbers
+;                         bit 3 clear specifies sign prefix only if negative
+;                         bit 3 clear specifies sign prefix only if negative
+;           If bit 4 clear, bit 3 clear specifies sign suffix of '-' or space
+;                           bit 3 set specifies sign suffix of '-' or '+'
+;2      &04 Currency symbol prefix (actual symbol is stored at &ae54)
+;1      &02 Contains comma(s)
+;(Bit zero is used as a flag when doing conversions)
+
+;During processing:
+;H=count of the number of chars before the decimal point
+;L=the number of chars after the decimal point, including the decimal point (when processing the hash stuff)
+;Thus H + L is the total number of chars (when in the hash stuff)
+
+parse_number_format_template:     ;{{Addr=$f448 Code Calls/jump count: 2 Data use count: 0}}
         push    bc                ;{{f448:c5}} 
         push    de                ;{{f449:d5}} 
-        ld      c,$80             ;{{f44a:0e80}} 
-        ld      h,$00             ;{{f44c:2600}} 
+        ld      c,$80             ;{{f44a:0e80}} Set bit 7 to show we have a format
+        ld      h,$00             ;{{f44c:2600}} Init character counter
         ld      a,(de)            ;{{f44e:1a}} 
-        cp      $2b               ;{{f44f:fe2b}}  '+'
-        jr      nz,_print_using_133;{{f451:2007}} 
+
+        cp      $2b               ;{{f44f:fe2b}}  '+' - sign prefix
+        jr      nz,_parse_number_format_template_12;{{f451:2007}} 
         inc     de                ;{{f453:13}} 
         dec     b                 ;{{f454:05}} 
-        jr      z,_print_using_153;{{f455:2824}}  (+$24)
+        jr      z,template_error  ;{{f455:2824}}  (+$24)
         inc     h                 ;{{f457:24}} 
-        ld      c,$88             ;{{f458:0e88}} 
-_print_using_133:                 ;{{Addr=$f45a Code Calls/jump count: 1 Data use count: 0}}
+        ld      c,$88             ;{{f458:0e88}} Bit 7 = we have a format, Bit 4=sign prefix
+
+_parse_number_format_template_12: ;{{Addr=$f45a Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(de)            ;{{f45a:1a}} 
         cp      $2e               ;{{f45b:fe2e}}  '.'
-        jr      z,_print_using_157;{{f45d:2820}} 
+        jr      z,template_period ;{{f45d:2820}} 
         cp      $23               ;{{f45f:fe23}}  '#'
-        jr      z,_print_using_180;{{f461:283e}} 
+        jr      z,template_hash   ;{{f461:283e}} 
         inc     de                ;{{f463:13}} 
         dec     b                 ;{{f464:05}} 
-        jr      z,_print_using_153;{{f465:2814}}  (+$14)
-        ex      de,hl             ;{{f467:eb}} 
+        jr      z,template_error  ;{{f465:2814}}  (+$14)
+
+        ex      de,hl             ;{{f467:eb}} Test for currency symbols or asterisk
         cp      (hl)              ;{{f468:be}} 
         ex      de,hl             ;{{f469:eb}} 
-        jr      nz,_print_using_153;{{f46a:200f}}  (+$0f)
+        jr      nz,template_error ;{{f46a:200f}}  (+$0f)
         inc     h                 ;{{f46c:24}} 
         inc     h                 ;{{f46d:24}} 
-        ld      l,$04             ;{{f46e:2e04}} 
-        call    _print_using_248  ;{{f470:cd02f5}} 
-        jr      z,_print_using_174;{{f473:2824}}  (+$24)
-        ld      l,$20             ;{{f475:2e20}} 
-        cp      $2a               ;{{f477:fe2a}} 
-        jr      z,_print_using_166;{{f479:2811}}  (+$11)
-_print_using_153:                 ;{{Addr=$f47b Code Calls/jump count: 5 Data use count: 0}}
-        pop     de                ;{{f47b:d1}} 
+        ld      l,$04             ;{{f46e:2e04}} Flags bit 2 = currency symbol
+        call    test_for_currency_symbols;{{f470:cd02f5}} 
+        jr      z,template_currency_symbol;{{f473:2824}}  (+$24)
+
+        ld      l,$20             ;{{f475:2e20}} Flags bit 5 = asterisk
+        cp      $2a               ;{{f477:fe2a}} '*'
+        jr      z,template_asterisk;{{f479:2811}}  (+$11)
+
+;;=template error
+template_error:                   ;{{Addr=$f47b Code Calls/jump count: 5 Data use count: 0}}
+        pop     de                ;{{f47b:d1}} Possibly just premature end of template?
         pop     bc                ;{{f47c:c1}} 
         or      a                 ;{{f47d:b7}} 
         ret                       ;{{f47e:c9}} 
 
-_print_using_157:                 ;{{Addr=$f47f Code Calls/jump count: 1 Data use count: 0}}
-        inc     de                ;{{f47f:13}} 
+;;=template period
+template_period:                  ;{{Addr=$f47f Code Calls/jump count: 1 Data use count: 0}}
+        inc     de                ;{{f47f:13}} If the first char (other than sign) is a decimal point
         dec     b                 ;{{f480:05}} 
-        jr      z,_print_using_153;{{f481:28f8}}  (-$08)
+        jr      z,template_error  ;{{f481:28f8}}  (-$08)
         ld      a,(de)            ;{{f483:1a}} 
-        cp      $23               ;{{f484:fe23}}  '#'
-        jr      nz,_print_using_153;{{f486:20f3}}  (-$0d)
+        cp      $23               ;{{f484:fe23}}  '#' Leading Period must be followed by a hash
+        jr      nz,template_error ;{{f486:20f3}}  (-$0d)
         dec     de                ;{{f488:1b}} 
         inc     b                 ;{{f489:04}} 
-        jr      _print_using_180  ;{{f48a:1815}}  (+$15)
+        jr      template_hash     ;{{f48a:1815}}  (+$15)
 
-_print_using_166:                 ;{{Addr=$f48c Code Calls/jump count: 1 Data use count: 0}}
+;;=template asterisk
+template_asterisk:                ;{{Addr=$f48c Code Calls/jump count: 1 Data use count: 0}}
         inc     de                ;{{f48c:13}} 
         dec     b                 ;{{f48d:05}} 
-        jr      z,_print_using_177;{{f48e:280e}}  (+$0e)
+        jr      z,_template_currency_symbol_3;{{f48e:280e}}  (+$0e)
         ld      a,(de)            ;{{f490:1a}} 
-        call    _print_using_248  ;{{f491:cd02f5}} 
-        jr      nz,_print_using_177;{{f494:2008}}  (+$08)
+        call    test_for_currency_symbols;{{f491:cd02f5}} Asterisk followed by currency symbol
+        jr      nz,_template_currency_symbol_3;{{f494:2008}}  (+$08)
+
         inc     h                 ;{{f496:24}} 
-        ld      l,$24             ;{{f497:2e24}} "$"
-_print_using_174:                 ;{{Addr=$f499 Code Calls/jump count: 1 Data use count: 0}}
-        ld      (RAM_ae54),a      ;{{f499:3254ae}} 
+        ld      l,$24             ;{{f497:2e24}} Flag bits for 'asterisk' and 'currency symbol' if asterisk + currency symbol
+;;=template currency symbol
+template_currency_symbol:         ;{{Addr=$f499 Code Calls/jump count: 1 Data use count: 0}}
+        ld      (Print_format_currency_symbol___or_),a;{{f499:3254ae}} Set currency symbol
         inc     de                ;{{f49c:13}} 
         dec     b                 ;{{f49d:05}} 
-_print_using_177:                 ;{{Addr=$f49e Code Calls/jump count: 2 Data use count: 0}}
-        ld      a,c               ;{{f49e:79}} 
+_template_currency_symbol_3:      ;{{Addr=$f49e Code Calls/jump count: 2 Data use count: 0}}
+        ld      a,c               ;{{f49e:79}} OR C,L - Put new flags into C
         or      l                 ;{{f49f:b5}} 
         ld      c,a               ;{{f4a0:4f}} 
-_print_using_180:                 ;{{Addr=$f4a1 Code Calls/jump count: 2 Data use count: 0}}
-        pop     af                ;{{f4a1:f1}} 
+
+;;=template hash
+template_hash:                    ;{{Addr=$f4a1 Code Calls/jump count: 2 Data use count: 0}}
+        pop     af                ;{{f4a1:f1}} Hashes before the decimal point. (Except if first char is decimal point,
+                                  ;in which case we arrive here still at the decimal point)
         pop     af                ;{{f4a2:f1}} 
-        call    _print_using_188  ;{{f4a3:cdaef4}} 
-        ld      a,h               ;{{f4a6:7c}} 
-        add     a,l               ;{{f4a7:85}} 
+        call    do_template_hash  ;{{f4a3:cdaef4}} 
+        ld      a,h               ;{{f4a6:7c}} Chars before decimal point
+        add     a,l               ;{{f4a7:85}} Chars including and after decimal point
         cp      $15               ;{{f4a8:fe15}} 
         ret     c                 ;{{f4aa:d8}} 
 
-_print_using_187:                 ;{{Addr=$f4ab Code Calls/jump count: 1 Data use count: 0}}
+;;=raise Improper Argument error
+raise_improper_argument_error_F:  ;{{Addr=$f4ab Code Calls/jump count: 1 Data use count: 0}}
         jp      Error_Improper_Argument;{{f4ab:c34dcb}}  Error: Improper Argument
 
-_print_using_188:                 ;{{Addr=$f4ae Code Calls/jump count: 1 Data use count: 0}}
+;;=do template hash
+do_template_hash:                 ;{{Addr=$f4ae Code Calls/jump count: 1 Data use count: 0}}
         xor     a                 ;{{f4ae:af}} 
-        ld      l,a               ;{{f4af:6f}} 
+        ld      l,a               ;{{f4af:6f}} L=0. Number of chars after decimal point
         or      b                 ;{{f4b0:b0}} 
         ret     z                 ;{{f4b1:c8}} 
 
-_print_using_192:                 ;{{Addr=$f4b2 Code Calls/jump count: 1 Data use count: 0}}
-        ld      a,(de)            ;{{f4b2:1a}} 
+;;=template hash loop
+template_hash_loop:               ;{{Addr=$f4b2 Code Calls/jump count: 1 Data use count: 0}}
+        ld      a,(de)            ;{{f4b2:1a}} Again hashes before the decimal point, unless the first char is a decimal point
         cp      $2e               ;{{f4b3:fe2e}}  '.'
-        jr      z,_print_using_204;{{f4b5:280f}}  (+$0f)
+        jr      z,template_hash_period;{{f4b5:280f}}  (+$0f)
         cp      $23               ;{{f4b7:fe23}}  '#'
-        jr      z,_print_using_200;{{f4b9:2806}}  (+$06)
+        jr      z,template_hash_hash;{{f4b9:2806}}  (+$06)
         cp      $2c               ;{{f4bb:fe2c}} ","
-        jr      nz,_print_using_211;{{f4bd:2010}}  (+$10)
-        set     1,c               ;{{f4bf:cbc9}} 
-_print_using_200:                 ;{{Addr=$f4c1 Code Calls/jump count: 1 Data use count: 0}}
-        inc     h                 ;{{f4c1:24}} 
+        jr      nz,template_hash_other;{{f4bd:2010}}  (+$10)
+
+        set     1,c               ;{{f4bf:cbc9}} Flag bit 1 = Comma
+;;=template hash hash
+template_hash_hash:               ;{{Addr=$f4c1 Code Calls/jump count: 1 Data use count: 0}}
+        inc     h                 ;{{f4c1:24}} Just loop while hashes
         inc     de                ;{{f4c2:13}} 
-        djnz    _print_using_192  ;{{f4c3:10ed}}  (-$13)
+        djnz    template_hash_loop;{{f4c3:10ed}}  (-$13)
         ret                       ;{{f4c5:c9}} 
 
-_print_using_204:                 ;{{Addr=$f4c6 Code Calls/jump count: 2 Data use count: 0}}
-        inc     l                 ;{{f4c6:2c}} 
+;;=template hash period
+;Do items after the decimal point
+template_hash_period:             ;{{Addr=$f4c6 Code Calls/jump count: 2 Data use count: 0}}
+        inc     l                 ;{{f4c6:2c}} Branch here once we encounter a decimal point, inc after-decimal-point counter
         inc     de                ;{{f4c7:13}} 
         dec     b                 ;{{f4c8:05}} 
         ret     z                 ;{{f4c9:c8}} 
 
         ld      a,(de)            ;{{f4ca:1a}} 
         cp      $23               ;{{f4cb:fe23}}  '#'
-        jr      z,_print_using_204;{{f4cd:28f7}}  (-$09)
-_print_using_211:                 ;{{Addr=$f4cf Code Calls/jump count: 1 Data use count: 0}}
-        ex      de,hl             ;{{f4cf:eb}} 
+        jr      z,template_hash_period;{{f4cd:28f7}}  (-$09) Loop for hashes after the decimal point
+
+;;=template hash other
+;Items at the end of the template
+template_hash_other:              ;{{Addr=$f4cf Code Calls/jump count: 1 Data use count: 0}}
+        ex      de,hl             ;{{f4cf:eb}} Anything else and we're done with the number part
         push    hl                ;{{f4d0:e5}} 
+
+;Test for four '^' - exponent (Note, if we get past the first test then A contains '^')
         cp      $5e               ;{{f4d1:fe5e}} "^"
-        jr      nz,_print_using_231;{{f4d3:2016}}  (+$16)
+        jr      nz,_template_hash_other_20;{{f4d3:2016}}  (+$16)
         inc     hl                ;{{f4d5:23}} 
         cp      (hl)              ;{{f4d6:be}} 
-        jr      nz,_print_using_231;{{f4d7:2012}}  (+$12)
+        jr      nz,_template_hash_other_20;{{f4d7:2012}}  (+$12)
         inc     hl                ;{{f4d9:23}} 
         cp      (hl)              ;{{f4da:be}} 
-        jr      nz,_print_using_231;{{f4db:200e}}  (+$0e)
+        jr      nz,_template_hash_other_20;{{f4db:200e}}  (+$0e)
         inc     hl                ;{{f4dd:23}} 
         cp      (hl)              ;{{f4de:be}} 
-        jr      nz,_print_using_231;{{f4df:200a}}  (+$0a)
+        jr      nz,_template_hash_other_20;{{f4df:200a}}  (+$0a)
         inc     hl                ;{{f4e1:23}} 
+
+;If we got here then we found four '^'
         ld      a,b               ;{{f4e2:78}} 
         sub     $04               ;{{f4e3:d604}} 
-        jr      c,_print_using_231;{{f4e5:3804}}  (+$04)
+        jr      c,_template_hash_other_20;{{f4e5:3804}}  (+$04)
         ld      b,a               ;{{f4e7:47}} 
         ex      (sp),hl           ;{{f4e8:e3}} 
-        set     6,c               ;{{f4e9:cbf1}} 
-_print_using_231:                 ;{{Addr=$f4eb Code Calls/jump count: 5 Data use count: 0}}
+        set     6,c               ;{{f4e9:cbf1}} Flags bit 6 = Exponent
+
+_template_hash_other_20:          ;{{Addr=$f4eb Code Calls/jump count: 5 Data use count: 0}}
         pop     hl                ;{{f4eb:e1}} 
         ex      de,hl             ;{{f4ec:eb}} 
         inc     b                 ;{{f4ed:04}} 
         dec     b                 ;{{f4ee:05}} 
         ret     z                 ;{{f4ef:c8}} 
 
-        bit     3,c               ;{{f4f0:cb59}} 
+        bit     3,c               ;{{f4f0:cb59}} Exit if we already have a sign prefix
         ret     nz                ;{{f4f2:c0}} 
 
         ld      a,(de)            ;{{f4f3:1a}} 
         cp      $2d               ;{{f4f4:fe2d}}  '-'
-        jr      z,_print_using_244;{{f4f6:2805}}  
+        jr      z,_template_hash_other_33;{{f4f6:2805}}  
         cp      $2b               ;{{f4f8:fe2b}}  '+'
         ret     nz                ;{{f4fa:c0}} 
 
-        set     3,c               ;{{f4fb:cbd9}} 
-_print_using_244:                 ;{{Addr=$f4fd Code Calls/jump count: 1 Data use count: 0}}
-        set     4,c               ;{{f4fd:cbe1}} 
+        set     3,c               ;{{f4fb:cbd9}} '+' suffix gives us bits 3 and 4
+_template_hash_other_33:          ;{{Addr=$f4fd Code Calls/jump count: 1 Data use count: 0}}
+        set     4,c               ;{{f4fd:cbe1}} '-' suffix only gives us bit 4
         inc     de                ;{{f4ff:13}} 
         dec     b                 ;{{f500:05}} 
         ret                       ;{{f501:c9}} 
 
-_print_using_248:                 ;{{Addr=$f502 Code Calls/jump count: 2 Data use count: 0}}
+;;=test for currency symbols
+;Returns Z if dollar or pound sign
+;Patch this is you want another currency - as long as it's a single char prefix.
+;Adding Euros might be a fun project?
+test_for_currency_symbols:        ;{{Addr=$f502 Code Calls/jump count: 2 Data use count: 0}}
         cp      $24               ;{{f502:fe24}}  '$'
         ret     z                 ;{{f504:c8}} 
 
@@ -11290,34 +12382,57 @@ _print_using_248:                 ;{{Addr=$f502 Code Calls/jump count: 2 Data us
 
 ;;========================================================================
 ;; command WRITE
+;WRITE [#<stream expression>,][<write list>]
+;where <write list> is <expression>[<separator>]*
+
+;* - means item can be repeated zero or more times
+;<separator> can be a comma or semicolon
+
+;Similar to PRINT but:
+;- print zones are ignored
+;- strings are enclosed in double quotes
+;- commas are added between items
+;- does not support the trailing separator
+;Intended for writing to files in a form that can be read back by INPUT
+
 command_WRITE:                    ;{{Addr=$f508 Code Calls/jump count: 0 Data use count: 1}}
-        call    exec_BC_on_evalled_stream_and_swap_back;{{f508:cdcfc1}} 
+        call    exec_following_on_evalled_stream_and_swap_back;{{f508:cdcfc1}} 
+                                  ;This routine evals a stream number (if present),
+                                  ;swaps to it,
+                                  ;CALLs the following code (popping address of the stack), 
+                                  ;swaps back to original stream,
+                                  ;returns to the caller
+
         call    is_next_02        ;{{f50b:cd3dde}} 
-        jp      c,output_new_line ;{{f50e:da98c3}} ; new text line
-_command_write_3:                 ;{{Addr=$f511 Code Calls/jump count: 1 Data use count: 0}}
+        jp      c,output_new_line ;{{f50e:da98c3}} Nothing to print
+;;=WRITE do param loop
+WRITE_do_param_loop:              ;{{Addr=$f511 Code Calls/jump count: 1 Data use count: 0}}
         call    eval_expression   ;{{f511:cd62cf}} 
         push    af                ;{{f514:f5}} 
         push    hl                ;{{f515:e5}} 
         call    is_accumulator_a_string;{{f516:cd66ff}} 
-        jr      z,_command_write_11;{{f519:2808}}  (+$08)
-        call    convert_float_atHL_to_string;{{f51b:cd5aef}} 
+        jr      z,WRITE_do_string ;{{f519:2808}}  (+$08)
+        call    convert_accumulator_to_string;{{f51b:cd5aef}} 
         call    output_ASCIIZ_string;{{f51e:cd8bc3}} ; display 0 terminated string
-        jr      _command_write_16 ;{{f521:180d}}  (+$0d)
+        jr      WRITE_do_after_parameter;{{f521:180d}}  (+$0d)
 
-_command_write_11:                ;{{Addr=$f523 Code Calls/jump count: 1 Data use count: 0}}
+;;=WRITE do string
+WRITE_do_string:                  ;{{Addr=$f523 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,$22             ;{{f523:3e22}} '"'
         call    output_char       ;{{f525:cda0c3}} ; display text char
         call    output_accumulator_string;{{f528:cdd0f8}} 
         ld      a,$22             ;{{f52b:3e22}} '"'
         call    output_char       ;{{f52d:cda0c3}} ; display text char
-_command_write_16:                ;{{Addr=$f530 Code Calls/jump count: 1 Data use count: 0}}
+
+;;=WRITE do after parameter
+WRITE_do_after_parameter:         ;{{Addr=$f530 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{f530:e1}} 
         pop     af                ;{{f531:f1}} 
         jp      z,output_new_line ;{{f532:ca98c3}} ; new text line
-        call    _print_using_64   ;{{f535:cdeff3}} 
+        call    is_A_print_separator;{{f535:cdeff3}} 
         ld      a,$2c             ;{{f538:3e2c}} 
         call    output_char       ;{{f53a:cda0c3}} ; display text char
-        jr      _command_write_3  ;{{f53d:18d2}}  (-$2e)
+        jr      WRITE_do_param_loop;{{f53d:18d2}}  (-$2e)
 
 
 
@@ -11329,12 +12444,17 @@ _command_write_16:                ;{{Addr=$f530 Code Calls/jump count: 1 Data us
 ;;=======================================================
 
 ;;initialise memory model
-;;sets addresses for where stuff is located in memory
-;;HL=?? passed from MC_START_PROGRAM
-;;DE=first byte of available memory passed from MC_START_PROGRAM
-;;BC=?? passed from MC_START_PROGRAM
+;Start of day initialisation
+
+;Values passed from MC_START_PROGRAM
+;DE = first byte of available memory
+;HL=last byte of memory not used by BASIC
+;BC=last byte of memory not used by firmware
+
+;Returns Carry true if failed - I.e. not enough memory
+
 initialise_memory_model:          ;{{Addr=$f53f Code Calls/jump count: 1 Data use count: 0}}
-        ld      bc,program_line_redundant_spaces_flag_;{{f53f:0100ac}} 
+        ld      bc,program_line_redundant_spaces_flag_;{{f53f:0100ac}} This appears to be detecting a warm boot.
         call    compare_HL_BC     ;{{f542:cddeff}}  HL=BC?
         ret     nc                ;{{f545:d0}} 
 
@@ -11357,25 +12477,28 @@ initialise_memory_model:          ;{{Addr=$f53f Code Calls/jump count: 1 Data us
         cp      $04               ;{{f561:fe04}} 
         ret     c                 ;{{f563:d8}} 
 
-        call    clear_RAMb075     ;{{f564:cd7ff7}} 
+        call    clear_file_buffer_flag;{{f564:cd7ff7}} 
         ld      (vars_and_data_at_end_of_memory_flag),a;{{f567:326eae}} 
         ret                       ;{{f56a:c9}} 
 
 ;;========================================================================
 ;; command MEMORY
+;MEMORY <address expression>
+;Specifies the highest byte of memory which is available to BASIC
 
 command_MEMORY:                   ;{{Addr=$f56b Code Calls/jump count: 0 Data use count: 1}}
-        call    eval_expr_as_uint ;{{f56b:cdf5ce}} 
+        call    eval_expr_as_uint ;{{f56b:cdf5ce}} eval parameter
         push    hl                ;{{f56e:e5}} 
-        ld      hl,(address_of_highest_byte_of_free_RAM_);{{f56f:2a60ae}} 
+        ld      hl,(address_of_highest_byte_of_free_RAM_);{{f56f:2a60ae}} Address too high?
         call    compare_HL_DE     ;{{f572:cdd8ff}}  HL=DE?
         jr      c,raise_memory_full_error;{{f575:3831}}  (+$31)
+
         inc     de                ;{{f577:13}} 
         call    compare_DE_to_HIMEM_plus_1;{{f578:cdecf5}}  compare DE with HIMEM
-        call    c,_command_memory_14;{{f57b:dc8af5}} 
+        call    c,_command_memory_14;{{f57b:dc8af5}} Move character matrix table?
         ex      de,hl             ;{{f57e:eb}} 
-        call    _symbol_after_18  ;{{f57f:cd08f8}} 
-        ld      hl,(poss_file_buffer_address);{{f582:2a76b0}} 
+        call    move_strings_area ;{{f57f:cd08f8}} Move strings area
+        ld      hl,(address_of_4k_file_buffer_);{{f582:2a76b0}} 
         ld      (address_of_the_highest_byte_of_free_RAM_),hl;{{f585:2278b0}} 
         pop     hl                ;{{f588:e1}} 
         ret                       ;{{f589:c9}} 
@@ -11385,22 +12508,24 @@ _command_memory_14:               ;{{Addr=$f58a Code Calls/jump count: 1 Data us
         ld      bc,(HIMEM_)       ;{{f58d:ed4b5eae}}  HIMEM
         call    c,compare_HL_minus_BC_to_DE_minus_BC;{{f591:dce0f5}} 
         jr      c,raise_memory_full_error;{{f594:3812}}  (+$12)
-        ld      hl,(poss_file_buffer_address);{{f596:2a76b0}} 
+        ld      hl,(address_of_4k_file_buffer_);{{f596:2a76b0}} 
         dec     hl                ;{{f599:2b}} 
         call    compare_HL_minus_BC_to_DE_minus_BC;{{f59a:cde0f5}} 
         ret     nc                ;{{f59d:d0}} 
 
-        ld      a,(poss_file_buffer_flag);{{f59e:3a75b0}} 
+        ld      a,(file_buffer_flags);{{f59e:3a75b0}} 
         or      a                 ;{{f5a1:b7}} 
         ret     z                 ;{{f5a2:c8}} 
 
         cp      $04               ;{{f5a3:fe04}} 
-        jp      z,clear_RAMb075   ;{{f5a5:ca7ff7}} 
+        jp      z,clear_file_buffer_flag;{{f5a5:ca7ff7}} 
 ;;=raise memory full error
 raise_memory_full_error:          ;{{Addr=$f5a8 Code Calls/jump count: 3 Data use count: 0}}
         jp      raise_memory_full_error_C;{{f5a8:c375f8}} 
 
-_raise_memory_full_error_1:       ;{{Addr=$f5ab Code Calls/jump count: 1 Data use count: 0}}
+;;====================================================
+;;=prepare memory for loading binary
+prepare_memory_for_loading_binary:;{{Addr=$f5ab Code Calls/jump count: 1 Data use count: 0}}
         push    de                ;{{f5ab:d5}} 
         ex      de,hl             ;{{f5ac:eb}} 
         add     hl,bc             ;{{f5ad:09}} 
@@ -11415,7 +12540,7 @@ _raise_memory_full_error_1:       ;{{Addr=$f5ab Code Calls/jump count: 1 Data us
         ex      de,hl             ;{{f5bd:eb}} 
         call    c,compare_HL_minus_BC_to_DE_minus_BC;{{f5be:dce0f5}} 
         jr      nc,raise_memory_full_error;{{f5c1:30e5}}  (-$1b)
-        ld      bc,(poss_file_buffer_address);{{f5c3:ed4b76b0}} 
+        ld      bc,(address_of_4k_file_buffer_);{{f5c3:ed4b76b0}} 
         ld      hl,$0fff          ;{{f5c7:21ff0f}} 
         add     hl,bc             ;{{f5ca:09}} 
         call    compare_HL_minus_BC_to_DE_minus_BC;{{f5cb:cde0f5}} 
@@ -11427,7 +12552,7 @@ _raise_memory_full_error_1:       ;{{Addr=$f5ab Code Calls/jump count: 1 Data us
         ld      d,b               ;{{f5d4:50}} 
         ld      e,c               ;{{f5d5:59}} 
         call    compare_DE_to_HIMEM_plus_1;{{f5d6:cdecf5}}  compare DE with HIMEM
-        jp      nz,clear_RAMb075  ;{{f5d9:c27ff7}} 
+        jp      nz,clear_file_buffer_flag;{{f5d9:c27ff7}} 
         ld      (address_of_the_highest_byte_of_free_RAM_),hl;{{f5dc:2278b0}} 
         ret                       ;{{f5df:c9}} 
 
@@ -11470,6 +12595,7 @@ get_size_of_strings_area_in_BC:   ;{{Addr=$f5f8 Code Calls/jump count: 3 Data us
         pop     de                ;{{f605:d1}} 
         ret                       ;{{f606:c9}} 
 
+;;==========================
 ;;=prob grow all program space pointers by BC
 prob_grow_all_program_space_pointers_by_BC:;{{Addr=$f607 Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,(address_after_end_of_program);{{f607:2a66ae}} 
@@ -11505,7 +12631,7 @@ prob_move_vars_and_arrays_to_end_of_memory:;{{Addr=$f629 Code Calls/jump count: 
         ld      c,l               ;{{f62d:4d}} 
         ld      hl,(address_after_end_of_program);{{f62e:2a66ae}} 
         ex      de,hl             ;{{f631:eb}} 
-        call    unknown_alloc_and_move_memory_up;{{f632:cdb8f6}} 
+        call    move_lower_memory_up;{{f632:cdb8f6}} 
         ld      a,$ff             ;{{f635:3eff}} 
         ld      (vars_and_data_at_end_of_memory_flag),a;{{f637:326eae}} 
         jr      prob_grow_program_space_ptrs_by_BC;{{f63a:18d7}}  (-$29)
@@ -11567,9 +12693,9 @@ possibly_alloc_A_bytes_on_execution_stack:;{{Addr=$f672 Code Calls/jump count: 1
         sub     l                 ;{{f679:95}} 
         ld      h,a               ;{{f67a:67}} 
         ld      (execution_stack_next_free_ptr),hl;{{f67b:226fb0}} 
-        ld      a,$94             ;{{f67e:3e94}} check for stack overflow???   
+        ld      a,(2 - $b06e) and $ff;{{f67e:3e94}} was $94 last byte of execution stack - check for stack overflow???   
         add     a,l               ;{{f680:85}} 
-        ld      a,$4f             ;{{f681:3e4f}} 
+        ld      a,((2 - $b06e) >> 8) and $ff;{{f681:3e4f}} was $4f
         adc     a,h               ;{{f683:8c}} 
         pop     hl                ;{{f684:e1}} 
         ret     nc                ;{{f685:d0}} 
@@ -11586,10 +12712,13 @@ empty_strings_area:               ;{{Addr=$f68c Code Calls/jump count: 1 Data us
 
 ;;==============================
 ;;alloc C bytes in string space
+;Alloc C + 2 bytes in the strings area (i.e. to the bottom),
+;then writes BC to the two lowest bytes (where B=0)
+;Returns the HL=first byte allocated (NOT inlcuding the two extra bytes)
 alloc_C_bytes_in_string_space:    ;{{Addr=$f693 Code Calls/jump count: 1 Data use count: 0}}
         ld      b,$00             ;{{f693:0600}} 
-;;=alloc BC bytes in string space
-alloc_BC_bytes_in_string_space:   ;{{Addr=$f695 Code Calls/jump count: 1 Data use count: 0}}
+;;=alloc loop
+alloc_loop:                       ;{{Addr=$f695 Code Calls/jump count: 1 Data use count: 0}}
         ld      hl,(address_of_start_of_free_space_);{{f695:2a6cae}} 
         ex      de,hl             ;{{f698:eb}} 
         ld      hl,(address_of_end_of_free_space_);{{f699:2a71b0}} 
@@ -11598,29 +12727,27 @@ alloc_BC_bytes_in_string_space:   ;{{Addr=$f695 Code Calls/jump count: 1 Data us
         dec     hl                ;{{f69f:2b}} 
         dec     hl                ;{{f6a0:2b}} 
         call    compare_HL_DE     ;{{f6a1:cdd8ff}}  HL=DE?
-        jr      nc,poss_alloc_and_write_string_pointer;{{f6a4:3009}}  (+$09)
-        call    _function_fre_6   ;{{f6a6:cd64fc}} 
-        jr      c,alloc_BC_bytes_in_string_space;{{f6a9:38ea}}  (-$16)
+        jr      nc,_alloc_loop_13 ;{{f6a4:3009}}  (+$09)
+        call    strings_area_garbage_collection;{{f6a6:cd64fc}} 
+        jr      c,alloc_loop      ;{{f6a9:38ea}}  (-$16)
         call    byte_following_call_is_error_code;{{f6ab:cd45cb}} 
         defb $0e                  ;Inline error code: String Space Full error
 
-;;===============================
-;;poss alloc and write string pointer
-poss_alloc_and_write_string_pointer:;{{Addr=$f6af Code Calls/jump count: 1 Data use count: 0}}
-        ld (address_of_end_of_free_space_),hl;{{f6af:2271b0}} 
+_alloc_loop_13:                   ;{{Addr=$f6af Code Calls/jump count: 1 Data use count: 0}}
+        ld (address_of_end_of_free_space_),hl;{{f6af:2271b0}} Update end of memory variable
         inc     hl                ;{{f6b2:23}} 
-        ld      (hl),c            ;{{f6b3:71}} 
+        ld      (hl),c            ;{{f6b3:71}} Write BC to bottom of string space
         inc     hl                ;{{f6b4:23}} 
         ld      (hl),b            ;{{f6b5:70}} 
         inc     hl                ;{{f6b6:23}} 
         ret                       ;{{f6b7:c9}} 
 
 ;;================================
-;;unknown alloc and move memory up
-;I think this moves memory between DE and HL up by BC bytes
-unknown_alloc_and_move_memory_up: ;{{Addr=$f6b8 Code Calls/jump count: 4 Data use count: 0}}
+;;move lower memory up
+;Moves memory between DE and HL up by BC bytes
+move_lower_memory_up:             ;{{Addr=$f6b8 Code Calls/jump count: 4 Data use count: 0}}
         call    get_start_of_free_space;{{f6b8:cd14f7}} 
-_unknown_alloc_and_move_memory_up_1:;{{Addr=$f6bb Code Calls/jump count: 1 Data use count: 0}}
+_move_lower_memory_up_1:          ;{{Addr=$f6bb Code Calls/jump count: 1 Data use count: 0}}
         push    bc                ;{{f6bb:c5}} 
         push    de                ;{{f6bc:d5}} 
         push    de                ;{{f6bd:d5}} 
@@ -11628,19 +12755,18 @@ _unknown_alloc_and_move_memory_up_1:;{{Addr=$f6bb Code Calls/jump count: 1 Data 
         add     hl,bc             ;{{f6bf:09}} 
         jr      c,raise_memory_full_error_B;{{f6c0:380e}}  (+$0e)
         ex      de,hl             ;{{f6c2:eb}} 
-_unknown_alloc_and_move_memory_up_8:;{{Addr=$f6c3 Code Calls/jump count: 1 Data use count: 0}}
-        call    get_end_of_free_space_or_start_of_variables;{{f6c3:cd07f7}} 
+_move_lower_memory_up_8:          ;{{Addr=$f6c3 Code Calls/jump count: 1 Data use count: 0}}
+        call    get_end_of_free_space;{{f6c3:cd07f7}} 
         call    compare_HL_DE     ;{{f6c6:cdd8ff}}  HL=DE?
-        jr      nc,move_lower_memory_up;{{f6c9:3008}}  (+$08)
-        call    _function_fre_6   ;{{f6cb:cd64fc}} 
-        jr      c,_unknown_alloc_and_move_memory_up_8;{{f6ce:38f3}}  (-$0d)
+        jr      nc,do_move_lower_memory_up;{{f6c9:3008}}  (+$08)
+        call    strings_area_garbage_collection;{{f6cb:cd64fc}} 
+        jr      c,_move_lower_memory_up_8;{{f6ce:38f3}}  (-$0d)
 ;;=raise Memory Full error
 raise_memory_full_error_B:        ;{{Addr=$f6d0 Code Calls/jump count: 1 Data use count: 0}}
         jp      raise_memory_full_error_C;{{f6d0:c375f8}} 
 
-;;=================================
-;;move lower memory up
-move_lower_memory_up:             ;{{Addr=$f6d3 Code Calls/jump count: 1 Data use count: 0}}
+;;=do move lower memory up
+do_move_lower_memory_up:          ;{{Addr=$f6d3 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{f6d3:e1}} 
         pop     bc                ;{{f6d4:c1}} 
         push    de                ;{{f6d5:d5}} 
@@ -11686,8 +12812,10 @@ get_free_space_byte_count_in_HL_addr_in_DE:;{{Addr=$f6fc Code Calls/jump count: 
         ret                       ;{{f706:c9}} 
 
 ;;==============================
-;;get end of free space or start of variables
-get_end_of_free_space_or_start_of_variables:;{{Addr=$f707 Code Calls/jump count: 3 Data use count: 0}}
+;;get end of free space
+;Gets the address of the last free byte in the central spare block,
+;taking into account whether variables etc are at the bottom of memory or the top.
+get_end_of_free_space:            ;{{Addr=$f707 Code Calls/jump count: 3 Data use count: 0}}
         ld      a,(vars_and_data_at_end_of_memory_flag);{{f707:3a6eae}} 
         or      a                 ;{{f70a:b7}} 
         ld      hl,(address_of_end_of_free_space_);{{f70b:2a71b0}} 
@@ -11699,6 +12827,8 @@ get_end_of_free_space_or_start_of_variables:;{{Addr=$f707 Code Calls/jump count:
 
 ;;==================================
 ;;get start of free space
+;Gets the address of the first free byte in the central spare block,
+;taking into account whether variables etc are at the bottom of memory or the top.
 get_start_of_free_space:          ;{{Addr=$f714 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,(vars_and_data_at_end_of_memory_flag);{{f714:3a6eae}} 
         or      a                 ;{{f717:b7}} 
@@ -11708,122 +12838,164 @@ get_start_of_free_space:          ;{{Addr=$f714 Code Calls/jump count: 2 Data us
         ld      hl,(address_after_end_of_program);{{f71c:2a66ae}} 
         ret                       ;{{f71f:c9}} 
 
-;;=prob alloc 2k file buffer
-prob_alloc_2k_file_buffer:        ;{{Addr=$f720 Code Calls/jump count: 1 Data use count: 0}}
+;;===================================
+;BASIC uses two 2k buffers, one each for read and write. Either both
+;are allocated or neither (it never allocates only one). file_buffer_flags
+;($b075) bit 2 maintains the 'buffers allocated' status, and if allocated,
+;the file_buffer_flags maintains the in-use state of each buffer (bits 1 and 0).
+;The 4k buffer will only be released (be the routines below) when neither 2k 
+;buffer is in use.
+
+;;=alloc and use file read buffer
+;Allocs file buffers if not allocated, 
+;marks read buffer as in use
+;returns address of 2k read buffer in DE
+alloc_and_use_file_read_buffer:   ;{{Addr=$f720 Code Calls/jump count: 1 Data use count: 0}}
         ld      de,$0001          ;{{f720:110100}} 
-        jr      _prob_alloc_2k_file_buffer_c_1;{{f723:1808}}  (+$08)
+        jr      _alloc_file_write_buffer_1;{{f723:1808}}  (+$08)
 
-;;=prob alloc 2k file buffer
-prob_alloc_2k_file_buffer_B:      ;{{Addr=$f725 Code Calls/jump count: 1 Data use count: 0}}
+;;=alloc and use file write buffer
+;Allocs file buffers if not allocated, 
+;marks write buffer as in use
+;returns address of 2k write buffer in DE
+alloc_and_use_file_write_buffer:  ;{{Addr=$f725 Code Calls/jump count: 1 Data use count: 0}}
         ld      de,$0802          ;{{f725:110208}} 
-        jr      _prob_alloc_2k_file_buffer_c_1;{{f728:1803}}  (+$03)
+        jr      _alloc_file_write_buffer_1;{{f728:1803}}  (+$03)
 
-;;=prob alloc 2k file buffer
-;returns address in DE
-prob_alloc_2k_file_buffer_C:      ;{{Addr=$f72a Code Calls/jump count: 2 Data use count: 0}}
+;;=alloc file write buffer
+;Allocs file buffers if not allocated, 
+;does NOT mark either buffer as in use (retains previous in use state)
+;returns address of 2k write buffer in DE
+alloc_file_write_buffer:          ;{{Addr=$f72a Code Calls/jump count: 2 Data use count: 0}}
         ld      de,$0800          ;{{f72a:110008}} 
-_prob_alloc_2k_file_buffer_c_1:   ;{{Addr=$f72d Code Calls/jump count: 2 Data use count: 0}}
+
+;Allocates the 4k file buffer if not allocated, sets the in use state of
+;buffer using value of E (bits 1 or 0)
+;If D is $00 returns the address of the read buffer in DE,
+;If D is $08 returns the address of the write buffer in DE.
+_alloc_file_write_buffer_1:       ;{{Addr=$f72d Code Calls/jump count: 2 Data use count: 0}}
         push    bc                ;{{f72d:c5}} 
         push    hl                ;{{f72e:e5}} 
-        ld      a,(poss_file_buffer_flag);{{f72f:3a75b0}} 
+        ld      a,(file_buffer_flags);{{f72f:3a75b0}} 
         or      a                 ;{{f732:b7}} 
-        jr      nz,_prob_alloc_2k_file_buffer_c_17;{{f733:2018}}  (+$18)
-        push    de                ;{{f735:d5}} 
+        jr      nz,_alloc_file_write_buffer_17;{{f733:2018}}  (+$18) Buffer already allocated?
+
+        push    de                ;{{f735:d5}} Allocate buffer
         ld      hl,(HIMEM_)       ;{{f736:2a5eae}}  HIMEM
         inc     hl                ;{{f739:23}} 
         ld      (address_of_the_highest_byte_of_free_RAM_),hl;{{f73a:2278b0}} 
         ld      de,$f000          ;{{f73d:1100f0}} ##LIT##;WARNING: Code area used as literal
         add     hl,de             ;{{f740:19}} 
         jp      nc,raise_memory_full_error_C;{{f741:d275f8}} 
-        call    _symbol_after_18  ;{{f744:cd08f8}} 
-        ld      (poss_file_buffer_address),hl;{{f747:2276b0}} 
+        call    move_strings_area ;{{f744:cd08f8}} 
+        ld      (address_of_4k_file_buffer_),hl;{{f747:2276b0}} 
         pop     de                ;{{f74a:d1}} 
-        ld      a,$04             ;{{f74b:3e04}} 
-_prob_alloc_2k_file_buffer_c_17:  ;{{Addr=$f74d Code Calls/jump count: 1 Data use count: 0}}
-        or      e                 ;{{f74d:b3}} 
-        ld      hl,(poss_file_buffer_address);{{f74e:2a76b0}} 
-        ld      e,$00             ;{{f751:1e00}} 
+        ld      a,$04             ;{{f74b:3e04}} Buffers allocate flag
+
+_alloc_file_write_buffer_17:      ;{{Addr=$f74d Code Calls/jump count: 1 Data use count: 0}}
+        or      e                 ;{{f74d:b3}} Update buffer in use flags
+        ld      hl,(address_of_4k_file_buffer_);{{f74e:2a76b0}} 
+        ld      e,$00             ;{{f751:1e00}} Get pointer to required buffer based on D
         add     hl,de             ;{{f753:19}} 
         ex      de,hl             ;{{f754:eb}} 
         pop     hl                ;{{f755:e1}} 
         pop     bc                ;{{f756:c1}} 
-        jr      set_RAMb075       ;{{f757:1827}}  (+$27)
+        jr      set_file_buffer_flag;{{f757:1827}}  (+$27)
 
-;;=prob release 2k file buffer
-prob_release_2k_file_buffer:      ;{{Addr=$f759 Code Calls/jump count: 2 Data use count: 0}}
+;;=unuse file write buffer
+;Frees the buffer if neither buffer is in use
+unuse_file_write_buffer:          ;{{Addr=$f759 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,$fe             ;{{f759:3efe}} 
-        jr      _prob_release_2k_file_buffer_c_1;{{f75b:1806}}  (+$06)
+        jr      _free_file_buffer_if_not_used_1;{{f75b:1806}}  (+$06)
 
-;;=prob release 2k file buffer
-prob_release_2k_file_buffer_B:    ;{{Addr=$f75d Code Calls/jump count: 2 Data use count: 0}}
+;;=unuse file read buffer
+;Frees the buffer if neither buffer is in use
+unuse_file_read_buffer:           ;{{Addr=$f75d Code Calls/jump count: 2 Data use count: 0}}
         ld      a,$fd             ;{{f75d:3efd}} 
-        jr      _prob_release_2k_file_buffer_c_1;{{f75f:1802}}  (+$02)
+        jr      _free_file_buffer_if_not_used_1;{{f75f:1802}}  (+$02)
 
-;;=prob release 2k file buffer
-;DE=address
-prob_release_2k_file_buffer_C:    ;{{Addr=$f761 Code Calls/jump count: 2 Data use count: 0}}
+;;=free file buffer if not used
+free_file_buffer_if_not_used:     ;{{Addr=$f761 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,$ff             ;{{f761:3eff}} 
-_prob_release_2k_file_buffer_c_1: ;{{Addr=$f763 Code Calls/jump count: 2 Data use count: 0}}
+
+;A=mask for bits to retain in file_buffer_flags (i.e inverse of buffer(s) to free)
+_free_file_buffer_if_not_used_1:  ;{{Addr=$f763 Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{f763:e5}} 
-        ld      hl,poss_file_buffer_flag;{{f764:2175b0}} 
-        and     (hl)              ;{{f767:a6}} 
+        ld      hl,file_buffer_flags;{{f764:2175b0}} 
+        and     (hl)              ;{{f767:a6}} Mask out and update file_buffer_flags
         ld      (hl),a            ;{{f768:77}} 
-        cp      $04               ;{{f769:fe04}} 
-        jr      nz,_prob_release_2k_file_buffer_c_11;{{f76b:2009}}  (+$09)
-        ld      hl,(poss_file_buffer_address);{{f76d:2a76b0}} 
+        cp      $04               ;{{f769:fe04}} Both buffers free?
+        jr      nz,_free_file_buffer_if_not_used_11;{{f76b:2009}}  (+$09)
+
+        ld      hl,(address_of_4k_file_buffer_);{{f76d:2a76b0}} Free buffersS
         ex      de,hl             ;{{f770:eb}} 
         call    compare_DE_to_HIMEM_plus_1;{{f771:cdecf5}}  compare DE with HIMEM
-        jr      z,_prob_release_2k_file_buffer_c_13;{{f774:2802}}  (+$02)
-_prob_release_2k_file_buffer_c_11:;{{Addr=$f776 Code Calls/jump count: 1 Data use count: 0}}
+        jr      z,_free_file_buffer_if_not_used_13;{{f774:2802}}  (+$02)
+_free_file_buffer_if_not_used_11: ;{{Addr=$f776 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{f776:e1}} 
         ret                       ;{{f777:c9}} 
 
-_prob_release_2k_file_buffer_c_13:;{{Addr=$f778 Code Calls/jump count: 1 Data use count: 0}}
+_free_file_buffer_if_not_used_13: ;{{Addr=$f778 Code Calls/jump count: 1 Data use count: 0}}
         ld      hl,(address_of_the_highest_byte_of_free_RAM_);{{f778:2a78b0}} 
-        call    _symbol_after_18  ;{{f77b:cd08f8}} 
+        call    move_strings_area ;{{f77b:cd08f8}} 
         pop     hl                ;{{f77e:e1}} 
 
-;;=clear RAM_b075
-clear_RAMb075:                    ;{{Addr=$f77f Code Calls/jump count: 3 Data use count: 0}}
+;;=clear file buffer flag
+clear_file_buffer_flag:           ;{{Addr=$f77f Code Calls/jump count: 3 Data use count: 0}}
         xor     a                 ;{{f77f:af}} 
-;;=set RAM_b075
-set_RAMb075:                      ;{{Addr=$f780 Code Calls/jump count: 1 Data use count: 0}}
-        ld      (poss_file_buffer_flag),a;{{f780:3275b0}} 
+;;=set file buffer flag
+set_file_buffer_flag:             ;{{Addr=$f780 Code Calls/jump count: 1 Data use count: 0}}
+        ld      (file_buffer_flags),a;{{f780:3275b0}} 
         ret                       ;{{f783:c9}} 
 
 ;;========================================================================
-;; command SYMBOL
-command_SYMBOL:                   ;{{Addr=$f784 Code Calls/jump count: 0 Data use count: 1}}
+;; command SYMBOL, SYMBOL AFTER
+;SYMBOL <character number>,<list of: <row>>
+;Defines the character matrix for a symbol (UDG, user defined graphics)
+;Row list must contain eight items
+;By default symbols after 240 can be defined. Others will need a SYMBOL AFTER command
+
+;SYMBOL AFTER <integer expression>
+;Define the first user definable symbol
+;Defaults to SYMBOL AFTER 240
+;Deletes any already created symbols
+;Cannot be used after a HIMEM has been issued since the last SYMBOL AFTER (except SYMBOL AFTER 256)
+
+command_SYMBOL_SYMBOL_AFTER:      ;{{Addr=$f784 Code Calls/jump count: 0 Data use count: 1}}
         cp      $80               ;{{f784:fe80}}  AFTER
-        jr      z,_command_symbol_26;{{f786:2829}}  (+$29)
+        jr      z,do_SYMBOL_AFTER ;{{f786:2829}}  (+$29)
+
         call    eval_expr_as_byte_or_error;{{f788:cdb8ce}}  get number and check it's less than 255 
         ld      c,a               ;{{f78b:4f}} 
         call    next_token_if_comma;{{f78c:cd15de}}  check for comma
-        ld      b,$08             ;{{f78f:0608}} 
+        ld      b,$08             ;{{f78f:0608}} We need 8 values
         scf                       ;{{f791:37}} 
-_command_symbol_7:                ;{{Addr=$f792 Code Calls/jump count: 1 Data use count: 0}}
+
+_command_symbol_symbol_after_7:   ;{{Addr=$f792 Code Calls/jump count: 1 Data use count: 0}}
         call    nc,next_token_if_prev_is_comma;{{f792:d441de}} 
         sbc     a,a               ;{{f795:9f}} 
         call    c,eval_expr_as_byte_or_error;{{f796:dcb8ce}}  get number and check it's less than 255 
         push    af                ;{{f799:f5}} 
         or      a                 ;{{f79a:b7}} 
-        djnz    _command_symbol_7 ;{{f79b:10f5}}  (-$0b)
+        djnz    _command_symbol_symbol_after_7;{{f79b:10f5}}  (-$0b)
+
         ex      de,hl             ;{{f79d:eb}} 
         ld      a,c               ;{{f79e:79}} 
         call    TXT_GET_MATRIX    ;{{f79f:cda5bb}}  firmware function: TXT GET MATRIX		
         jp      nc,Error_Improper_Argument;{{f7a2:d24dcb}}  Error: Improper Argument
-        ld      bc,LOW_JUMP       ;{{f7a5:010800}} 
+        ld      bc,$0008          ;{{f7a5:010800}} ###LIT### 8 bytes to write
         add     hl,bc             ;{{f7a8:09}} 
-_command_symbol_19:               ;{{Addr=$f7a9 Code Calls/jump count: 1 Data use count: 0}}
+_command_symbol_symbol_after_19:  ;{{Addr=$f7a9 Code Calls/jump count: 1 Data use count: 0}}
         pop     af                ;{{f7a9:f1}} 
         dec     hl                ;{{f7aa:2b}} 
         ld      (hl),a            ;{{f7ab:77}} 
         dec     c                 ;{{f7ac:0d}} 
-        jr      nz,_command_symbol_19;{{f7ad:20fa}}  (-$06)
+        jr      nz,_command_symbol_symbol_after_19;{{f7ad:20fa}}  (-$06)
         ex      de,hl             ;{{f7af:eb}} 
         ret                       ;{{f7b0:c9}} 
 
-_command_symbol_26:               ;{{Addr=$f7b1 Code Calls/jump count: 1 Data use count: 0}}
+;;=do SYMBOL AFTER
+do_SYMBOL_AFTER:                  ;{{Addr=$f7b1 Code Calls/jump count: 1 Data use count: 0}}
         call    get_next_token_skipping_space;{{f7b1:cd2cde}}  get next token skipping space
         call    eval_expr_as_int  ;{{f7b4:cdd8ce}}  get number
         push    hl                ;{{f7b7:e5}} 
@@ -11833,7 +13005,7 @@ _command_symbol_26:               ;{{Addr=$f7b1 Code Calls/jump count: 1 Data us
         push    de                ;{{f7c1:d5}} 
         call    TXT_GET_M_TABLE   ;{{f7c2:cdaebb}}  firmware function: TXT GET M TABLE
         ex      de,hl             ;{{f7c5:eb}} 
-        jr      nc,_command_symbol_50;{{f7c6:301b}}  (+$1b)
+        jr      nc,_do_symbol_after_24;{{f7c6:301b}}  (+$1b)
 ;; A = first character
 ;; HL = address of table
         cpl                       ;{{f7c8:2f}} 
@@ -11846,12 +13018,12 @@ _command_symbol_26:               ;{{Addr=$f7b1 Code Calls/jump count: 1 Data us
         call    compare_DE_to_HIMEM_plus_1;{{f7d0:cdecf5}}  compare DE with HIMEM
         jp      nz,Error_Improper_Argument;{{f7d3:c24dcb}}  Error: Improper Argument
         add     hl,de             ;{{f7d6:19}} 
-        call    _symbol_after_18  ;{{f7d7:cd08f8}} 
-        call    prob_release_2k_file_buffer_C;{{f7da:cd61f7}} 
+        call    move_strings_area ;{{f7d7:cd08f8}} 
+        call    free_file_buffer_if_not_used;{{f7da:cd61f7}} 
                                   ; HL = Address of table
         ld      de,$0100          ;{{f7dd:110001}}  first character in table
         call    TXT_SET_M_TABLE   ;{{f7e0:cdabbb}}  firmware function: TXT SET M TABLE
-_command_symbol_50:               ;{{Addr=$f7e3 Code Calls/jump count: 1 Data use count: 0}}
+_do_symbol_after_24:              ;{{Addr=$f7e3 Code Calls/jump count: 1 Data use count: 0}}
         pop     de                ;{{f7e3:d1}} 
         call    SYMBOL_AFTER      ;{{f7e4:cde9f7}}  no defined table
         pop     hl                ;{{f7e7:e1}} 
@@ -11877,15 +13049,19 @@ SYMBOL_AFTER:                     ;{{Addr=$f7e9 Code Calls/jump count: 2 Data us
         cp      $40               ;{{f7fb:fe40}} 
         jp      c,raise_memory_full_error_C;{{f7fd:da75f8}} 
         inc     hl                ;{{f800:23}} 
-        call    _symbol_after_18  ;{{f801:cd08f8}} 
+        call    move_strings_area ;{{f801:cd08f8}} 
         pop     de                ;{{f804:d1}} 
         jp      TXT_SET_M_TABLE   ;{{f805:c3abbb}}  firmware function: TXT SET M TABLE
 
 
-_symbol_after_18:                 ;{{Addr=$f808 Code Calls/jump count: 5 Data use count: 0}}
+;;=move strings area
+;Compact the strings area
+move_strings_area:                ;{{Addr=$f808 Code Calls/jump count: 5 Data use count: 0}}
         push    hl                ;{{f808:e5}} 
-        call    _function_fre_6   ;{{f809:cd64fc}} 
+        call    strings_area_garbage_collection;{{f809:cd64fc}} 
         ex      de,hl             ;{{f80c:eb}} 
+
+;Calc the number of bytes to move it by
         call    get_size_of_strings_area_in_BC;{{f80d:cdf8f5}} 
         ld      hl,(address_of_start_of_free_space_);{{f810:2a6cae}} 
         add     hl,bc             ;{{f813:09}} 
@@ -11896,16 +13072,22 @@ _symbol_after_18:                 ;{{Addr=$f808 Code Calls/jump count: 5 Data us
         ex      de,hl             ;{{f81d:eb}} 
         scf                       ;{{f81e:37}} 
         sbc     hl,de             ;{{f81f:ed52}} 
-        ld      (RAM_b07a),hl     ;{{f821:227ab0}} 
+        ld      (string_move_offset),hl;{{f821:227ab0}} 
         push    hl                ;{{f824:e5}} 
-        ld      de,_symbol_after_72;{{f825:1165f8}}   ##LABEL##
+
+;Iterate every string variable to add the offset to it's address
+        ld      de,adjust_string_descriptor_address_callback;{{f825:1165f8}}   ##LABEL##
         call    iterate_all_string_variables;{{f828:cd93da}} 
-        pop     bc                ;{{f82b:c1}} 
+
+;Now do the actual moving of the strings area
+        pop     bc                ;{{f82b:c1}} BC=offset
         ld      a,b               ;{{f82c:78}} 
-        rlca                      ;{{f82d:07}} 
-        jr      c,_symbol_after_51;{{f82e:3814}}  (+$14)
-        or      c                 ;{{f830:b1}} 
-        jr      z,_symbol_after_67;{{f831:282b}}  (+$2b)
+        rlca                      ;{{f82d:07}} High bit set if negative - moving area down
+        jr      c,_move_strings_area_33;{{f82e:3814}}  (+$14)
+        or      c                 ;{{f830:b1}} Zero offset?
+        jr      z,_move_strings_area_49;{{f831:282b}}  (+$2b)
+
+;Moving strings area down
         ld      hl,(address_of_end_of_Strings_area_);{{f833:2a73b0}} 
         ld      d,h               ;{{f836:54}} 
         ld      e,l               ;{{f837:5d}} 
@@ -11915,9 +13097,10 @@ _symbol_after_18:                 ;{{Addr=$f808 Code Calls/jump count: 5 Data us
         ex      de,hl             ;{{f83d:eb}} 
         call    copy_bytes_LDDR_BCcount_HLsource_DEdest;{{f83e:cdf5ff}}  copy bytes LDDR (BC = count)
         pop     hl                ;{{f841:e1}} 
-        jr      _symbol_after_64  ;{{f842:1813}}  (+$13)
+        jr      _move_strings_area_46;{{f842:1813}}  (+$13)
 
-_symbol_after_51:                 ;{{Addr=$f844 Code Calls/jump count: 1 Data use count: 0}}
+;Moving strings area up
+_move_strings_area_33:            ;{{Addr=$f844 Code Calls/jump count: 1 Data use count: 0}}
         ld      hl,(address_of_end_of_free_space_);{{f844:2a71b0}} 
         ld      d,h               ;{{f847:54}} 
         ld      e,l               ;{{f848:5d}} 
@@ -11931,23 +13114,33 @@ _symbol_after_51:                 ;{{Addr=$f844 Code Calls/jump count: 1 Data us
         ex      de,hl             ;{{f854:eb}} 
         dec     hl                ;{{f855:2b}} 
         pop     de                ;{{f856:d1}} 
-_symbol_after_64:                 ;{{Addr=$f857 Code Calls/jump count: 1 Data use count: 0}}
+
+;Done - moved
+_move_strings_area_46:            ;{{Addr=$f857 Code Calls/jump count: 1 Data use count: 0}}
         ld      (address_of_end_of_Strings_area_),hl;{{f857:2273b0}} 
         ex      de,hl             ;{{f85a:eb}} 
         ld      (address_of_end_of_free_space_),hl;{{f85b:2271b0}} 
-_symbol_after_67:                 ;{{Addr=$f85e Code Calls/jump count: 1 Data use count: 0}}
+
+;Done - no move
+_move_strings_area_49:            ;{{Addr=$f85e Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{f85e:e1}} 
         dec     hl                ;{{f85f:2b}} 
         ld      (HIMEM_),hl       ;{{f860:225eae}}  HIMEM
         inc     hl                ;{{f863:23}} 
         ret                       ;{{f864:c9}} 
 
-_symbol_after_72:                 ;{{Addr=$f865 Code Calls/jump count: 0 Data use count: 1}}
+;Called by string iterator:
+;DE=addr of /last/ byte of string descriptor
+;BC=string address
+;A=string length
+;;=adjust string descriptor address callback
+;Adjust the address in a string descriptor by adding &b07a (string move offset) to it.
+adjust_string_descriptor_address_callback:;{{Addr=$f865 Code Calls/jump count: 0 Data use count: 1}}
         ld      hl,(address_after_end_of_program);{{f865:2a66ae}} 
         call    compare_HL_BC     ;{{f868:cddeff}}  HL=BC?
         ret     nc                ;{{f86b:d0}} 
 
-        ld      hl,(RAM_b07a)     ;{{f86c:2a7ab0}} 
+        ld      hl,(string_move_offset);{{f86c:2a7ab0}} 
         add     hl,bc             ;{{f86f:09}} 
         ex      de,hl             ;{{f870:eb}} 
         ld      (hl),d            ;{{f871:72}} 
@@ -11964,17 +13157,19 @@ raise_memory_full_error_C:        ;{{Addr=$f875 Code Calls/jump count: 6 Data us
 
 
 
-
-;;***Strings.asm
-;;<< STRING MANIPULATION
-;;< and string$ and string related functions (LEN, ASC etc)
-;;< also FRE and some (unexplored) memory management stuff
+;;***StringFunctions.asm
+;;<< STRING FUNCTIONS
+;;<including the string iterator
 ;;===================================================================
-;; get quoted string
-;; returns with HL at end of string and B=length
+;String parsing routines
+;They returns with HL at end of string and B=length of string
+;Each uses the iterator at string_getter which takes the following code section as a callback
+
+;;=get quoted string
+;String wrapped in double quotes
 get_quoted_string:                ;{{Addr=$f879 Code Calls/jump count: 3 Data use count: 0}}
         inc     hl                ;{{f879:23}} 
-        call    string_getter     ;{{f87a:cda7f8}} 
+        call    string_getter     ;{{f87a:cda7f8}}  Uses the following code as a callback (doesn't return to it)
 
 _get_quoted_string_2:             ;{{Addr=$f87d Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(hl)            ;{{f87d:7e}}  read character
@@ -11989,7 +13184,7 @@ _get_quoted_string_2:             ;{{Addr=$f87d Code Calls/jump count: 1 Data us
 ;;+---------------------------------------------------------------------------
 ;;get ASCIIZ string
 get_ASCIIZ_string:                ;{{Addr=$f88a Code Calls/jump count: 3 Data use count: 0}}
-        call    string_getter     ;{{f88a:cda7f8}} 
+        call    string_getter     ;{{f88a:cda7f8}}  Uses the following code as a callback (doesn't return to it)
 
 _get_asciiz_string_1:             ;{{Addr=$f88d Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(hl)            ;{{f88d:7e}} 
@@ -12004,7 +13199,7 @@ _get_asciiz_string_1:             ;{{Addr=$f88d Code Calls/jump count: 1 Data us
 ;;get string until $00, comma or value in A
 ;; returns with HL at end of string and B=length
 get_string_until_00_comma_or_value_in_A:;{{Addr=$f894 Code Calls/jump count: 1 Data use count: 0}}
-        call    string_getter     ;{{f894:cda7f8}} 
+        call    string_getter     ;{{f894:cda7f8}}  Uses the following code as a callback (doesn't return to it)
 
         ld      c,a               ;{{f897:4f}} 
 _get_string_until_00_comma_or_value_in_a_2:;{{Addr=$f898 Code Calls/jump count: 1 Data use count: 0}}
@@ -12024,16 +13219,16 @@ _get_string_until_00_comma_or_value_in_a_2:;{{Addr=$f898 Code Calls/jump count: 
 ;;HL points to data (string)
 string_getter:                    ;{{Addr=$f8a7 Code Calls/jump count: 3 Data use count: 0}}
         ld      (address_of_last_String_used),hl;{{f8a7:229db0}} 
-        pop     de                ;{{f8aa:d1}} 
+        pop     de                ;{{f8aa:d1}}  Get address of callback code
         ld      b,$00             ;{{f8ab:0600}}  B = string length
         call    JP_DE             ;{{f8ad:cdfeff}}  JP (DE) call get string subroutine
         ld      a,b               ;{{f8b0:78}}  Only the ASCIIZ variant returns here
         ld      (length_of_last_String_used),a;{{f8b1:329cb0}} 
-        jp      push_last_string_on_string_stack;{{f8b4:c3d6fb}} $b09d = start of string. 
+        jp      push_last_string_descriptor_on_string_stack;{{f8b4:c3d6fb}} $b09d = start of string. 
                                   ;$b09c, A and B equal length 
                                   ;HL = next byte after string (and after whitespace)
                                         
-
+;;===================================================
 ;;=right trim and return
 ;;remove whitespace from end of string
 right_trim_and_return:            ;{{Addr=$f8b7 Code Calls/jump count: 4 Data use count: 0}}
@@ -12071,24 +13266,28 @@ output_string_atDE_length_B:      ;{{Addr=$f8d4 Code Calls/jump count: 2 Data us
         djnz    output_string_atDE_length_B;{{f8d9:10f9}}  (-$07)
         ret                       ;{{f8db:c9}} 
 
-;;=unknown output accumulator string
-unknown_output_accumulator_string:;{{Addr=$f8dc Code Calls/jump count: 1 Data use count: 0}}
+;;=================================================
+;;=prob output first C chars of accumulator string
+prob_output_first_C_chars_of_accumulator_string:;{{Addr=$f8dc Code Calls/jump count: 1 Data use count: 0}}
         call    get_accumulator_string_length;{{f8dc:cdf5fb}} 
         ret     z                 ;{{f8df:c8}} 
 
         ld      a,c               ;{{f8e0:79}} 
         sub     b                 ;{{f8e1:90}} 
-        jr      nc,_unknown_output_accumulator_string_9;{{f8e2:3005}}  (+$05)
+        jr      nc,_prob_output_first_c_chars_of_accumulator_string_9;{{f8e2:3005}}  (+$05)
         add     a,b               ;{{f8e4:80}} 
-        jr      z,_unknown_output_accumulator_string_9;{{f8e5:2802}}  (+$02)
+        jr      z,_prob_output_first_c_chars_of_accumulator_string_9;{{f8e5:2802}}  (+$02)
         ld      b,a               ;{{f8e7:47}} 
         xor     a                 ;{{f8e8:af}} 
-_unknown_output_accumulator_string_9:;{{Addr=$f8e9 Code Calls/jump count: 2 Data use count: 0}}
+_prob_output_first_c_chars_of_accumulator_string_9:;{{Addr=$f8e9 Code Calls/jump count: 2 Data use count: 0}}
         ld      c,a               ;{{f8e9:4f}} 
         jr      output_string_atDE_length_B;{{f8ea:18e8}}  (-$18)
 
 ;;========================================================
 ;; function LOWER$
+;LOWER$(<string expression>)
+;Returns a lowercase copy of the parameter.
+
 function_LOWER:                   ;{{Addr=$f8ec Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,convert_character_to_lower_case;{{f8ec:01f1f8}} ##LABEL##
         jr      string_iterator   ;{{f8ef:180c}}  (+$0c)
@@ -12106,12 +13305,17 @@ convert_character_to_lower_case:  ;{{Addr=$f8f1 Code Calls/jump count: 0 Data us
 
 ;;========================================================
 ;; function UPPER$
+;UPPER$(<string expression>)
+;Returns an upper case copy of the string
 
 function_UPPER:                   ;{{Addr=$f8fa Code Calls/jump count: 0 Data use count: 1}}
         ld      bc,convert_character_to_upper_case;{{f8fa:01abff}} ##LABEL##
 
 ;;=string iterator
-;; BC = routine to call for each character
+;Copies the string in the accumulator,
+;calls the iterator routine for each character,
+;thens add the new string back to the accumulator/string stack
+;BC = routine to call for each character
 string_iterator:                  ;{{Addr=$f8fd Code Calls/jump count: 1 Data use count: 0}}
         push    bc                ;{{f8fd:c5}} 
         ld      hl,(accumulator)  ;{{f8fe:2aa0b0}} 
@@ -12126,7 +13330,7 @@ string_iterator:                  ;{{Addr=$f8fd Code Calls/jump count: 1 Data us
         inc     a                 ;{{f90d:3c}} 
 _string_iterator_11:              ;{{Addr=$f90e Code Calls/jump count: 1 Data use count: 0}}
         dec     a                 ;{{f90e:3d}} 
-        jp      z,push_last_string_on_string_stack;{{f90f:cad6fb}} 
+        jp      z,push_last_string_descriptor_on_string_stack;{{f90f:cad6fb}} 
         push    af                ;{{f912:f5}} 
         ld      a,(hl)            ;{{f913:7e}} 
         inc     hl                ;{{f914:23}} 
@@ -12136,7 +13340,11 @@ _string_iterator_11:              ;{{Addr=$f90e Code Calls/jump count: 1 Data us
         pop     af                ;{{f91a:f1}} 
         jr      _string_iterator_11;{{f91b:18f1}}  (-$0f)
 
+;;====================================================
 ;;=concat two strings
+;HL=address of a string descriptor
+;Appends the string in the accumulator to the string at HL,
+;returns it in the accumulator/string stack
 concat_two_strings:               ;{{Addr=$f91d Code Calls/jump count: 1 Data use count: 0}}
         ld      de,(accumulator)  ;{{f91d:ed5ba0b0}} 
         ld      a,(de)            ;{{f921:1a}} 
@@ -12147,11 +13355,11 @@ concat_two_strings:               ;{{Addr=$f91d Code Calls/jump count: 1 Data us
     
 _concat_two_strings_6:            ;{{Addr=$f929 Code Calls/jump count: 1 Data use count: 0}}
         call    alloc_space_in_strings_area;{{f929:cd41fc}} 
-        call    xf959_code        ;{{f92c:cd59f9}} 
+        call    get_string_stack_TOS;{{f92c:cd59f9}} 
         push    de                ;{{f92f:d5}} 
         push    bc                ;{{f930:c5}} 
         ld      c,b               ;{{f931:48}} 
-        call    push_last_string_on_string_stack;{{f932:cdd6fb}} 
+        call    push_last_string_descriptor_on_string_stack;{{f932:cdd6fb}} 
         ld      a,c               ;{{f935:79}} 
         call    copy_bytes_LDIR__Acount_HLsource_DEdest;{{f936:cdecff}} ; copy bytes (A=count, HL=source, DE=dest)
         pop     bc                ;{{f939:c1}} 
@@ -12160,83 +13368,100 @@ _concat_two_strings_6:            ;{{Addr=$f929 Code Calls/jump count: 1 Data us
         jp      copy_bytes_LDIR__Acount_HLsource_DEdest;{{f93c:c3ecff}} ; copy bytes (A=count, HL=source, DE=dest)
 
 ;;================================================
-;;probably string comparison
+;;string comparison
 
-probably_string_comparison:       ;{{Addr=$f93f Code Calls/jump count: 1 Data use count: 0}}
-        call    xf959_code        ;{{f93f:cd59f9}} 
+string_comparison:                ;{{Addr=$f93f Code Calls/jump count: 1 Data use count: 0}}
+        call    get_string_stack_TOS;{{f93f:cd59f9}} 
         xor     a                 ;{{f942:af}} 
-_probably_string_comparison_2:    ;{{Addr=$f943 Code Calls/jump count: 1 Data use count: 0}}
+_string_comparison_2:             ;{{Addr=$f943 Code Calls/jump count: 1 Data use count: 0}}
         cp      c                 ;{{f943:b9}} 
-        jr      z,_probably_string_comparison_17;{{f944:280f}}  (+$0f)
+        jr      z,_string_comparison_17;{{f944:280f}}  (+$0f)
         cp      b                 ;{{f946:b8}} 
-        jr      z,_probably_string_comparison_15;{{f947:280a}}  (+$0a)
+        jr      z,_string_comparison_15;{{f947:280a}}  (+$0a)
         dec     b                 ;{{f949:05}} 
         dec     c                 ;{{f94a:0d}} 
         ld      a,(de)            ;{{f94b:1a}} 
         inc     de                ;{{f94c:13}} 
         sub     (hl)              ;{{f94d:96}} 
         inc     hl                ;{{f94e:23}} 
-        jr      z,_probably_string_comparison_2;{{f94f:28f2}}  (-$0e)
+        jr      z,_string_comparison_2;{{f94f:28f2}}  (-$0e)
         sbc     a,a               ;{{f951:9f}} 
         ret     nz                ;{{f952:c0}} 
 
-_probably_string_comparison_15:   ;{{Addr=$f953 Code Calls/jump count: 1 Data use count: 0}}
+_string_comparison_15:            ;{{Addr=$f953 Code Calls/jump count: 1 Data use count: 0}}
         inc     a                 ;{{f953:3c}} 
         ret                       ;{{f954:c9}} 
 
-_probably_string_comparison_17:   ;{{Addr=$f955 Code Calls/jump count: 1 Data use count: 0}}
+_string_comparison_17:            ;{{Addr=$f955 Code Calls/jump count: 1 Data use count: 0}}
         cp      b                 ;{{f955:b8}} 
         ret     z                 ;{{f956:c8}} 
 
         sbc     a,a               ;{{f957:9f}} 
         ret                       ;{{f958:c9}} 
 
-;;=================================================
-xf959_code:                       ;{{Addr=$f959 Code Calls/jump count: 2 Data use count: 0}}
+;;=get string stack TOS
+get_string_stack_TOS:             ;{{Addr=$f959 Code Calls/jump count: 2 Data use count: 0}}
         call    get_accumulator_string_length;{{f959:cdf5fb}} 
         ld      c,b               ;{{f95c:48}} 
         push    de                ;{{f95d:d5}} 
-        call    various_get_string_from_stack_stuff;{{f95e:cd03fc}} 
+        call    pop_TOS_from_string_stack_and_strings_area;{{f95e:cd03fc}} 
         ex      de,hl             ;{{f961:eb}} 
         pop     de                ;{{f962:d1}} 
         ret                       ;{{f963:c9}} 
+
 ;;========================================================================
 ;; function BIN$
+;BIN$(<unsigned integer expression>[,<field width>]
+;Convert the expression to a binary ASCII string padded to the given width with leading zeros
+;Expression can be -32767..65535
+;Field width can be 0..16
+
 function_BIN:                     ;{{Addr=$f964 Code Calls/jump count: 0 Data use count: 1}}
-        ld      bc,$0101          ;{{f964:010101}} 
+        ld      bc,$0101          ;{{f964:010101}} One bit per digit and mask for one digit
         jr      _function_hex_1   ;{{f967:1803}}  (+$03)
 
 ;;========================================================================
 ;; function HEX$
+;HEX$(<unsigned integer expression>[,<field width>]
+;Convert the expression to a hexadecimal ASCII string padded to the given width with leading zeros
+;Expression can be -32767..65535
+;Field width can be 0..16
+
 function_HEX:                     ;{{Addr=$f969 Code Calls/jump count: 0 Data use count: 1}}
-        ld      bc,$040f          ;{{f969:010f04}} 
+        ld      bc,$040f          ;{{f969:010f04}} Four bits per digit and mask for one digit
+
 _function_hex_1:                  ;{{Addr=$f96c Code Calls/jump count: 1 Data use count: 0}}
         push    bc                ;{{f96c:c5}} 
-        call    eval_expression   ;{{f96d:cd62cf}} 
+        call    eval_expression   ;{{f96d:cd62cf}} Read value
         push    hl                ;{{f970:e5}} 
-        call    function_UNT      ;{{f971:cdebfe}} 
+        call    function_UNT      ;{{f971:cdebfe}} Convert to unsigned integer
         ex      (sp),hl           ;{{f974:e3}} 
-        call    next_token_if_prev_is_comma;{{f975:cd41de}} 
-        sbc     a,a               ;{{f978:9f}} 
-        call    c,eval_expr_as_byte_or_error;{{f979:dcb8ce}}  get number and check it's less than 255 
-        cp      $11               ;{{f97c:fe11}} 
-        jp      nc,Error_Improper_Argument;{{f97e:d24dcb}}  Error: Improper Argument
-        ld      b,a               ;{{f981:47}} 
-        call    next_token_if_close_bracket;{{f982:cd1dde}}  check for close bracket
-        ld      a,b               ;{{f985:78}} 
+        call    next_token_if_prev_is_comma;{{f975:cd41de}} Comma?
+        sbc     a,a               ;{{f978:9f}} Calc default width and flag
+        call    c,eval_expr_as_byte_or_error;{{f979:dcb8ce}} If so read width parameter
+        cp      $11               ;{{f97c:fe11}} Width must be <= 16
+        jp      nc,Error_Improper_Argument;{{f97e:d24dcb}} Error: Improper Argument
+        ld      b,a               ;{{f981:47}} Preserve width
+        call    next_token_if_close_bracket;{{f982:cd1dde}} Check for close bracket
+        ld      a,b               ;{{f985:78}} Restore width
         ex      de,hl             ;{{f986:eb}} 
         pop     hl                ;{{f987:e1}} 
         pop     bc                ;{{f988:c1}} 
         push    de                ;{{f989:d5}} 
-        call    convert_based_number_to_string;{{f98a:cddff1}} 
-        jr      _function_str_2   ;{{f98d:1831}}  (+$31)
+        call    convert_based_number_to_string;{{f98a:cddff1}} Convert to ASCIIZ string
+        jr      copy_ASCIIZ_string_to_stack_and_accumulator;{{f98d:1831}}  (+$31)
 
 ;;========================================================================
 ;; function DEC$
+;DEC$(<numeric expression>,<format template>)
+;Generate a formatted string representation of a number.
+;Format templates are as per PRINT USING but only the following characters are allowed:
+;   + - $ * # , . ^
+
 function_DEC:                     ;{{Addr=$f98f Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expression   ;{{f98f:cd62cf}} 
         call    next_token_if_comma;{{f992:cd15de}}  check for comma
-        call    probably_push_accumulator_on_execution_stack;{{f995:cd74ff}} 
+        call    push_numeric_accumulator_on_execution_stack;{{f995:cd74ff}} 
         call    eval_expr_as_string_and_get_length;{{f998:cd03cf}} 
         call    next_token_if_close_bracket;{{f99b:cd1dde}}  check for close bracket
         push    hl                ;{{f99e:e5}} 
@@ -12248,79 +13473,100 @@ function_DEC:                     ;{{Addr=$f98f Code Calls/jump count: 0 Data us
         pop     de                ;{{f9a8:d1}} 
         ld      a,b               ;{{f9a9:78}} 
         or      a                 ;{{f9aa:b7}} 
-        call    nz,_print_using_121;{{f9ab:c448f4}} 
+        call    nz,parse_number_format_template;{{f9ab:c448f4}} 
         jp      nc,Error_Improper_Argument;{{f9ae:d24dcb}}  Error: Improper Argument
         ld      a,b               ;{{f9b1:78}} 
         or      a                 ;{{f9b2:b7}} 
         jp      nz,Error_Improper_Argument;{{f9b3:c24dcb}}  Error: Improper Argument
         ld      a,c               ;{{f9b6:79}} 
         call    convert_number_to_string_by_format;{{f9b7:cd6aef}} 
-        jr      _function_str_2   ;{{f9ba:1804}}  (+$04)
+        jr      copy_ASCIIZ_string_to_stack_and_accumulator;{{f9ba:1804}}  (+$04)
 
 ;;========================================================
 ;; function STR$
+;STR$(<numeric expression>)
+;Converts a number to it's string representation
 
 function_STR:                     ;{{Addr=$f9bc Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{f9bc:e5}} 
-        call    prob_eval_number_to_decimal_string;{{f9bd:cd68ef}} 
-_function_str_2:                  ;{{Addr=$f9c0 Code Calls/jump count: 2 Data use count: 0}}
+        call    conv_number_to_decimal_string;{{f9bd:cd68ef}} 
+
+;;=copy ASCIIZ string to stack and accumulator
+copy_ASCIIZ_string_to_stack_and_accumulator:;{{Addr=$f9c0 Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{f9c0:e5}} 
         ld      c,$ff             ;{{f9c1:0eff}} 
         xor     a                 ;{{f9c3:af}} 
-_function_str_5:                  ;{{Addr=$f9c4 Code Calls/jump count: 1 Data use count: 0}}
-        inc     c                 ;{{f9c4:0c}} 
+
+_copy_asciiz_string_to_stack_and_accumulator_3:;{{Addr=$f9c4 Code Calls/jump count: 1 Data use count: 0}}
+        inc     c                 ;{{f9c4:0c}} Count string length (ASCIIZ)
         cp      (hl)              ;{{f9c5:be}} 
         inc     hl                ;{{f9c6:23}} 
-        jr      nz,_function_str_5;{{f9c7:20fb}}  (-$05)
+        jr      nz,_copy_asciiz_string_to_stack_and_accumulator_3;{{f9c7:20fb}}  (-$05)
+
         pop     hl                ;{{f9c9:e1}} 
         ld      a,c               ;{{f9ca:79}} 
-        call    _get_string_stack_first_free_ptr_3;{{f9cb:cdd3fb}} 
+        call    alloc_string_push_on_stack_and_accumulator;{{f9cb:cdd3fb}} 
         call    copy_bytes_LDIR__Acount_HLsource_DEdest;{{f9ce:cdecff}} ; copy bytes (A=count, HL=source, DE=dest)
         pop     hl                ;{{f9d1:e1}} 
         ret                       ;{{f9d2:c9}} 
 
 ;;========================================================================
 ;; function LEFT$
+;LEFT$(<string expression>,<required length>)
+;Returns the given number of characters from the left of the string.
+;Length can be 0..255
+
 function_LEFT:                    ;{{Addr=$f9d3 Code Calls/jump count: 0 Data use count: 1}}
-        call    _command_mid_34   ;{{f9d3:cd43fa}} 
-        jr      _prefix_mid_6     ;{{f9d6:1818}}  (+$18)
+        call    eval_string_then_byte_parameters;{{f9d3:cd43fa}} 
+        jr      do_extract_substring;{{f9d6:1818}}  (+$18)
 
 ;;========================================================================
 ;; function RIGHT$
+;RIGHT$(<string expression>,<required length>)
+;Returns the given number of characters from the right of a string.
+;Length is 0..255
+
 function_RIGHT:                   ;{{Addr=$f9d8 Code Calls/jump count: 0 Data use count: 1}}
-        call    _command_mid_34   ;{{f9d8:cd43fa}} 
+        call    eval_string_then_byte_parameters;{{f9d8:cd43fa}} 
         ld      a,(de)            ;{{f9db:1a}} 
         sub     b                 ;{{f9dc:90}} 
-        jr      c,_prefix_mid_6   ;{{f9dd:3811}}  (+$11)
+        jr      c,do_extract_substring;{{f9dd:3811}}  (+$11)
         ld      c,a               ;{{f9df:4f}} 
-        jr      _prefix_mid_6     ;{{f9e0:180e}}  (+$0e)
+        jr      do_extract_substring;{{f9e0:180e}}  (+$0e)
 
 ;;=======================================================================
 ;; prefix MID$
+;MID$(<string expression>,<start position>[,<sub-string length>])
+;Extract substring. (See also command MID$)
+;Position and length can be 1..255
 
 prefix_MID:                       ;{{Addr=$f9e2 Code Calls/jump count: 0 Data use count: 1}}
         call    next_token_if_open_bracket;{{f9e2:cd19de}}  check for open bracket
-        call    _command_mid_34   ;{{f9e5:cd43fa}} 
+        call    eval_string_then_byte_parameters;{{f9e5:cd43fa}} 
         jp      z,Error_Improper_Argument;{{f9e8:ca4dcb}}  Error: Improper Argument
         dec     b                 ;{{f9eb:05}} 
         ld      c,b               ;{{f9ec:48}} 
-        call    _command_mid_40   ;{{f9ed:cd4ffa}} 
+        call    eval_byte_param_or_ff;{{f9ed:cd4ffa}} 
 ;;------------------------------------------------------------------------
-_prefix_mid_6:                    ;{{Addr=$f9f0 Code Calls/jump count: 3 Data use count: 0}}
+;;=do extract substring
+do_extract_substring:             ;{{Addr=$f9f0 Code Calls/jump count: 3 Data use count: 0}}
         call    next_token_if_close_bracket;{{f9f0:cd1dde}}  check for close bracket
         push    hl                ;{{f9f3:e5}} 
         ex      de,hl             ;{{f9f4:eb}} 
-        call    _command_mid_51   ;{{f9f5:cd60fa}} 
+        call    calc_substring_length;{{f9f5:cd60fa}} 
         call    alloc_space_in_strings_area;{{f9f8:cd41fc}} 
-        call    various_get_string_from_stack_stuff;{{f9fb:cd03fc}} 
+        call    pop_TOS_from_string_stack_and_strings_area;{{f9fb:cd03fc}} 
         ex      de,hl             ;{{f9fe:eb}} 
-        call    push_last_string_on_string_stack;{{f9ff:cdd6fb}} 
+        call    push_last_string_descriptor_on_string_stack;{{f9ff:cdd6fb}} 
         ld      b,$00             ;{{fa02:0600}} 
         add     hl,bc             ;{{fa04:09}} 
-        jr      _command_mid_31   ;{{fa05:1837}}  (+$37)
+        jr      do_copy_substring ;{{fa05:1837}}  (+$37)
 
 ;;========================================================================
 ;; command MID$
+;MID$(<string variable>,<start position>[,sub-string length])=<string expression>
+;Replaces the specified characters within the first string variable with the second string variable.
+;See also function MID$
 
 command_MID:                      ;{{Addr=$fa07 Code Calls/jump count: 0 Data use count: 1}}
         call    next_token_if_open_bracket;{{fa07:cd19de}}  check for open bracket
@@ -12328,13 +13574,13 @@ command_MID:                      ;{{Addr=$fa07 Code Calls/jump count: 0 Data us
         call    error_if_accumulator_is_not_a_string;{{fa0d:cd5eff}} 
         push    hl                ;{{fa10:e5}} 
         ex      de,hl             ;{{fa11:eb}} 
-        call    prob_copy_string_to_strings_area;{{fa12:cd58fb}} 
+        call    copy_string_to_strings_area_if_not_in_strings_area;{{fa12:cd58fb}} 
         ex      (sp),hl           ;{{fa15:e3}} 
-        call    _command_mid_44   ;{{fa16:cd55fa}} 
+        call    _eval_byte_param_or_ff_4;{{fa16:cd55fa}} 
         jp      z,Error_Improper_Argument;{{fa19:ca4dcb}}  Error: Improper Argument
         dec     a                 ;{{fa1c:3d}} 
         ld      c,a               ;{{fa1d:4f}} 
-        call    _command_mid_40   ;{{fa1e:cd4ffa}} 
+        call    eval_byte_param_or_ff;{{fa1e:cd4ffa}} 
         call    next_token_if_close_bracket;{{fa21:cd1dde}}  check for close bracket
         call    next_token_if_equals_sign;{{fa24:cd21de}} 
         push    bc                ;{{fa27:c5}} 
@@ -12346,7 +13592,7 @@ command_MID:                      ;{{Addr=$fa07 Code Calls/jump count: 0 Data us
         jr      nc,_command_mid_22;{{fa2f:3001}}  (+$01)
         ld      b,a               ;{{fa31:47}} 
 _command_mid_22:                  ;{{Addr=$fa32 Code Calls/jump count: 1 Data use count: 0}}
-        call    _command_mid_51   ;{{fa32:cd60fa}} 
+        call    calc_substring_length;{{fa32:cd60fa}} 
         inc     hl                ;{{fa35:23}} 
         ld      b,(hl)            ;{{fa36:46}} 
         inc     hl                ;{{fa37:23}} 
@@ -12355,26 +13601,33 @@ _command_mid_22:                  ;{{Addr=$fa32 Code Calls/jump count: 1 Data us
         ld      b,$00             ;{{fa3a:0600}} 
         add     hl,bc             ;{{fa3c:09}} 
         ex      de,hl             ;{{fa3d:eb}} 
-_command_mid_31:                  ;{{Addr=$fa3e Code Calls/jump count: 1 Data use count: 0}}
+;;=do copy substring
+do_copy_substring:                ;{{Addr=$fa3e Code Calls/jump count: 1 Data use count: 0}}
         call    copy_bytes_LDIR__Acount_HLsource_DEdest;{{fa3e:cdecff}} ; copy bytes (A=count, HL=source, DE=dest)
         pop     hl                ;{{fa41:e1}} 
         ret                       ;{{fa42:c9}} 
 
-_command_mid_34:                  ;{{Addr=$fa43 Code Calls/jump count: 3 Data use count: 0}}
+;;=eval string then byte parameters
+;Returns the string in the accumulator,
+;and the byte in B
+;Zero flag set if the byte is zero.
+eval_string_then_byte_parameters: ;{{Addr=$fa43 Code Calls/jump count: 3 Data use count: 0}}
         call    eval_expr_and_error_if_not_string;{{fa43:cd09cf}} 
         ex      de,hl             ;{{fa46:eb}} 
         ld      hl,(accumulator)  ;{{fa47:2aa0b0}} 
         ex      de,hl             ;{{fa4a:eb}} 
         ld      c,$00             ;{{fa4b:0e00}} 
-        jr      _command_mid_44   ;{{fa4d:1806}}  (+$06)
+        jr      _eval_byte_param_or_ff_4;{{fa4d:1806}}  (+$06)
 
-_command_mid_40:                  ;{{Addr=$fa4f Code Calls/jump count: 2 Data use count: 0}}
+;;=eval byte param or ff
+;If we have another parameter, return it in B. If no more params return B=$ff
+eval_byte_param_or_ff:            ;{{Addr=$fa4f Code Calls/jump count: 2 Data use count: 0}}
         ld      b,$ff             ;{{fa4f:06ff}} 
         ld      a,(hl)            ;{{fa51:7e}} 
-        cp      $29               ;{{fa52:fe29}} 
+        cp      $29               ;{{fa52:fe29}} ')'
         ret     z                 ;{{fa54:c8}} 
 
-_command_mid_44:                  ;{{Addr=$fa55 Code Calls/jump count: 2 Data use count: 0}}
+_eval_byte_param_or_ff_4:         ;{{Addr=$fa55 Code Calls/jump count: 2 Data use count: 0}}
         push    de                ;{{fa55:d5}} 
         call    next_token_if_comma;{{fa56:cd15de}}  check for comma
         call    eval_expr_as_byte_or_error;{{fa59:cdb8ce}}  get number and check it's less than 255 
@@ -12383,12 +13636,13 @@ _command_mid_44:                  ;{{Addr=$fa55 Code Calls/jump count: 2 Data us
         or      a                 ;{{fa5e:b7}} 
         ret                       ;{{fa5f:c9}} 
 
-_command_mid_51:                  ;{{Addr=$fa60 Code Calls/jump count: 2 Data use count: 0}}
+;;=calc substring length
+calc_substring_length:            ;{{Addr=$fa60 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,(hl)            ;{{fa60:7e}} 
         sub     c                 ;{{fa61:91}} 
-        jr      nc,_command_mid_55;{{fa62:3001}}  (+$01)
+        jr      nc,_calc_substring_length_4;{{fa62:3001}}  (+$01)
         xor     a                 ;{{fa64:af}} 
-_command_mid_55:                  ;{{Addr=$fa65 Code Calls/jump count: 1 Data use count: 0}}
+_calc_substring_length_4:         ;{{Addr=$fa65 Code Calls/jump count: 1 Data use count: 0}}
         cp      b                 ;{{fa65:b8}} 
         ret     c                 ;{{fa66:d8}} 
 
@@ -12397,6 +13651,8 @@ _command_mid_55:                  ;{{Addr=$fa65 Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function LEN
+;LEN(<string expression>)
+;Returns the length of the string, or zero if the string is empty.
 
 function_LEN:                     ;{{Addr=$fa69 Code Calls/jump count: 0 Data use count: 1}}
         call    get_accumulator_string_length;{{fa69:cdf5fb}} 
@@ -12404,6 +13660,8 @@ function_LEN:                     ;{{Addr=$fa69 Code Calls/jump count: 0 Data us
 
 ;;========================================================
 ;; function ASC
+;ASC(<string expression>)
+;Returns the ASCII value of a character (first character of the supplied string)
 
 function_ASC:                     ;{{Addr=$fa6e Code Calls/jump count: 0 Data use count: 1}}
         call    get_first_char_of_string_or_error;{{fa6e:cda6fa}} 
@@ -12412,32 +13670,50 @@ _function_asc_1:                  ;{{Addr=$fa71 Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function CHR$
+;CHR$(<integer expression>)
+;Returns the ASCII character with the given value
 
 function_CHR:                     ;{{Addr=$fa74 Code Calls/jump count: 0 Data use count: 1}}
         call    param_less_than_256_or_error;{{fa74:cdd9fa}} 
-_function_chr_1:                  ;{{Addr=$fa77 Code Calls/jump count: 1 Data use count: 0}}
+
+;;=create single char string
+;Creates a string with a single character.
+;A=the character
+create_single_char_string:        ;{{Addr=$fa77 Code Calls/jump count: 1 Data use count: 0}}
         scf                       ;{{fa77:37}} 
 
-_function_chr_2:                  ;{{Addr=$fa78 Code Calls/jump count: 4 Data use count: 0}}
+;;=create single char or null string
+;If carry set, creates a single character string,
+;if carry clear creates an empty string
+;A=character
+create_single_char_or_null_string:;{{Addr=$fa78 Code Calls/jump count: 4 Data use count: 0}}
         ld      c,a               ;{{fa78:4f}} 
         sbc     a,a               ;{{fa79:9f}} 
         and     $01               ;{{fa7a:e601}} 
-        jr      _function_space_2 ;{{fa7c:1834}}  (+$34)
+        jr      create_filled_string;{{fa7c:1834}}  (+$34)
 
 ;;=========================================================
 ;; variable INKEY$
+;INKEY$
+;Returns the next key, if any, from the keyboard
+;If no key is available returns an empty string.
 
 variable_INKEY:                   ;{{Addr=$fa7e Code Calls/jump count: 0 Data use count: 1}}
         call    jp_km_read_char   ;{{fa7e:cd6fc4}}  call to firmware function: km read key			
-        jr      nc,_function_chr_2;{{fa81:30f5}}  
+        jr      nc,create_single_char_or_null_string;{{fa81:30f5}}  
         cp      $fc               ;{{fa83:fefc}} 
-        jr      z,_function_chr_2 ;{{fa85:28f1}} 
+        jr      z,create_single_char_or_null_string;{{fa85:28f1}} 
         cp      $ef               ;{{fa87:feef}} token for '='
-        jr      z,_function_chr_2 ;{{fa89:28ed}}  (-$13)
-        jr      _function_chr_1   ;{{fa8b:18ea}}  (-$16)
+        jr      z,create_single_char_or_null_string;{{fa89:28ed}}  (-$13)
+        jr      create_single_char_string;{{fa8b:18ea}}  (-$16)
 
 ;;=========================================================
 ;; function STRING$
+;STRING$(<length>,<character specifier>)
+;Creates a string of a specified character.
+;Length must be 0..255
+;The character specifier may be an integer value or a string.
+;Only the first character of the string is repeated
 
 function_STRING:                  ;{{Addr=$fa8d Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_byte_or_error;{{fa8d:cdb8ce}}  get number and check it's less than 255 
@@ -12448,16 +13724,18 @@ function_STRING:                  ;{{Addr=$fa8d Code Calls/jump count: 0 Data us
         call    get_first_char_from_accumulator_or_error;{{fa9a:cda1fa}} 
         ld      c,a               ;{{fa9d:4f}} 
         pop     af                ;{{fa9e:f1}} 
-        jr      _function_space_2 ;{{fa9f:1811}}  (+$11)
+        jr      create_filled_string;{{fa9f:1811}}  (+$11)
 
 ;;=get first char from accumulator or error
+;If the accumulator is a string returns the first character,
+;otherwise raises an error
 get_first_char_from_accumulator_or_error:;{{Addr=$faa1 Code Calls/jump count: 1 Data use count: 0}}
         call    is_accumulator_a_string;{{faa1:cd66ff}} 
         jr      nz,param_less_than_256_or_error;{{faa4:2033}}  (+$33)
 ;;=get first char of string or error
 get_first_char_of_string_or_error:;{{Addr=$faa6 Code Calls/jump count: 1 Data use count: 0}}
         call    get_accumulator_string_length;{{faa6:cdf5fb}} 
-        jr      z,raise_improper_argument_error_E;{{faa9:2837}}  (+$37)
+        jr      z,raise_improper_argument_error_G;{{faa9:2837}}  (+$37)
         ld      a,(de)            ;{{faab:1a}} 
         ret                       ;{{faac:c9}} 
 
@@ -12467,22 +13745,26 @@ get_first_char_of_string_or_error:;{{Addr=$faa6 Code Calls/jump count: 1 Data us
 function_SPACE:                   ;{{Addr=$faad Code Calls/jump count: 0 Data use count: 1}}
         call    param_less_than_256_or_error;{{faad:cdd9fa}} 
         ld      c,$20             ;{{fab0:0e20}} 
-_function_space_2:                ;{{Addr=$fab2 Code Calls/jump count: 2 Data use count: 0}}
+
+;;=create filled string
+;Create a string of length A filled with char/byte C
+create_filled_string:             ;{{Addr=$fab2 Code Calls/jump count: 2 Data use count: 0}}
         ld      b,a               ;{{fab2:47}} 
-        call    _get_string_stack_first_free_ptr_3;{{fab3:cdd3fb}} 
+        call    alloc_string_push_on_stack_and_accumulator;{{fab3:cdd3fb}} 
         ld      a,c               ;{{fab6:79}} 
         inc     b                 ;{{fab7:04}} 
-_function_space_6:                ;{{Addr=$fab8 Code Calls/jump count: 1 Data use count: 0}}
+_create_filled_string_4:          ;{{Addr=$fab8 Code Calls/jump count: 1 Data use count: 0}}
         dec     b                 ;{{fab8:05}} 
         ret     z                 ;{{fab9:c8}} 
 
         ld      (de),a            ;{{faba:12}} 
         inc     de                ;{{fabb:13}} 
-        jr      _function_space_6 ;{{fabc:18fa}}  (-$06)
+        jr      _create_filled_string_4;{{fabc:18fa}}  (-$06)
 
 ;;========================================================
 ;; function VAL
-;convert string to number
+;VAL(<string expression>)
+;Converts a string to a number
 
 function_VAL:                     ;{{Addr=$fabe Code Calls/jump count: 0 Data use count: 1}}
         call    get_accumulator_string_length;{{fabe:cdf5fb}} 
@@ -12496,7 +13778,7 @@ function_VAL:                     ;{{Addr=$fabe Code Calls/jump count: 0 Data us
         ld      (hl),d            ;{{facb:72}} 
         ex      (sp),hl           ;{{facc:e3}} 
         push    de                ;{{facd:d5}} 
-        call    possibly_validate_input_buffer_is_a_number;{{face:cd6fed}} 
+        call    convert_string_to_number;{{face:cd6fed}} 
         pop     de                ;{{fad1:d1}} 
         pop     hl                ;{{fad2:e1}} 
         ld      (hl),e            ;{{fad3:73}} 
@@ -12517,24 +13799,31 @@ param_less_than_256_or_error:     ;{{Addr=$fad9 Code Calls/jump count: 4 Data us
         ret     z                 ;{{fae1:c8}} 
 
 ;;=raise Improper argument error
-raise_improper_argument_error_E:  ;{{Addr=$fae2 Code Calls/jump count: 1 Data use count: 0}}
+raise_improper_argument_error_G:  ;{{Addr=$fae2 Code Calls/jump count: 1 Data use count: 0}}
         jp      Error_Improper_Argument;{{fae2:c34dcb}}  Error: Improper Argument
 
 ;;========================================================================
-;; function INSTR$
-;find string within string
+;; function INSTR
+;INSTR([<start position>,]<searched string>,<searched for string>])
+;Searches for a substring within another and returns it's position, or zero if not found.
+;Valid start position is 1..255
+;If the searched string is empty always returns zero
+
 function_INSTR:                   ;{{Addr=$fae5 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expression   ;{{fae5:cd62cf}} 
         call    is_accumulator_a_string;{{fae8:cd66ff}} 
         ld      c,$01             ;{{faeb:0e01}} 
-        jr      z,_function_instr_10;{{faed:280e}}  (+$0e)
+        jr      z,instr_no_start_pos_parameter;{{faed:280e}}  (+$0e)
+
         call    param_less_than_256_or_error;{{faef:cdd9fa}} 
         or      a                 ;{{faf2:b7}} 
         jp      z,Error_Improper_Argument;{{faf3:ca4dcb}}  Error: Improper Argument
         ld      c,a               ;{{faf6:4f}} 
         call    next_token_if_comma;{{faf7:cd15de}}  check for comma
         call    eval_expr_and_error_if_not_string;{{fafa:cd09cf}} 
-_function_instr_10:               ;{{Addr=$fafd Code Calls/jump count: 1 Data use count: 0}}
+
+;;=instr no start pos parameter
+instr_no_start_pos_parameter:     ;{{Addr=$fafd Code Calls/jump count: 1 Data use count: 0}}
         call    next_token_if_comma;{{fafd:cd15de}}  check for comma
         push    hl                ;{{fb00:e5}} 
         ld      hl,(accumulator)  ;{{fb01:2aa0b0}} 
@@ -12546,7 +13835,7 @@ _function_instr_10:               ;{{Addr=$fafd Code Calls/jump count: 1 Data us
         ld      c,b               ;{{fb0d:48}} 
         push    de                ;{{fb0e:d5}} 
         push    af                ;{{fb0f:f5}} 
-        call    various_get_string_from_stack_stuff;{{fb10:cd03fc}} 
+        call    pop_TOS_from_string_stack_and_strings_area;{{fb10:cd03fc}} 
         ex      de,hl             ;{{fb13:eb}} 
         pop     af                ;{{fb14:f1}} 
         ld      e,a               ;{{fb15:5f}} 
@@ -12559,33 +13848,42 @@ _function_instr_10:               ;{{Addr=$fafd Code Calls/jump count: 1 Data us
         ld      b,a               ;{{fb1d:47}} 
         ld      a,e               ;{{fb1e:7b}} 
         pop     de                ;{{fb1f:d1}} 
-        jr      c,_function_instr_66;{{fb20:3825}}  (+$25)
+        jr      c,instr_return_zero;{{fb20:3825}}  (+$25)
         inc     c                 ;{{fb22:0c}} 
         dec     c                 ;{{fb23:0d}} 
-        jr      z,_function_instr_67;{{fb24:2822}}  (+$22)
-_function_instr_38:               ;{{Addr=$fb26 Code Calls/jump count: 1 Data use count: 0}}
+        jr      z,instr_return_A  ;{{fb24:2822}}  (+$22)
+
+;;=instr find first loop
+;Loop until we find a char which matches the first in the search string
+instr_find_first_loop:            ;{{Addr=$fb26 Code Calls/jump count: 1 Data use count: 0}}
         push    af                ;{{fb26:f5}} 
         ld      a,b               ;{{fb27:78}} 
         cp      c                 ;{{fb28:b9}} 
-        jr      c,_function_instr_65;{{fb29:381b}}  (+$1b)
-        push    hl                ;{{fb2b:e5}} 
+        jr      c,instr_pop_and_return_zero;{{fb29:381b}}  (+$1b)
+        push    hl                ;{{fb2b:e5}} Save current position in case this is only partial match
         push    de                ;{{fb2c:d5}} 
         push    bc                ;{{fb2d:c5}} 
-_function_instr_45:               ;{{Addr=$fb2e Code Calls/jump count: 1 Data use count: 0}}
+
+;;=instr match loop
+;Loop while chars match
+instr_match_loop:                 ;{{Addr=$fb2e Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(de)            ;{{fb2e:1a}} 
         cp      (hl)              ;{{fb2f:be}} 
-        jr      nz,_function_instr_57;{{fb30:200b}}  (+$0b)
+        jr      nz,instr_chars_differ;{{fb30:200b}}  (+$0b)
         inc     hl                ;{{fb32:23}} 
         inc     de                ;{{fb33:13}} 
         dec     c                 ;{{fb34:0d}} 
-        jr      nz,_function_instr_45;{{fb35:20f7}}  (-$09)
+        jr      nz,instr_match_loop;{{fb35:20f7}}  (-$09)
+
         pop     bc                ;{{fb37:c1}} 
         pop     de                ;{{fb38:d1}} 
         pop     hl                ;{{fb39:e1}} 
         pop     af                ;{{fb3a:f1}} 
-        jr      _function_instr_67;{{fb3b:180b}}  (+$0b)
+        jr      instr_return_A    ;{{fb3b:180b}}  (+$0b)
 
-_function_instr_57:               ;{{Addr=$fb3d Code Calls/jump count: 1 Data use count: 0}}
+;;=instr chars differ
+;Pick up from position after where the first char did match
+instr_chars_differ:               ;{{Addr=$fb3d Code Calls/jump count: 1 Data use count: 0}}
         pop     bc                ;{{fb3d:c1}} 
         pop     de                ;{{fb3e:d1}} 
         pop     hl                ;{{fb3f:e1}} 
@@ -12593,29 +13891,48 @@ _function_instr_57:               ;{{Addr=$fb3d Code Calls/jump count: 1 Data us
         inc     a                 ;{{fb41:3c}} 
         inc     hl                ;{{fb42:23}} 
         dec     b                 ;{{fb43:05}} 
-        jr      _function_instr_38;{{fb44:18e0}}  (-$20)
+        jr      instr_find_first_loop;{{fb44:18e0}}  (-$20)
 
-_function_instr_65:               ;{{Addr=$fb46 Code Calls/jump count: 1 Data use count: 0}}
+;;=instr pop and return zero
+instr_pop_and_return_zero:        ;{{Addr=$fb46 Code Calls/jump count: 1 Data use count: 0}}
         pop     af                ;{{fb46:f1}} 
-_function_instr_66:               ;{{Addr=$fb47 Code Calls/jump count: 1 Data use count: 0}}
+;;=instr return zero
+instr_return_zero:                ;{{Addr=$fb47 Code Calls/jump count: 1 Data use count: 0}}
         xor     a                 ;{{fb47:af}} 
-_function_instr_67:               ;{{Addr=$fb48 Code Calls/jump count: 2 Data use count: 0}}
+;;=instr return A
+instr_return_A:                   ;{{Addr=$fb48 Code Calls/jump count: 2 Data use count: 0}}
         call    store_A_in_accumulator_as_INT;{{fb48:cd32ff}} 
         pop     hl                ;{{fb4b:e1}} 
         ret                       ;{{fb4c:c9}} 
 
-_function_instr_70:               ;{{Addr=$fb4d Code Calls/jump count: 3 Data use count: 0}}
+
+
+
+;;***StringsArea.asm
+;;<<STRINGS AREA
+;;<Including the string stack, FRE and the garbage collector
+;;==========================================
+;;=copy all strings vars to strings area if not in strings area
+;See comments for the next routine. Makes sure no strings being referenced within the code.
+;Used by immediate mode and before a CHAIN or DELETE modifies the program.
+copy_all_strings_vars_to_strings_area_if_not_in_strings_area:;{{Addr=$fb4d Code Calls/jump count: 3 Data use count: 0}}
         push    de                ;{{fb4d:d5}} 
         push    hl                ;{{fb4e:e5}} 
-        ld      de,_prob_copy_string_to_strings_area_11;{{fb4f:1165fb}}   ##LABEL##
+        ld      de,do_copy_string_to_strings_area_if_not_in_strings_area;{{fb4f:1165fb}}   ##LABEL##
         call    iterate_all_string_variables;{{fb52:cd93da}} 
         pop     hl                ;{{fb55:e1}} 
         pop     de                ;{{fb56:d1}} 
         ret                       ;{{fb57:c9}} 
 
 ;;==========================
-;;prob copy string to strings area
-prob_copy_string_to_strings_area: ;{{Addr=$fb58 Code Calls/jump count: 3 Data use count: 0}}
+;;copy string to strings area if not in strings area
+;Ensures that a string is stored in the strings area. 
+;I.e that the string is not a constant in the program.
+;This prevent changes to a string from editing the program itself.
+;This is used but the statement form of MID$ and the @ operator,
+;and also after evaluating a string expression - strings are only ever 
+;referenced once, not copying after an expression would leave it being referenced twice
+copy_string_to_strings_area_if_not_in_strings_area:;{{Addr=$fb58 Code Calls/jump count: 3 Data use count: 0}}
         push    hl                ;{{fb58:e5}} 
         ld      a,(hl)            ;{{fb59:7e}} 
         inc     hl                ;{{fb5a:23}} 
@@ -12624,24 +13941,29 @@ prob_copy_string_to_strings_area: ;{{Addr=$fb58 Code Calls/jump count: 3 Data us
         ld      b,(hl)            ;{{fb5d:46}} 
         ex      de,hl             ;{{fb5e:eb}} 
         or      a                 ;{{fb5f:b7}} 
-        call    nz,_prob_copy_string_to_strings_area_11;{{fb60:c465fb}} 
+        call    nz,do_copy_string_to_strings_area_if_not_in_strings_area;{{fb60:c465fb}} 
         pop     hl                ;{{fb63:e1}} 
         ret                       ;{{fb64:c9}} 
 
-_prob_copy_string_to_strings_area_11:;{{Addr=$fb65 Code Calls/jump count: 1 Data use count: 1}}
-        ld      hl,(address_of_end_of_free_space_);{{fb65:2a71b0}} 
+;;=do copy string to strings area if not in strings area
+;Called via string variable iterator
+;DE=addr of /last/ byte of string descriptor
+;BC=string address
+;A=string length
+do_copy_string_to_strings_area_if_not_in_strings_area:;{{Addr=$fb65 Code Calls/jump count: 1 Data use count: 1}}
+        ld      hl,(address_of_end_of_free_space_);{{fb65:2a71b0}} Checks if BC is withing a strings area and returns if it is
         call    compare_HL_BC     ;{{fb68:cddeff}}  HL=BC?
-        jr      nc,_prob_copy_string_to_strings_area_17;{{fb6b:3007}}  (+$07)
+        jr      nc,_do_copy_string_to_strings_area_if_not_in_strings_area_6;{{fb6b:3007}}  (+$07)
         ld      hl,(address_of_end_of_Strings_area_);{{fb6d:2a73b0}} 
         call    compare_HL_BC     ;{{fb70:cddeff}}  HL=BC?
         ret     nc                ;{{fb73:d0}} 
 
-_prob_copy_string_to_strings_area_17:;{{Addr=$fb74 Code Calls/jump count: 1 Data use count: 0}}
+_do_copy_string_to_strings_area_if_not_in_strings_area_6:;{{Addr=$fb74 Code Calls/jump count: 1 Data use count: 0}}
         ex      de,hl             ;{{fb74:eb}} 
         dec     hl                ;{{fb75:2b}} 
         dec     hl                ;{{fb76:2b}} 
-        push    hl                ;{{fb77:e5}} 
-        call    copy_last_string_used_to_strings_area;{{fb78:cdb9fb}} 
+        push    hl                ;{{fb77:e5}} HL=address of string descriptor
+        call    alloc_and_copy_string_atHL_to_strings_area;{{fb78:cdb9fb}} Writes allocated address to last-string-used variable
         pop     hl                ;{{fb7b:e1}} 
 
 ;;=store last string used (descriptor) to HL
@@ -12656,17 +13978,20 @@ store_last_string_used_descriptor_to_HL:;{{Addr=$fb7c Code Calls/jump count: 1 D
         inc     hl                ;{{fb88:23}} 
         ret                       ;{{fb89:c9}} 
 
-;;=copy accumulator to strings area
-copy_accumulator_to_strings_area: ;{{Addr=$fb8a Code Calls/jump count: 1 Data use count: 0}}
-        call    is_accumulator_string_concat_area_minus_1;{{fb8a:cd37fc}} 
+;;====================================================
+;;=push accum to strings stack and strings area if not on string stack
+push_accum_to_strings_stack_and_strings_area_if_not_on_string_stack:;{{Addr=$fb8a Code Calls/jump count: 1 Data use count: 0}}
+        call    is_accumulator_address_in_string_stack;{{fb8a:cd37fc}} 
         ret     c                 ;{{fb8d:d8}} 
 
-        call    copy_last_string_used_to_strings_area;{{fb8e:cdb9fb}} 
-        jp      push_last_string_on_string_stack;{{fb91:c3d6fb}} 
+        call    alloc_and_copy_string_atHL_to_strings_area;{{fb8e:cdb9fb}} 
+        jp      push_last_string_descriptor_on_string_stack;{{fb91:c3d6fb}} 
 
-_copy_accumulator_to_strings_area_4:;{{Addr=$fb94 Code Calls/jump count: 1 Data use count: 0}}
+;;================================================
+;;=prob copy to strings area if not const in program or ROM
+prob_copy_to_strings_area_if_not_const_in_program_or_ROM:;{{Addr=$fb94 Code Calls/jump count: 1 Data use count: 0}}
         ld      hl,(accumulator)  ;{{fb94:2aa0b0}} 
-        call    get_addr_and_len_of_last_string_in_concat_area;{{fb97:cd1ffc}} 
+        call    pop_TOS_from_string_stack;{{fb97:cd1ffc}} 
         ld      a,b               ;{{fb9a:78}} 
         or      a                 ;{{fb9b:b7}} 
         ret     z                 ;{{fb9c:c8}} 
@@ -12677,16 +14002,17 @@ _copy_accumulator_to_strings_area_4:;{{Addr=$fb94 Code Calls/jump count: 1 Data 
         ld      hl,(address_of_end_of_Strings_area_);{{fba4:2a73b0}} 
         ex      de,hl             ;{{fba7:eb}} 
         call    c,compare_HL_DE   ;{{fba8:dcd8ff}}  HL=DE?
-        jr      nc,_copy_accumulator_to_strings_area_19;{{fbab:300a}}  (+$0a)
+        jr      nc,_prob_copy_to_strings_area_if_not_const_in_program_or_rom_15;{{fbab:300a}}  (+$0a)
         ld      de,(address_after_end_of_program);{{fbad:ed5b66ae}} 
         call    compare_HL_DE     ;{{fbb1:cdd8ff}}  HL=DE?
-        call    nc,is_accumulator_string_concat_area_minus_1;{{fbb4:d437fc}} 
-_copy_accumulator_to_strings_area_19:;{{Addr=$fbb7 Code Calls/jump count: 1 Data use count: 0}}
+        call    nc,is_accumulator_address_in_string_stack;{{fbb4:d437fc}} 
+_prob_copy_to_strings_area_if_not_const_in_program_or_rom_15:;{{Addr=$fbb7 Code Calls/jump count: 1 Data use count: 0}}
         pop     hl                ;{{fbb7:e1}} 
         ret     c                 ;{{fbb8:d8}} 
 
-;;=copy last string used to strings area
-copy_last_string_used_to_strings_area:;{{Addr=$fbb9 Code Calls/jump count: 2 Data use count: 0}}
+;;=alloc and copy string atHL to strings area
+;HL=address of a string descriptor
+alloc_and_copy_string_atHL_to_strings_area:;{{Addr=$fbb9 Code Calls/jump count: 2 Data use count: 0}}
         ld      a,(hl)            ;{{fbb9:7e}} 
         call    alloc_space_in_strings_area;{{fbba:cd41fc}} 
         push    de                ;{{fbbd:d5}} 
@@ -12702,17 +14028,19 @@ copy_last_string_used_to_strings_area:;{{Addr=$fbb9 Code Calls/jump count: 2 Dat
         ret                       ;{{fbcb:c9}} 
 
 ;;=================
-;;get string stack first free ptr
-get_string_stack_first_free_ptr:  ;{{Addr=$fbcc Code Calls/jump count: 3 Data use count: 0}}
+;;clear string stack
+clear_string_stack:               ;{{Addr=$fbcc Code Calls/jump count: 3 Data use count: 0}}
         ld      hl,string_stack_first;{{fbcc:217eb0}} 
         ld      (string_stack_first_free_ptr),hl;{{fbcf:227cb0}} 
         ret                       ;{{fbd2:c9}} 
 
-_get_string_stack_first_free_ptr_3:;{{Addr=$fbd3 Code Calls/jump count: 2 Data use count: 0}}
+;;=alloc string push on stack and accumulator
+alloc_string_push_on_stack_and_accumulator:;{{Addr=$fbd3 Code Calls/jump count: 2 Data use count: 0}}
         call    alloc_space_in_strings_area;{{fbd3:cd41fc}} 
 
-;;=push last string on string stack
-push_last_string_on_string_stack: ;{{Addr=$fbd6 Code Calls/jump count: 5 Data use count: 0}}
+;;=push last string descriptor on string stack
+;Also puts the address of the pushed descriptor in the accumulator
+push_last_string_descriptor_on_string_stack:;{{Addr=$fbd6 Code Calls/jump count: 5 Data use count: 0}}
         push    hl                ;{{fbd6:e5}} 
         ld      a,$03             ;{{fbd7:3e03}} accumulator is a string
         ld      (accumulator_data_type),a;{{fbd9:329fb0}} 
@@ -12733,19 +14061,17 @@ get_accumulator_string_length:    ;{{Addr=$fbf5 Code Calls/jump count: 11 Data u
         push    hl                ;{{fbf5:e5}} 
         call    error_if_accumulator_is_not_a_string;{{fbf6:cd5eff}} 
         ld      hl,(accumulator)  ;{{fbf9:2aa0b0}} 
-        call    various_get_string_from_stack_stuff;{{fbfc:cd03fc}} 
+        call    pop_TOS_from_string_stack_and_strings_area;{{fbfc:cd03fc}} 
         pop     hl                ;{{fbff:e1}} 
         ld      a,b               ;{{fc00:78}} 
         or      a                 ;{{fc01:b7}} 
         ret                       ;{{fc02:c9}} 
 
 ;;===================================
-;;various get string from stack stuff
-;get top string on stack
-;or move top to string stack to variables area???
-; (or preserve TOS string in data area?)
-various_get_string_from_stack_stuff:;{{Addr=$fc03 Code Calls/jump count: 5 Data use count: 0}}
-        call    get_addr_and_len_of_last_string_in_concat_area;{{fc03:cd1ffc}} 
+;;pop TOS from string stack and strings area
+;Pops the top-most item from the string stack and also from the strings area(?)
+pop_TOS_from_string_stack_and_strings_area:;{{Addr=$fc03 Code Calls/jump count: 5 Data use count: 0}}
+        call    pop_TOS_from_string_stack;{{fc03:cd1ffc}} 
         ret     nz                ;{{fc06:c0}} string addr <> HL
 
         ld      a,b               ;{{fc07:78}} 
@@ -12768,19 +14094,20 @@ various_get_string_from_stack_stuff:;{{Addr=$fc03 Code Calls/jump count: 5 Data 
         ld      (address_of_end_of_free_space_),hl;{{fc1b:2271b0}} 
         ret                       ;{{fc1e:c9}} 
 
-;;=get addr and len of last string in concat area
+;;=pop TOS from string stack
+;Pops the top-most item from the string stack but doesn't affect the strings area
 ;returns HL=addr, B=length
 ;if HL=address of last item then 'pops' it off the concat stack
-get_addr_and_len_of_last_string_in_concat_area:;{{Addr=$fc1f Code Calls/jump count: 2 Data use count: 0}}
+pop_TOS_from_string_stack:        ;{{Addr=$fc1f Code Calls/jump count: 2 Data use count: 0}}
         push    hl                ;{{fc1f:e5}} 
         ld      de,(string_stack_first_free_ptr);{{fc20:ed5b7cb0}} 
         dec     de                ;{{fc24:1b}} 
         dec     de                ;{{fc25:1b}} 
         dec     de                ;{{fc26:1b}} 
         call    compare_HL_DE     ;{{fc27:cdd8ff}}  HL=DE?
-        jr      nz,_get_addr_and_len_of_last_string_in_concat_area_8;{{fc2a:2004}}  (+$04)
+        jr      nz,_pop_tos_from_string_stack_8;{{fc2a:2004}}  (+$04)
         ld      (string_stack_first_free_ptr),de;{{fc2c:ed537cb0}} 
-_get_addr_and_len_of_last_string_in_concat_area_8:;{{Addr=$fc30 Code Calls/jump count: 1 Data use count: 0}}
+_pop_tos_from_string_stack_8:     ;{{Addr=$fc30 Code Calls/jump count: 1 Data use count: 0}}
         ld      b,(hl)            ;{{fc30:46}} 
         inc     hl                ;{{fc31:23}} 
         ld      e,(hl)            ;{{fc32:5e}} 
@@ -12790,9 +14117,10 @@ _get_addr_and_len_of_last_string_in_concat_area_8:;{{Addr=$fc30 Code Calls/jump 
         ret                       ;{{fc36:c9}} 
 
 ;;============================
-;;is accumulator string concat area minus 1
-;are we testing for empty string concat area?
-is_accumulator_string_concat_area_minus_1:;{{Addr=$fc37 Code Calls/jump count: 2 Data use count: 0}}
+;;is accumulator address in string stack
+;Is the uint in the accumulator in the string stack (or higher - but no strings stored higher)
+;NOTE: this used tha accumulator value as a pointer to a string descriptor, NOT a string descriptor
+is_accumulator_address_in_string_stack:;{{Addr=$fc37 Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,(accumulator)  ;{{fc37:2aa0b0}} 
         ld      a,string_stack_first - 1 and $ff;{{fc3a:3e7d}}  $7d  string stack start - 1 (low byte)
         sub     l                 ;{{fc3c:95}} 
@@ -12802,6 +14130,13 @@ is_accumulator_string_concat_area_minus_1:;{{Addr=$fc37 Code Calls/jump count: 2
 
 ;;==============================
 ;;alloc space in strings area
+;Allocs A + 2 bytes in the strings area (i.e to the bottom)
+;Two bottom-most bytes store the number of bytes allocated.
+;Address above, and string length, that is written to the last-string-used variable
+;Writes the bytes allocated to start of strings area
+;A=string length
+;HL=string address
+;Returns A,HL unmodified
 alloc_space_in_strings_area:      ;{{Addr=$fc41 Code Calls/jump count: 5 Data use count: 0}}
         push    hl                ;{{fc41:e5}} 
         push    bc                ;{{fc42:c5}} 
@@ -12818,24 +14153,38 @@ alloc_space_in_strings_area:      ;{{Addr=$fc41 Code Calls/jump count: 5 Data us
 
 ;;========================================================
 ;; function FRE
-;count free memory (and do garbage collection)
+;FRE(<numeric expression>)
+;FRE(<string expression>)
+;The value of the arguments is irrelevant, only the type. Thus the preferred forms are:
+;FRE(0)
+;FRE("")
+;FRE with a numeric parameter returns the amount of free space in bytes
+;FRE with a string parameter performs a garbage collection before returning the number of free bytes.
+;Garbage collection involves removing empty space within the strings allocation area.
+;Garbage collection will also happen if BASIC runs out of memory
+
 function_FRE:                     ;{{Addr=$fc53 Code Calls/jump count: 0 Data use count: 1}}
         call    is_accumulator_a_string;{{fc53:cd66ff}} 
-        jr      nz,_function_fre_4;{{fc56:2006}}  (+$06)
+        jr      nz,_function_fre_4;{{fc56:2006}}  (+$06) Not a string - just return length
         call    get_accumulator_string_length;{{fc58:cdf5fb}} 
-        call    _function_fre_6   ;{{fc5b:cd64fc}} 
+        call    strings_area_garbage_collection;{{fc5b:cd64fc}} 
 _function_fre_4:                  ;{{Addr=$fc5e Code Calls/jump count: 1 Data use count: 0}}
         call    get_free_space_byte_count_in_HL_addr_in_DE;{{fc5e:cdfcf6}} 
         jp      set_accumulator_as_REAL_from_unsigned_INT;{{fc61:c389fe}} 
 
-_function_fre_6:                  ;{{Addr=$fc64 Code Calls/jump count: 6 Data use count: 0}}
+;;=strings area garbage collection
+strings_area_garbage_collection:  ;{{Addr=$fc64 Code Calls/jump count: 6 Data use count: 0}}
         push    hl                ;{{fc64:e5}} 
         push    de                ;{{fc65:d5}} 
         push    bc                ;{{fc66:c5}} 
         ld      hl,string_stack_first;{{fc67:217eb0}} 
-        jr      _function_fre_21  ;{{fc6a:180c}}  (+$0c)
+        jr      _strings_gc_prepare_loop_10;{{fc6a:180c}}  (+$0c)
 
-_function_fre_11:                 ;{{Addr=$fc6c Code Calls/jump count: 1 Data use count: 0}}
+;Loops over every string in the strings area,
+;Swaps the string address in the descriptor with the two bytes preceding the string
+;Thus every string is now preceded by it's address
+;;=strings gc prepare loop
+strings_gc_prepare_loop:          ;{{Addr=$fc6c Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(hl)            ;{{fc6c:7e}} 
         inc     hl                ;{{fc6d:23}} 
         ld      c,(hl)            ;{{fc6e:4e}} 
@@ -12843,47 +14192,65 @@ _function_fre_11:                 ;{{Addr=$fc6c Code Calls/jump count: 1 Data us
         ld      b,(hl)            ;{{fc70:46}} 
         ex      de,hl             ;{{fc71:eb}} 
         or      a                 ;{{fc72:b7}} 
-        call    nz,poss_free_string_at_BC_length_A;{{fc73:c4e3fc}} 
+        call    nz,_strings_area_gc_finalise_loop_23;{{fc73:c4e3fc}} 
         ex      de,hl             ;{{fc76:eb}} 
         inc     hl                ;{{fc77:23}} 
-_function_fre_21:                 ;{{Addr=$fc78 Code Calls/jump count: 1 Data use count: 0}}
-        ld      de,(string_stack_first_free_ptr);{{fc78:ed5b7cb0}} 
+
+;HL=bottom of string stack
+_strings_gc_prepare_loop_10:      ;{{Addr=$fc78 Code Calls/jump count: 1 Data use count: 0}}
+        ld      de,(string_stack_first_free_ptr);{{fc78:ed5b7cb0}} Top of string stack
         call    compare_HL_DE     ;{{fc7c:cdd8ff}}  HL=DE?
-        jr      nz,_function_fre_11;{{fc7f:20eb}}  (-$15) 
-        ld      de,poss_free_string_at_BC_length_A;{{fc81:11e3fc}}   ##LABEL##
+        jr      nz,strings_gc_prepare_loop;{{fc7f:20eb}}  (-$15) 
+
+;Now does the same for every string variable
+        ld      de,_strings_area_gc_finalise_loop_23;{{fc81:11e3fc}}   ##LABEL##
         call    iterate_all_string_variables;{{fc84:cd93da}} 
+
+
         ld      hl,(address_of_end_of_Strings_area_);{{fc87:2a73b0}} 
         push    hl                ;{{fc8a:e5}} 
         ld      hl,(address_of_end_of_free_space_);{{fc8b:2a71b0}} 
         inc     hl                ;{{fc8e:23}} 
         ld      e,l               ;{{fc8f:5d}} 
         ld      d,h               ;{{fc90:54}} 
-        jr      _function_fre_49  ;{{fc91:1814}}  (+$14)
+        jr      _strings_gc_compact_loop_16;{{fc91:1814}}  (+$14)
 
-_function_fre_33:                 ;{{Addr=$fc93 Code Calls/jump count: 1 Data use count: 0}}
-        ld      c,(hl)            ;{{fc93:4e}} 
+
+;Loop through every string in the strings area, starting with the first (lowest address).
+;Copies each string to the start of the strings area (after any strings already copied),
+;BUT does not copy any free space. Thus all current strings are moved to a single block
+;at the start of the strings area.
+;;=strings gc compact loop
+strings_gc_compact_loop:          ;{{Addr=$fc93 Code Calls/jump count: 1 Data use count: 0}}
+        ld      c,(hl)            ;{{fc93:4e}} BC=address of string descriptor?
         inc     hl                ;{{fc94:23}} 
         ld      b,(hl)            ;{{fc95:46}} 
         inc     b                 ;{{fc96:04}} 
-        dec     b                 ;{{fc97:05}} 
-        jr      z,_function_fre_47;{{fc98:280b}}  (+$0b)
+        dec     b                 ;{{fc97:05}} Test for high byte of address = 0 (free space?)
+        jr      z,_strings_gc_compact_loop_14;{{fc98:280b}}  (+$0b)
         dec     hl                ;{{fc9a:2b}} 
-        ld      a,(bc)            ;{{fc9b:0a}} 
+        ld      a,(bc)            ;{{fc9b:0a}} String length from descriptor?
         ld      c,a               ;{{fc9c:4f}} 
         ld      b,$00             ;{{fc9d:0600}} 
         inc     bc                ;{{fc9f:03}} 
-        inc     bc                ;{{fca0:03}} 
-        ldir                      ;{{fca1:edb0}} 
-        jr      _function_fre_49  ;{{fca3:1802}}  (+$02)
+        inc     bc                ;{{fca0:03}} BC=length+2?
+        ldir                      ;{{fca1:edb0}} LDIR - copy string
+        jr      _strings_gc_compact_loop_16;{{fca3:1802}}  (+$02)
 
-_function_fre_47:                 ;{{Addr=$fca5 Code Calls/jump count: 1 Data use count: 0}}
+_strings_gc_compact_loop_14:      ;{{Addr=$fca5 Code Calls/jump count: 1 Data use count: 0}}
         inc     hl                ;{{fca5:23}} 
         add     hl,bc             ;{{fca6:09}} 
-_function_fre_49:                 ;{{Addr=$fca7 Code Calls/jump count: 2 Data use count: 0}}
-        pop     bc                ;{{fca7:c1}} 
+
+;HL=DE=start of strings area. TOS=end of strings area
+_strings_gc_compact_loop_16:      ;{{Addr=$fca7 Code Calls/jump count: 2 Data use count: 0}}
+        pop     bc                ;{{fca7:c1}} BC=end of strings area
         push    bc                ;{{fca8:c5}} 
         call    compare_HL_BC     ;{{fca9:cddeff}}  HL=BC?
-        jr      c,_function_fre_33;{{fcac:38e5}}  (-$1b)
+        jr      c,strings_gc_compact_loop;{{fcac:38e5}}  (-$1b)
+
+
+;All strings now compacted. DE=end of compacted strings
+;Calc the number of bytes in this block and LDDR copy them to the end of the strings area
         dec     de                ;{{fcae:1b}} 
         ld      hl,(address_of_end_of_free_space_);{{fcaf:2a71b0}} 
         ex      de,hl             ;{{fcb2:eb}} 
@@ -12893,64 +14260,80 @@ _function_fre_49:                 ;{{Addr=$fca7 Code Calls/jump count: 2 Data us
         push    af                ;{{fcba:f5}} 
         push    de                ;{{fcbb:d5}} 
         call    copy_bytes_LDDR_BCcount_HLsource_DEdest;{{fcbc:cdf5ff}}  copy bytes LDDR (BC = count)
+
         ex      de,hl             ;{{fcbf:eb}} 
-        ld      (address_of_end_of_free_space_),hl;{{fcc0:2271b0}} 
+        ld      (address_of_end_of_free_space_),hl;{{fcc0:2271b0}} Now write the new start of strings area
         pop     bc                ;{{fcc3:c1}} 
         inc     hl                ;{{fcc4:23}} 
-        jr      _function_fre_83  ;{{fcc5:1812}}  (+$12)
+        jr      _strings_area_gc_finalise_loop_16;{{fcc5:1812}}  (+$12)
 
-_function_fre_67:                 ;{{Addr=$fcc7 Code Calls/jump count: 1 Data use count: 0}}
-        ld      e,(hl)            ;{{fcc7:5e}} 
+;Loops through the strings area and swaps back the address and descriptor info
+;;=strings area gc finalise loop
+strings_area_gc_finalise_loop:    ;{{Addr=$fcc7 Code Calls/jump count: 1 Data use count: 0}}
+        ld      e,(hl)            ;{{fcc7:5e}} DE=(HL) - string descriptor address?
         inc     hl                ;{{fcc8:23}} 
         ld      d,(hl)            ;{{fcc9:56}} 
         dec     hl                ;{{fcca:2b}} 
-        ld      a,(de)            ;{{fccb:1a}} 
-        ld      (hl),a            ;{{fccc:77}} 
+        ld      a,(de)            ;{{fccb:1a}} A=string length?
+        ld      (hl),a            ;{{fccc:77}} (HL)=length
         inc     hl                ;{{fccd:23}} 
         ld      (hl),$00          ;{{fcce:3600}} 
         inc     hl                ;{{fcd0:23}} 
         ex      de,hl             ;{{fcd1:eb}} 
-        ld      (hl),d            ;{{fcd2:72}} 
+        ld      (hl),d            ;{{fcd2:72}} String address?
         dec     hl                ;{{fcd3:2b}} 
         ld      (hl),e            ;{{fcd4:73}} 
-        ld      l,a               ;{{fcd5:6f}} 
+        ld      l,a               ;{{fcd5:6f}} HL=length?
         ld      h,$00             ;{{fcd6:2600}} 
         add     hl,de             ;{{fcd8:19}} 
-_function_fre_83:                 ;{{Addr=$fcd9 Code Calls/jump count: 1 Data use count: 0}}
+
+;HL=new last byte of free memory (byte before new strings area)
+;DE=address of last byte of strings area
+_strings_area_gc_finalise_loop_16:;{{Addr=$fcd9 Code Calls/jump count: 1 Data use count: 0}}
         call    compare_HL_BC     ;{{fcd9:cddeff}}  HL=BC?
-        jr      c,_function_fre_67;{{fcdc:38e9}}  (-$17)
+        jr      c,strings_area_gc_finalise_loop;{{fcdc:38e9}}  (-$17)
+
         pop     af                ;{{fcde:f1}} 
         pop     bc                ;{{fcdf:c1}} 
         pop     de                ;{{fce0:d1}} 
         pop     hl                ;{{fce1:e1}} 
         ret                       ;{{fce2:c9}} 
 
-;;=================================
-;;poss free string at BC length A
-poss_free_string_at_BC_length_A:  ;{{Addr=$fce3 Code Calls/jump count: 1 Data use count: 1}}
+;;strings gc prepare string
+;DE=addr of /last/ byte of string descriptor passed in A,BC
+;BC=string address
+;A=string length
+_strings_area_gc_finalise_loop_23:;{{Addr=$fce3 Code Calls/jump count: 1 Data use count: 1}}
         ld      hl,(address_of_start_of_free_space_);{{fce3:2a6cae}} 
         call    compare_HL_BC     ;{{fce6:cddeff}}  HL=BC?
         ret     nc                ;{{fce9:d0}} 
 
-        dec     bc                ;{{fcea:0b}} 
-        ld      a,d               ;{{fceb:7a}} 
-        ld      (bc),a            ;{{fcec:02}} 
-        dec     bc                ;{{fced:0b}} 
-        ld      a,(bc)            ;{{fcee:0a}} 
+;Load DE to (BC-2) and byte what was at (BC-2) to (DE)
+;Ie swap the address (of last byte) of string descriptor with the two bytes before the string
+;Thus every string is now preceded by the address of it's string descriptor?
+        dec     bc                ;{{fcea:0b}} BC=byte before string
+        ld      a,d               ;{{fceb:7a}} A=high byte of descriptor address
+        ld      (bc),a            ;{{fcec:02}} Byte before string = high byte of descriptor address
+        dec     bc                ;{{fced:0b}} BC=two bytes before string
+        ld      a,(bc)            ;{{fcee:0a}} A=??
         ld      (de),a            ;{{fcef:12}} 
         ld      a,e               ;{{fcf0:7b}} 
         ld      (bc),a            ;{{fcf1:02}} 
         ret                       ;{{fcf2:c9}} 
 
-_poss_free_string_at_bc_length_a_12:;{{Addr=$fcf3 Code Calls/jump count: 1 Data use count: 0}}
+;;==========================================
+;;=prepare accum and regs for word to string
+prepare_accum_and_regs_for_word_to_string:;{{Addr=$fcf3 Code Calls/jump count: 1 Data use count: 0}}
         call    return_accumulator_value_if_int_or_address_if_real;{{fcf3:cd4fff}} 
         jp      nc,REAL_prepare_for_decimal;{{fcf6:d276bd}}  firmware maths??
-        call    unknown_maths_fixup;{{fcf9:cd2add}} 
+        call    prep_regs_for_int_to_string;{{fcf9:cd2add}} B=H, C=$01, E=$00
         ld      (accumulator),hl  ;{{fcfc:22a0b0}} 
         ld      hl,accumulator_plus_1;{{fcff:21a1b0}} 
         ret                       ;{{fd02:c9}} 
 
-_poss_free_string_at_bc_length_a_18:;{{Addr=$fd03 Code Calls/jump count: 1 Data use count: 0}}
+;;=============================================
+;;=set regs for int to string conv
+set_regs_for_int_to_string_conv:  ;{{Addr=$fd03 Code Calls/jump count: 1 Data use count: 0}}
         call    function_UNT      ;{{fd03:cdebfe}} 
         ld      hl,accumulator_plus_1;{{fd06:21a1b0}} 
         jp      set_B_zero_E_zero_C_to_2_int_type;{{fd09:c330dd}} 
@@ -13030,29 +14413,31 @@ infix_divide_:                    ;{{Addr=$fd52 Code Calls/jump count: 0 Data us
 ;;=================================================
 ;;infix integer division
 infix_integer_division:           ;{{Addr=$fd67 Code Calls/jump count: 0 Data use count: 1}}
-        call    _function_cint_6  ;{{fd67:cdc3fe}} 
+        call    convert_atHL_with_type_C_and_accumulator_to_ints;{{fd67:cdc3fe}} 
         ex      de,hl             ;{{fd6a:eb}} 
         call    INT_division_with_overflow_test;{{fd6b:cd9cdd}} 
         jp      c,store_HL_in_accumulator_as_INT;{{fd6e:da35ff}} 
-        jr      z,_infix_mod_4    ;{{fd71:2810}}  (+$10)
+        jr      z,raise_Division_by_zero_error;{{fd71:2810}}  (+$10)
         ld      hl,$8000          ;{{fd73:210080}} 
         jp      set_accumulator_as_REAL_from_unsigned_INT;{{fd76:c389fe}} 
 
 ;;=================================================
 ;;infix MOD
 infix_MOD:                        ;{{Addr=$fd79 Code Calls/jump count: 0 Data use count: 1}}
-        call    _function_cint_6  ;{{fd79:cdc3fe}} 
+        call    convert_atHL_with_type_C_and_accumulator_to_ints;{{fd79:cdc3fe}} 
         ex      de,hl             ;{{fd7c:eb}} 
         call    INT_modulo        ;{{fd7d:cda3dd}} 
         jp      c,store_HL_in_accumulator_as_INT;{{fd80:da35ff}} 
-_infix_mod_4:                     ;{{Addr=$fd83 Code Calls/jump count: 1 Data use count: 0}}
+
+;;=raise Division by zero error
+raise_Division_by_zero_error:     ;{{Addr=$fd83 Code Calls/jump count: 1 Data use count: 0}}
         call    byte_following_call_is_error_code;{{fd83:cd45cb}} 
         defb $0b                  ;Inline error code: Division by zero
 
 ;;============================================
 ;; infix AND
 infix_AND:                        ;{{Addr=$fd87 Code Calls/jump count: 0 Data use count: 1}}
-        call    _function_cint_6  ;{{fd87:cdc3fe}} 
+        call    convert_atHL_with_type_C_and_accumulator_to_ints;{{fd87:cdc3fe}} 
         ld      a,e               ;{{fd8a:7b}} 
         and     l                 ;{{fd8b:a5}} 
         ld      l,a               ;{{fd8c:6f}} 
@@ -13066,7 +14451,7 @@ infix_logic_done:                 ;{{Addr=$fd8f Code Calls/jump count: 3 Data us
 ;;=============================================
 ;; infix OR
 infix_OR:                         ;{{Addr=$fd92 Code Calls/jump count: 0 Data use count: 1}}
-        call    _function_cint_6  ;{{fd92:cdc3fe}} 
+        call    convert_atHL_with_type_C_and_accumulator_to_ints;{{fd92:cdc3fe}} 
         ld      a,e               ;{{fd95:7b}} 
         or      l                 ;{{fd96:b5}} 
         ld      l,a               ;{{fd97:6f}} 
@@ -13077,7 +14462,7 @@ infix_OR:                         ;{{Addr=$fd92 Code Calls/jump count: 0 Data us
 ;;==============================================
 ;; infix XOR
 infix_XOR:                        ;{{Addr=$fd9c Code Calls/jump count: 0 Data use count: 1}}
-        call    _function_cint_6  ;{{fd9c:cdc3fe}} 
+        call    convert_atHL_with_type_C_and_accumulator_to_ints;{{fd9c:cdc3fe}} 
         ld      a,e               ;{{fd9f:7b}} 
         xor     l                 ;{{fda0:ad}} 
         ld      l,a               ;{{fda1:6f}} 
@@ -13099,11 +14484,15 @@ bitwise_complementinvert:         ;{{Addr=$fda6 Code Calls/jump count: 1 Data us
 
 
 
+
 ;;***TypeConversions.asm
 ;;<< TYPE CONVERSIONS AND ROUNDING
 ;;< (from numbers to numbers)
 ;;========================================================
 ;; function ABS
+;ABS(<numeric expression>)
+;Returns absolute value (i.e. negates if negative)
+
 function_ABS:                     ;{{Addr=$fdb0 Code Calls/jump count: 0 Data use count: 1}}
         call    get_raw_abs_of_accumulator_with_reg_preserve;{{fdb0:cdc4fd}} 
         ret     p                 ;{{fdb3:f0}} 
@@ -13176,12 +14565,18 @@ _round_accumulator_29:            ;{{Addr=$fe0a Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function FIX
+;FIX(<numeric expression>)
+;Truncate value to an integer. Returns a float with no fractional part, rounding towards zero.
 function_FIX:                     ;{{Addr=$fe0e Code Calls/jump count: 0 Data use count: 1}}
         ld      de,REAL_FIX       ;{{fe0e:1170bd}} firmware REAL fix
         jr      _function_int_1   ;{{fe11:1803}}  (+$03)
 
 ;;========================================================
 ;; function INT
+;INT(<numeric expression>)
+;Rounds the value to the nearest smaller integer (round towards minus infinity)
+;Does not convert to integer, merely removes fractional part
+
 function_INT:                     ;{{Addr=$fe13 Code Calls/jump count: 0 Data use count: 1}}
         ld      de,REAL_INT       ;{{fe13:1173bd}} firmware REAL int
 _function_int_1:                  ;{{Addr=$fe16 Code Calls/jump count: 1 Data use count: 0}}
@@ -13209,7 +14604,7 @@ _function_int_11:                 ;{{Addr=$fe2c Code Calls/jump count: 2 Data us
         inc     hl                ;{{fe31:23}} 
         ld      h,(hl)            ;{{fe32:66}} 
         ld      l,a               ;{{fe33:6f}} 
-        call    unknown_maths_fixup_B;{{fe34:cd37dd}} 
+        call    unknown_maths_fixup;{{fe34:cd37dd}} 
         ret     nc                ;{{fe37:d0}} 
 
         jp      store_HL_in_accumulator_as_INT;{{fe38:c335ff}} 
@@ -13335,6 +14730,10 @@ store_int_to_accumulator:         ;{{Addr=$fea5 Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function CINT
+;CINT(<numeric expression>)
+;Converts the value to an integer
+;Expression must be -32768..+32767
+
 function_CINT:                    ;{{Addr=$feb6 Code Calls/jump count: 10 Data use count: 1}}
         call    _function_cint_3  ;{{feb6:cdbcfe}} 
         ret     c                 ;{{feb9:d8}} 
@@ -13342,38 +14741,42 @@ function_CINT:                    ;{{Addr=$feb6 Code Calls/jump count: 10 Data u
         jr      raise_Overflow_error;{{feba:183f}}  (+$3f)
 
 _function_cint_3:                 ;{{Addr=$febc Code Calls/jump count: 1 Data use count: 0}}
-        call    _function_cint_12 ;{{febc:cdcefe}} 
+        call    convert_accumulator_to_int;{{febc:cdcefe}} 
         ld      (accumulator),hl  ;{{febf:22a0b0}} 
         ret                       ;{{fec2:c9}} 
 
 ;;-=============================================
-;;
-_function_cint_6:                 ;{{Addr=$fec3 Code Calls/jump count: 5 Data use count: 0}}
+;;=convert atHL with type C and accumulator to ints
+convert_atHL_with_type_C_and_accumulator_to_ints:;{{Addr=$fec3 Code Calls/jump count: 5 Data use count: 0}}
         ld      a,c               ;{{fec3:79}} 
-        call    _function_cint_16 ;{{fec4:cdd5fe}} 
+        call    convert_atHL_with_type_C_to_int;{{fec4:cdd5fe}} 
         ex      de,hl             ;{{fec7:eb}} 
-        call    c,_function_cint_12;{{fec8:dccefe}} carry here means we had a pointer to an int
+        call    c,convert_accumulator_to_int;{{fec8:dccefe}} carry here means we had a pointer to an int
         ret     c                 ;{{fecb:d8}} 
 
         jr      raise_Overflow_error;{{fecc:182d}}  (+$2d)
 
-_function_cint_12:                ;{{Addr=$fece Code Calls/jump count: 2 Data use count: 0}}
+;;===============================================
+;;=convert accumulator to int
+convert_accumulator_to_int:       ;{{Addr=$fece Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,accumulator_data_type;{{fece:219fb0}} 
         ld      a,(hl)            ;{{fed1:7e}} 
         ld      (hl),$02          ;{{fed2:3602}} 
         inc     hl                ;{{fed4:23}} 
-_function_cint_16:                ;{{Addr=$fed5 Code Calls/jump count: 1 Data use count: 0}}
+
+;;=convert atHL with type C to int
+convert_atHL_with_type_C_to_int:  ;{{Addr=$fed5 Code Calls/jump count: 1 Data use count: 0}}
         cp      $03               ;{{fed5:fe03}} 
-        jr      c,_function_cint_25;{{fed7:380d}}  (+$0d) if type is int treat it as a pointer to the actual real and redo
+        jr      c,_convert_athl_with_type_c_to_int_9;{{fed7:380d}}  (+$0d) if type is int treat it as a pointer to the actual real and redo
         jp      z,raise_type_mismatch_error_C;{{fed9:ca62ff}}  error if string
         push    bc                ;{{fedc:c5}} 
         call    REAL_TO_INTEGER   ;{{fedd:cd6abd}}  firmware REAL to INT
         ld      b,a               ;{{fee0:47}} 
-        call    c,unknown_maths_fixup_B;{{fee1:dc37dd}} 
+        call    c,unknown_maths_fixup;{{fee1:dc37dd}} 
         pop     bc                ;{{fee4:c1}} 
         ret                       ;{{fee5:c9}} 
 
-_function_cint_25:                ;{{Addr=$fee6 Code Calls/jump count: 1 Data use count: 0}}
+_convert_athl_with_type_c_to_int_9:;{{Addr=$fee6 Code Calls/jump count: 1 Data use count: 0}}
         ld      a,(hl)            ;{{fee6:7e}} 
         inc     hl                ;{{fee7:23}} 
         ld      h,(hl)            ;{{fee8:66}} 
@@ -13382,6 +14785,8 @@ _function_cint_25:                ;{{Addr=$fee6 Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function UNT
+;UNT(<address expression>)
+;Converts to an unsigned integer in the range -32768..32767
 
 function_UNT:                     ;{{Addr=$feeb Code Calls/jump count: 4 Data use count: 1}}
         call    return_accumulator_value_if_int_or_address_if_real;{{feeb:cd4fff}} 
@@ -13390,7 +14795,7 @@ function_UNT:                     ;{{Addr=$feeb Code Calls/jump count: 4 Data us
         call    REAL_TO_INTEGER   ;{{feef:cd6abd}} 
         jr      nc,raise_Overflow_error;{{fef2:3007}}  (+$07)
         ld      b,a               ;{{fef4:47}} 
-        call    m,unknown_maths_fixup_B;{{fef5:fc37dd}} 
+        call    m,unknown_maths_fixup;{{fef5:fc37dd}} 
         jp      c,store_HL_in_accumulator_as_INT;{{fef8:da35ff}} 
 
 ;;=raise Overflow error
@@ -13420,6 +14825,9 @@ _convert_accumulator_to_type_in_a_10:;{{Addr=$ff0d Code Calls/jump count: 1 Data
 
 ;;========================================================
 ;; function CREAL
+;CREAL(<numeric expression>)
+;Converts the value to a real
+
 function_CREAL:                   ;{{Addr=$ff14 Code Calls/jump count: 4 Data use count: 1}}
         call    return_accumulator_value_if_int_or_address_if_real;{{ff14:cd4fff}} 
         jp      c,set_accumulator_as_positive_REAL_from_HL;{{ff17:da93fe}} 
@@ -13438,9 +14846,13 @@ zero_accumulator:                 ;{{Addr=$ff1b Code Calls/jump count: 2 Data us
 
 ;;========================================================
 ;; function SGN
+;SGN(<numeric expression>)
+;Returns -1 if expression < 0, 0 if expression = 0, +1 if expression > 0
+
 function_SGN:                     ;{{Addr=$ff2a Code Calls/jump count: 0 Data use count: 1}}
         call    get_raw_abs_of_accumulator_with_reg_preserve;{{ff2a:cdc4fd}} 
 
+;;----------------------------------
 ;;=store sign extended byte in A in accumulator
 store_sign_extended_byte_in_A_in_accumulator:;{{Addr=$ff2d Code Calls/jump count: 2 Data use count: 0}}
         ld      l,a               ;{{ff2d:6f}} 
@@ -13448,6 +14860,15 @@ store_sign_extended_byte_in_A_in_accumulator:;{{Addr=$ff2d Code Calls/jump count
         sbc     a,a               ;{{ff2f:9f}} 
         jr      store_AL_in_accumulator_as_INT;{{ff30:1802}}  (+$02)
 
+
+
+
+
+;;***Accumulator.asm
+;;<< ACCUMULATOR UTILITIES
+;;< Store values to accumulator, get values from accumulator,
+;;< and accumulator type conversions
+;;=========================================================
 ;;=store A in accumulator as INT
 store_A_in_accumulator_as_INT:    ;{{Addr=$ff32 Code Calls/jump count: 10 Data use count: 0}}
         ld      l,a               ;{{ff32:6f}} 
@@ -13467,6 +14888,7 @@ set_accumulator_data_type:        ;{{Addr=$ff3a Code Calls/jump count: 1 Data us
         ld      (accumulator_data_type),a;{{ff3a:329fb0}} 
         ret                       ;{{ff3d:c9}} 
 
+;;====================================
 ;;=set accumulator type to real and HL to accumulator addr
 set_accumulator_type_to_real_and_HL_to_accumulator_addr:;{{Addr=$ff3e Code Calls/jump count: 2 Data use count: 0}}
         ld      hl,accumulator    ;{{ff3e:21a0b0}} 
@@ -13529,8 +14951,8 @@ copy_atHL_to_accumulator_using_accumulator_type:;{{Addr=$ff6f Code Calls/jump co
         jr      copy_value_atHL_to_atDE_accumulator_type;{{ff72:1813}}  (+$13)
 
 ;;================
-;;probably push accumulator on execution stack
-probably_push_accumulator_on_execution_stack:;{{Addr=$ff74 Code Calls/jump count: 4 Data use count: 0}}
+;;push numeric accumulator on execution stack
+push_numeric_accumulator_on_execution_stack:;{{Addr=$ff74 Code Calls/jump count: 4 Data use count: 0}}
         push    de                ;{{ff74:d5}} 
         push    hl                ;{{ff75:e5}} 
         ld      a,(accumulator_data_type);{{ff76:3a9fb0}} 
@@ -13563,9 +14985,11 @@ copy_value_atHL_to_atDE_accumulator_type:;{{Addr=$ff87 Code Calls/jump count: 3 
 ;;<< UTILITY ROUTINES
 ;;< Assorted memory copies, table lookups etc.
 ;;=========================================================
-;; test if letter
+;; test if upcase letter
+;Returns Carry true if the value is between 'A' and 'Z' inclusive.
+;A=value
 
-test_if_letter:                   ;{{Addr=$ff92 Code Calls/jump count: 4 Data use count: 0}}
+test_if_upcase_letter:            ;{{Addr=$ff92 Code Calls/jump count: 4 Data use count: 0}}
         call    convert_character_to_upper_case;{{ff92:cdabff}} ; convert character to upper case
 
         cp      $41               ;{{ff95:fe41}} ; 'A'
@@ -13576,12 +15000,17 @@ test_if_letter:                   ;{{Addr=$ff92 Code Calls/jump count: 4 Data us
 
 ;;=========================================
 ;; test if letter period or digit
+;Returns Carry true, Zero false if the value is an ASCII digit between '0' and '9'
+;or an ASCII char between 'A' and 'Z' inclusive
+;Returns Carry true, Zero true if the value is a '.'
 test_if_letter_period_or_digit:   ;{{Addr=$ff9c Code Calls/jump count: 7 Data use count: 0}}
-        call    test_if_letter    ;{{ff9c:cd92ff}} 
+        call    test_if_upcase_letter;{{ff9c:cd92ff}} 
         ret     c                 ;{{ff9f:d8}} 
 
 ;;+----------------------------------------
 ;; test if period or digit
+;Returns Carry true, Zero false if the value is an ASCII digit between '0' and '9'
+;Returns Carry true, Zero true if the value is a '.'
 test_if_period_or_digit:          ;{{Addr=$ffa0 Code Calls/jump count: 2 Data use count: 0}}
         cp      $2e               ;{{ffa0:fe2e}}  '.'
         scf                       ;{{ffa2:37}} 
@@ -13589,12 +15018,8 @@ test_if_period_or_digit:          ;{{Addr=$ffa0 Code Calls/jump count: 2 Data us
 
 ;;+----------------------------------------
 ;; test if digit
-;;
-;; entry:
-;; A = character
-;; exit:
-;; carry clear = not a digit
-;; carry set = is a digit
+;Returns Carry true If the value an ASCII digit between '0' and '9' inclusive
+;A = character
 
 test_if_digit:                    ;{{Addr=$ffa4 Code Calls/jump count: 4 Data use count: 0}}
         cp      $30               ;{{ffa4:fe30}}  '0'
@@ -13605,12 +15030,15 @@ test_if_digit:                    ;{{Addr=$ffa4 Code Calls/jump count: 4 Data us
 
 ;;========================================================
 ;; convert character to upper case
+;Converts an ASCII char to upper case.
+;No effect if the value is not an lower case ASCII char
+;A=character
 
 convert_character_to_upper_case:  ;{{Addr=$ffab Code Calls/jump count: 6 Data use count: 1}}
-        cp      $61               ;{{ffab:fe61}} 
+        cp      $61               ;{{ffab:fe61}} 'a'
         ret     c                 ;{{ffad:d8}} 
 
-        cp      $7b               ;{{ffae:fe7b}} 
+        cp      $7b               ;{{ffae:fe7b}} 'z' + 1
         ret     nc                ;{{ffb0:d0}} 
 
         sub     $20               ;{{ffb1:d620}} 

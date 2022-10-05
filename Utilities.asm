@@ -1,9 +1,11 @@
 ;;<< UTILITY ROUTINES
 ;;< Assorted memory copies, table lookups etc.
 ;;=========================================================
-;; test if letter
+;; test if upcase letter
+;Returns Carry true if the value is between 'A' and 'Z' inclusive.
+;A=value
 
-test_if_letter:                   ;{{Addr=$ff92 Code Calls/jump count: 4 Data use count: 0}}
+test_if_upcase_letter:            ;{{Addr=$ff92 Code Calls/jump count: 4 Data use count: 0}}
         call    convert_character_to_upper_case;{{ff92:cdabff}} ; convert character to upper case
 
         cp      $41               ;{{ff95:fe41}} ; 'A'
@@ -14,12 +16,17 @@ test_if_letter:                   ;{{Addr=$ff92 Code Calls/jump count: 4 Data us
 
 ;;=========================================
 ;; test if letter period or digit
+;Returns Carry true, Zero false if the value is an ASCII digit between '0' and '9'
+;or an ASCII char between 'A' and 'Z' inclusive
+;Returns Carry true, Zero true if the value is a '.'
 test_if_letter_period_or_digit:   ;{{Addr=$ff9c Code Calls/jump count: 7 Data use count: 0}}
-        call    test_if_letter    ;{{ff9c:cd92ff}} 
+        call    test_if_upcase_letter;{{ff9c:cd92ff}} 
         ret     c                 ;{{ff9f:d8}} 
 
 ;;+----------------------------------------
 ;; test if period or digit
+;Returns Carry true, Zero false if the value is an ASCII digit between '0' and '9'
+;Returns Carry true, Zero true if the value is a '.'
 test_if_period_or_digit:          ;{{Addr=$ffa0 Code Calls/jump count: 2 Data use count: 0}}
         cp      $2e               ;{{ffa0:fe2e}}  '.'
         scf                       ;{{ffa2:37}} 
@@ -27,12 +34,8 @@ test_if_period_or_digit:          ;{{Addr=$ffa0 Code Calls/jump count: 2 Data us
 
 ;;+----------------------------------------
 ;; test if digit
-;;
-;; entry:
-;; A = character
-;; exit:
-;; carry clear = not a digit
-;; carry set = is a digit
+;Returns Carry true If the value an ASCII digit between '0' and '9' inclusive
+;A = character
 
 test_if_digit:                    ;{{Addr=$ffa4 Code Calls/jump count: 4 Data use count: 0}}
         cp      $30               ;{{ffa4:fe30}}  '0'
@@ -43,12 +46,15 @@ test_if_digit:                    ;{{Addr=$ffa4 Code Calls/jump count: 4 Data us
 
 ;;========================================================
 ;; convert character to upper case
+;Converts an ASCII char to upper case.
+;No effect if the value is not an lower case ASCII char
+;A=character
 
 convert_character_to_upper_case:  ;{{Addr=$ffab Code Calls/jump count: 6 Data use count: 1}}
-        cp      $61               ;{{ffab:fe61}} 
+        cp      $61               ;{{ffab:fe61}} 'a'
         ret     c                 ;{{ffad:d8}} 
 
-        cp      $7b               ;{{ffae:fe7b}} 
+        cp      $7b               ;{{ffae:fe7b}} 'z' + 1
         ret     nc                ;{{ffb0:d0}} 
 
         sub     $20               ;{{ffb1:d620}} 

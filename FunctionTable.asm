@@ -30,7 +30,7 @@ simple_function_table:            ;{{Addr=$d203 Data Calls/jump count: 0 Data us
                                   
         defw function_ABS         ; ABS $00     ##LABEL##
         defw function_ASC         ; ASC $01 ##LABEL##
-        defw funciton_ATN         ; ATN $02 ##LABEL##
+        defw function_ATN         ; ATN $02 ##LABEL##
         defw function_CHR         ; CHR$  ##LABEL##
         defw function_CINT        ; CINT  ##LABEL##
         defw function_COS         ; COS  ##LABEL##

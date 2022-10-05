@@ -4,11 +4,24 @@
 ;; command ON, ON ERROR GOTO
 ;(except ON ERROR GOTO 0!)
 
+;ON <selector> GOTO <list of: <line number>>
+;ON <selector> GOSUB <list of: <line number>>
+;Choose on of a number of destinations based off a value.
+;Value must be 0..255
+;Value 1 selects the first target, 2 the second and so on.
+;Value 0 or any value greater than the number of items in the list does nothing.
+
+;ON ERROR GOTO <line number>
+;Turns on error processing mode. Can be turned off with ON ERROR GOTO 0 (see elsewhere)
+;The specified line will be jumped to when an error occurs. ERR and ERL can be used to 
+;handle errors, or ERROR to invoke default error handling. RESUME can be used to return.
+
 command_ON_ON_ERROR_GOTO:         ;{{Addr=$c882 Code Calls/jump count: 0 Data use count: 1}}
         cp      $9c               ;{{c882:fe9c}} token for ERROR
         jp      z,ON_ERROR_GOTO   ;{{c884:cab8cc}} 
 
-;ON [expr] GOTO/GOSUB [list of line numbers]
+
+
         call    eval_expr_as_byte_or_error;{{c887:cdb8ce}}  get number and check it's less than 255 
         ld      c,a               ;{{c88a:4f}} C = index into list of item to goto/gosub
         ld      a,(hl)            ;{{c88b:7e}} 
@@ -82,7 +95,7 @@ finished_processing_events:       ;{{Addr=$c8d8 Code Calls/jump count: 1 Data us
         jp      c,unknown_execution_error;{{c8ea:da3ecc}} 
         inc     hl                ;{{c8ed:23}} 
         pop     af                ;{{c8ee:f1}} 
-        jp      execute_end_of_line;{{c8ef:c377de}} 
+        jp      execute_line_atHL ;{{c8ef:c377de}} 
 
 ;;=do ON BREAK
 ;(Called after the break pause and then unpause)
@@ -101,7 +114,7 @@ do_ON_BREAK:                      ;{{Addr=$c8f2 Code Calls/jump count: 1 Data us
         push    bc                ;{{c905:c5}} ON BREAK CONTinue?
         call    SOUND_CONTINUE    ;{{c906:cdb9bc}}  firmware function: sound continue
         pop     bc                ;{{c909:c1}} 
-        ld      de,RAM_ac17       ;{{c90a:1117ac}} 
+        ld      de,unknown_ON_BREAK_GOSUB_data;{{c90a:1117ac}} 
         ld      c,$02             ;{{c90d:0e02}} 
         jr      handle_event_etc_GOSUBs;{{c90f:1822}}  (+$22)
 
@@ -197,13 +210,16 @@ _prob_return_from_break_handler_7:;{{Addr=$c972 Code Calls/jump count: 1 Data us
         jp      execute_statement_atHL;{{c973:c360de}} 
 
 ;;========================================================================
-;; command ON BREAK, ON BREAK CONT, ON BREAK STOP
+;; command ON BREAK GOSUB, ON BREAK CONT, ON BREAK STOP
+;ON BREAK GOSUB <line number>
+;ON BREAK STOP
+;Performs the specified action when [ESC][ESC] is pressed
 
-command_ON_BREAK_ON_BREAK_CONT_ON_BREAK_STOP:;{{Addr=$c976 Code Calls/jump count: 0 Data use count: 1}}
-        call    _command_on_break_on_break_cont_on_break_stop_2;{{c976:cd7cc9}} 
+command_ON_BREAK_GOSUB_ON_BREAK_CONT_ON_BREAK_STOP:;{{Addr=$c976 Code Calls/jump count: 0 Data use count: 1}}
+        call    _command_on_break_gosub_on_break_cont_on_break_stop_2;{{c976:cd7cc9}} 
         jp      get_next_token_skipping_space;{{c979:c32cde}}  get next token skipping space
 
-_command_on_break_on_break_cont_on_break_stop_2:;{{Addr=$c97c Code Calls/jump count: 1 Data use count: 0}}
+_command_on_break_gosub_on_break_cont_on_break_stop_2:;{{Addr=$c97c Code Calls/jump count: 1 Data use count: 0}}
         cp      $8b               ;{{c97c:fe8b}}  token for "CONT"
         jp      z,ON_BREAK_CONT   ;{{c97e:cad0c4}}  ON BREAK CONT
 
@@ -226,6 +242,12 @@ set_ON_BREAK_handler_line_address:;{{Addr=$c990 Code Calls/jump count: 1 Data us
 ;;EVENTS
 ;;========================================================================
 ;; command DI
+;DI
+;Disables interrupts (BASIC interrupts, not system/machine code interrupts)
+;Does not affect break interrupts (ESC key)
+;If interrupts are disabled in an interrupt handler subroutine they are
+;implicitly re-enabled by the terminating RETURN statement
+
 command_DI:                       ;{{Addr=$c997 Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{c997:e5}} 
         call    KL_EVENT_DISABLE  ;{{c998:cd04bd}}  firmware function: KL EVENT DISABLE
@@ -234,6 +256,10 @@ command_DI:                       ;{{Addr=$c997 Code Calls/jump count: 0 Data us
 
 ;;========================================================================
 ;; command EI
+;EI
+;Enables interrupts which have been disabled by DI
+;See DI
+
 command_EI:                       ;{{Addr=$c99d Code Calls/jump count: 0 Data use count: 1}}
         push    hl                ;{{c99d:e5}} 
         call    KL_EVENT_ENABLE   ;{{c99e:cd07bd}}  firmware function: KL EVENT ENABLE
@@ -294,8 +320,10 @@ _initialise_event_blocks_15:      ;{{Addr=$c9f1 Code Calls/jump count: 1 Data us
 
 ;;========================================================================
 ;; command ON SQ
-;ON SQ(channel) GOSUB [line]
-;channel number = 1,2,4
+;ON SQ(<channel>) GOSUB <line number>
+;channel number = 1,2,4 for channels A, B, or C
+;Enables an interrupt for when there is a free slot in the given sound queue.
+;The SOUND command and SQ function disable ON SQ interrupts
 
 command_ON_SQ:                    ;{{Addr=$c9f5 Code Calls/jump count: 0 Data use count: 1}}
         call    next_token_if_open_bracket;{{c9f5:cd19de}}  check for open bracket
@@ -333,6 +361,10 @@ raise_improper_argument_error_B:  ;{{Addr=$ca1f Code Calls/jump count: 3 Data us
 
 ;;==================================================================
 ;; command AFTER
+;AFTER <time delay>[,<timer number>] GOSUB <line number>
+;Call a subroutine after the specified period in 1/50ths of a second
+;Timer number 0-3, default 0. Timer 3 has highest priority, 0 the lowest.
+
 command_AFTER:                    ;{{Addr=$ca22 Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_positive_int_or_error;{{ca22:cdcece}} Get delay
         ld      bc,$0000          ;{{ca25:010000}} ##LIT##
@@ -340,6 +372,10 @@ command_AFTER:                    ;{{Addr=$ca22 Code Calls/jump count: 0 Data us
 
 ;;==================================================================
 ;; command EVERY
+;EVERY <time delay>[,<timer number>] GOSUB <line number>
+;Call a subroutine at regular intervals, given in 1/50ths of a second
+;Timer number 0-3, default 0
+
 command_EVERY:                    ;{{Addr=$ca2a Code Calls/jump count: 0 Data use count: 1}}
         call    eval_expr_as_positive_int_or_error;{{ca2a:cdcece}} Get period
         ld      b,d               ;{{ca2d:42}} 
@@ -370,6 +406,10 @@ init_timer_event:                 ;{{Addr=$ca2f Code Calls/jump count: 1 Data us
 
 ;;========================================================
 ;; function REMAIN
+;REMAIN(<timer number>)
+;Gets the timer remaining count for a timer.
+;Values 0..3
+;Returns zero if the timer was not enabled
 
 function_REMAIN:                  ;{{Addr=$ca50 Code Calls/jump count: 0 Data use count: 1}}
         call    function_CINT     ;{{ca50:cdb6fe}} 

@@ -152,10 +152,13 @@ include "TextOutput.asm"
 ;;< Includes MEMORY, SYMBOL (AFTER)
 include "MemoryAllocation.asm"
 
-;;<< STRING MANIPULATION
-;;< and string$ and string related functions (LEN, ASC etc)
-;;< also FRE and some (unexplored) memory management stuff
-include "Strings.asm"
+;;<< STRING FUNCTIONS
+;;<including the string iterator
+include "StringFunctions.asm"
+
+;;<<STRINGS AREA
+;;<Including the string stack, FRE and the garbage collector
+include "StringsArea.asm"
 
 ;;<< INFIX OPERATORS
 ;;< Infix +, -, *, / etc. including boolean operators
@@ -164,6 +167,11 @@ include "InfixOperators.asm"
 ;;<< TYPE CONVERSIONS AND ROUNDING
 ;;< (from numbers to numbers)
 include "TypeConversions.asm"
+
+;;<< ACCUMULATOR UTILITIES
+;;< Store values to accumulator, get values from accumulator,
+;;< and accumulator type conversions
+include "Accumulator.asm"
 
 ;;<< UTILITY ROUTINES
 ;;< Assorted memory copies, table lookups etc.

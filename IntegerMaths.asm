@@ -1,8 +1,8 @@
 ;;<< INTEGER MATHS
 ;;< (used both internally and by functions)
 ;;=====================================
-;;unknown maths fixup
-unknown_maths_fixup:              ;{{Addr=$dd2a Code Calls/jump count: 1 Data use count: 0}}
+;;prep regs for int to string
+prep_regs_for_int_to_string:      ;{{Addr=$dd2a Code Calls/jump count: 1 Data use count: 0}}
         ld      b,h               ;{{dd2a:44}} 
         call    negate_HL_if_negative_and_test_if_INT;{{dd2b:cdeadd}} 
         jr      set_E_zero_C_to_2_int_type;{{dd2e:1802}}  (+$02)
@@ -18,10 +18,10 @@ set_E_zero_C_to_2_int_type:       ;{{Addr=$dd32 Code Calls/jump count: 1 Data us
 
 ;;=unknown maths fixup
 ;Bit 7 of B = invert value in HL
-unknown_maths_fixup_B:            ;{{Addr=$dd37 Code Calls/jump count: 5 Data use count: 0}}
+unknown_maths_fixup:              ;{{Addr=$dd37 Code Calls/jump count: 5 Data use count: 0}}
         ld      a,h               ;{{dd37:7c}} 
         or      a                 ;{{dd38:b7}} 
-        jp      m,unknown_maths_fixup_C;{{dd39:fa42dd}} 
+        jp      m,unknown_maths_fixup_B;{{dd39:fa42dd}} 
         or      b                 ;{{dd3c:b0}} 
         jp      m,negate_HL_and_test_if_INT;{{dd3d:faeddd}} 
         scf                       ;{{dd40:37}} 
@@ -29,7 +29,7 @@ unknown_maths_fixup_B:            ;{{Addr=$dd37 Code Calls/jump count: 5 Data us
 
 ;;--------------------------------------------------------------
 ;;=unknown maths fixup
-unknown_maths_fixup_C:            ;{{Addr=$dd42 Code Calls/jump count: 1 Data use count: 0}}
+unknown_maths_fixup_B:            ;{{Addr=$dd42 Code Calls/jump count: 1 Data use count: 0}}
         xor     $80               ;{{dd42:ee80}} Toggle bit 7
         or      l                 ;{{dd44:b5}} 
         ret     nz                ;{{dd45:c0}} 
@@ -67,7 +67,7 @@ INT_subtraction_with_overflow_test:;{{Addr=$dd52 Code Calls/jump count: 1 Data u
 INT_multiply_with_overflow_test:  ;{{Addr=$dd5b Code Calls/jump count: 1 Data use count: 0}}
         call    make_both_operands_positive;{{dd5b:cd67dd}} 
         call    do_16x16_multiply_with_overflow;{{dd5e:cd72dd}} 
-        jp      nc,unknown_maths_fixup_B;{{dd61:d237dd}} negate result if operands where different signs (B bit 7 set) and ??
+        jp      nc,unknown_maths_fixup;{{dd61:d237dd}} negate result if operands where different signs (B bit 7 set) and ??
         or      $ff               ;{{dd64:f6ff}} 
         ret                       ;{{dd66:c9}} 
 
@@ -135,7 +135,7 @@ _do_16x16_multiply_with_overflow_30:;{{Addr=$dd97 Code Calls/jump count: 1 Data 
 INT_division_with_overflow_test:  ;{{Addr=$dd9c Code Calls/jump count: 1 Data use count: 0}}
         call    _int_modulo_5     ;{{dd9c:cdabdd}} 
 _int_division_with_overflow_test_1:;{{Addr=$dd9f Code Calls/jump count: 1 Data use count: 0}}
-        jp      c,unknown_maths_fixup_B;{{dd9f:da37dd}} 
+        jp      c,unknown_maths_fixup;{{dd9f:da37dd}} 
         ret                       ;{{dda2:c9}} 
 
 ;;=INT modulo
