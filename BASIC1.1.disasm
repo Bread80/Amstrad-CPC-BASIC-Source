@@ -441,11 +441,7 @@ c21c d8        ret     c	;; return if less than value
 ;; greater than value
 ;;=raise Improper Argument error
 c21d c34dcb    jp      $cb4d			; Error: Improper Argument
-
-;;========================================================================
-;; check number is less than 2
-c220 3e02      ld      a,$02
-c222 18ef      jr      $c213 	; check value is in range        
+       
 
 
 
@@ -453,6 +449,12 @@ c222 18ef      jr      $c213 	; check value is in range
 
 ;;***Screen.asm
 ;;<< SCREEN HANDLING FUNCTIONS
+
+;;========================================================================
+;; check number is less than 2
+c220 3e02      ld      a,$02
+c222 18ef      jr      $c213 	; check value is in range 
+
 ;;========================================================================
 ;; command PEN
 ;PEN [#<stream expression>,]<masked ink>

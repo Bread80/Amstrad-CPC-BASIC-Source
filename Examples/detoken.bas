@@ -12,6 +12,7 @@
 120 x=&x01001
 130 x=&habcd
 140 y=-100
+150 goto 1000;'Line number token which has not been executed/converted
 
 990 'Detokenise a basic program
 995 'Config variables. 1=show info, 0=don't show
@@ -99,7 +100,7 @@
 2270 if token = &1b then print "&X";bin$(fnpeekw(cur));:cur=cur+2:return:'Binary constant
 2280 if token = &1c then print "&";hex$(fnpeekw(cur));:cur=cur+2:return:'Hex constant
 2290 if token = &1d then lineptr=fnpeekw(cur):print left$("["+hex$(lineptr,4)+"]",dogotoaddr*255);fnnum$(fnpeekw(lineptr+3));:cur=cur+2:return:'Line number pointer
-2300 if token = &1e then print fnnum$(peek(cur));:cur=cur+2:return:'Line number
+2300 if token = &1e then print fnnum$(fnpeekw(cur));:cur=cur+2:return:'Line number
 2310 if token = &1f then gosub 3900:print float!;:cur=cur+5:return:'Float constant
 2320 if token = &20 then print " ";:return:'Space
 2330 if token = &22 then gosub 3800:print chr$(&22);s$;chr$(&22);:return:'String constant
